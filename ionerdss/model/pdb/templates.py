@@ -19,7 +19,7 @@ Functions
     Create Molecule and Interface template objects from regularized geometry.
 """
 
-from ionerdss.model.components import MoleculeTemplate, InterfaceTemplate, ReactionTemplate
+from ionerdss.model.components import MoleculeTemplate, ReactionTemplate, InterfaceTemplate
 
 def build_templates(model, collapse_homologs=True):
     """
