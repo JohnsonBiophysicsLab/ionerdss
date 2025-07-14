@@ -4,6 +4,7 @@
 # TODO: Take user input to setup logging level. 
 # This might be done when creating Analysis instance.
 import logging
+
 logging.basicConfig(level=logging.WARNING)
 
 class LazyLoader:
