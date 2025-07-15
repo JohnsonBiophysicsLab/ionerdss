@@ -220,25 +220,45 @@ class MoleculeTemplate:
             describe the molecule’s binding sites.
         normal_point (list): Default normal vector direction.
     """
-
-    def __init__(self, name: str):
+    def __init__(self, name: str = '', com = None, radius = 1.0):
         """
         Initializes a MoleculeTemplate.
 
         Args:
             name (str): Name/identifier of the molecule type.
+            com ((3) array-like)
+            
         """
         self.name = name
         self.interface_template_list = []
+        if com is None:
+            com = [0.0, 0.0, 0.0]
+        self.com = np.asarray(com, dtype=float)
+        self.interfaces = []
         self.normal_point = [0,0,1]
         self.diffusion_translation = None
         self.diffusion_rotation = None
-        self.radius = None
+        self.radius = float(radius)
+
+    def add_interface(self, interface):
+        """
+        Add an InterfaceTemplate to this molecule.
+
+        Parameters
+        ----------
+        interface : InterfaceTemplate
+            The interface object to add.
+        """
+        self.interfaces.append(interface)
 
     def __str__(self):
         interfaces = "\n  ".join(str(it) for it in self.interface_template_list)
         return f"Molecule Template: {self.name}\n  Interfaces:\n  {interfaces}"
-    
+
+    def __repr__(self):
+        interfaces = "\n  ".join(str(it) for it in self.interface_template_list)
+        return f"Molecule Template: {self.name}\n  Interfaces:\n  {interfaces}"
+
     def __eq__(self, other):
         if not isinstance(other, MoleculeTemplate):
             return False
@@ -257,7 +277,8 @@ class InterfaceTemplate:
         signature (dict): Stores interface geometry information.
     """
 
-    def __init__(self, name: str):
+    def __init__(self, name: str = '', residues = None,
+                 coords = None, energy = None):
         """
         Initializes a BindingInterfaceTemplate.
 
@@ -265,20 +286,27 @@ class InterfaceTemplate:
             name (str): Identifier for the interface template.
         """
         self.name = name
-        self.coord = None
-        self.my_residues = []
-        self.required_free_list = [] # The list of interface templates that need to be free to bind to this interface template
+        if coords is None:
+            coords = [0.0, 0.0, 0.0]
+        self.coords = np.asarray(coords, dtype=float)
+        self.residues = residues if residues is not None else []
+        # The list of interface templates that need
+        # to be free to bind to this interface template
+        self.required_free_list = []
         self.signature = {}
-        self.energy = None
+        self.energy = energy
+
+    def __repr__(self):
+        return f"<InterfaceTemplate {self.name} @ {self.coords.tolist()}>"
 
     def __str__(self):
-        residues = ", ".join(self.my_residues)
+        residues = ", ".join(self.residues)
         required_free = ", ".join(self.required_free_list)
         return (f"Interface Template: {self.name}\n"
-                f"  Coordinates: {self.coord}\n"
+                f"  Coordinates: {self.coords}\n"
                 f"  Residues: {residues}\n"
                 f"  Required Free: {required_free}")
-    
+
     def __eq__(self, other):
         if not isinstance(other, InterfaceTemplate):
             return False
@@ -305,7 +333,7 @@ class CoarseGrainedMolecule:
             name (str): Name/identifier of the molecule.
         """
         self.name = name
-        self.my_template = None
+        self.template = None
         self.coord = None
         self.interface_list = []
         self.normal_point = None
@@ -316,19 +344,19 @@ class CoarseGrainedMolecule:
     def __str__(self):
         interfaces = "\n  ".join(str(interface) for interface in self.interface_list)
         return (f"CoarseGrainedMolecule: {self.name}\n"
-                f"  Template: {self.my_template}\n"
+                f"  Template: {self.template}\n"
                 f"  Coordinates: {self.coord}\n"
                 f"  Interfaces:\n  {interfaces}")
-    
+
     def __repr__(self):
         # Similar to __str__ but more formal for debugging
         return self.name
-    
+
     def __eq__(self, other):
         if not isinstance(other, CoarseGrainedMolecule):
             return False
         return self.name == other.name
-    
+
     def __hash__(self):
         return hash(self.name)
 
@@ -364,7 +392,10 @@ class BindingInterface:
                 f"  Coordinates: {self.coord}\n"
                 f"  Residue Count: {len(self.my_residues)}\n"
                 f"  Residues: {self.my_residues}")
-    
+
+    def __repr__(self):
+        return self.__str__()
+
     def __eq__(self, other):
         if not isinstance(other, BindingInterface):
             return False
@@ -408,7 +439,10 @@ class ReactionTemplate:
                 f"  Binding Radius: {self.binding_radius / 10:.6f} nm\n"
                 f"  norm1: {self.norm1}\n"
                 f"  norm2: {self.norm2}")
-    
+
+    def __repr__(self):
+        return self.__str__()
+
     def __eq__(self, other):
         if not isinstance(other, ReactionTemplate):
             return False

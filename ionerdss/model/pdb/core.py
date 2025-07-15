@@ -12,7 +12,6 @@ from .coarse_grain import coarse_grain_structure
 from .homolog_detection import identify_homologous_chains
 from .homolog_alignment import regularize_model
 from .reaction import build_binding_reactions
-from .visualize import 
 from ..components import Model  # assuming you have a base Model class
 
 class PDBModel(Model):

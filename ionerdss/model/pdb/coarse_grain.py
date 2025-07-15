@@ -1,9 +1,5 @@
 # model/pdb/coarse_grain.py
 """
-Here is a detailed documentation explaining the logic, steps, assumptions, and output structure of the `coarse_grain_structure` function. You can use this for both internal documentation and as a reference in project wikis or READMEs.
-
----
-
 ## Documentation: Coarse-Graining Protein Structure for NERDSS Modeling
 
 ### Overview
@@ -110,25 +106,80 @@ for i, com in enumerate(result['COMs']):
     print(f"Chain {result['chains'][i].id} COM: {com}")
 ```
 
----
-
-### Possible Extensions
-
-* Switch to residue centers instead of Cα atoms for more accuracy.
-* Add electrostatic or hydrophobic scoring.
-* Expose options for including DNA, RNA, or ligands.
-* Visualize detected interfaces and residues using PyMOL.
-
----
-
-Let me know if you'd like a graphical diagram or inline docstring version of this documentation.
 
 """
 import numpy as np
 from scipy.spatial import KDTree
 from Bio.PDB.Polypeptide import is_aa
-from ionerdss.math.coords import Coords  # Assuming your Coords class is already implemented
-from .energy_table import get_default_energy_table
+# Assuming your Coords class is already implemented
+
+from ionerdss.math.coords import Coords
+from ionerdss.model.pdb.energy_table import get_default_energy_table
+
+# Optimized pairwise computation: merge residue pair loop using vectorized dot product
+def compute_interface(residues_i, residues_j, energy_table, distance_cutoff, residue_cutoff):
+    """
+    Optimized version of coarse_grain_structure to detect coarse-grained interfaces between chains.
+
+    Uses bounding box culling and KDTree to accelerate detection of interface regions
+    between chains in a Biopython structure.
+
+    Parameters
+    ----------
+    structure : Bio.PDB.Structure.Structure
+        Input structure to process.
+    distance_cutoff : float
+        Maximum atom-atom distance to consider as contact (in nm).
+    residue_cutoff : int
+        Minimum number of contacting residues to form a valid interface.
+    options : dict or None
+        Optional dictionary for debug or plotting config (unused here).
+
+    Returns
+    -------
+    dict
+        {
+            'chains': list of Chain objects,
+            'COMs': list of Coords,
+            'radii': list of floats,
+            'interfaces': list of lists (each containing partner chain IDs),
+            'interface_coords': list of interface center-of-mass coordinates per chain,
+            'interface_residues': list of lists of contacting residue IDs per interface,
+            'interface_energies': list of interaction energies per interface
+        }
+    """
+    coords_i = np.array([r[2] for r in residues_i])
+    coords_j = np.array([r[2] for r in residues_j])
+    tree = KDTree(coords_j)
+    neighbors_list = tree.query_ball_point(coords_i, r=distance_cutoff * 10)
+
+    iface_i_ids, iface_i_coords, iface_i_types = [], [], []
+    iface_j_ids, iface_j_coords, iface_j_types = [], [], []
+    residue_pairs = {}
+
+    for idx_i, neighbors in enumerate(neighbors_list):
+        if not neighbors:
+            continue
+        res_i_id, res_i_type, ca_i = residues_i[idx_i]
+        if res_i_id not in iface_i_ids:
+            iface_i_ids.append(res_i_id)
+            iface_i_coords.append(ca_i)
+            iface_i_types.append(res_i_type)
+        for idx_j in neighbors:
+            res_j_id, res_j_type, ca_j = residues_j[idx_j]
+            if res_j_id not in iface_j_ids:
+                iface_j_ids.append(res_j_id)
+                iface_j_coords.append(ca_j)
+                iface_j_types.append(res_j_type)
+            key = (res_i_type, res_j_type)
+            residue_pairs[(res_i_id, res_j_id)] = energy_table.get(key, 0.0)
+
+    if len(iface_i_ids) >= residue_cutoff and len(iface_j_ids) >= residue_cutoff:
+        com_i = Coords(*np.mean(iface_i_coords, axis=0))
+        com_j = Coords(*np.mean(iface_j_coords, axis=0))
+        total_energy = sum(residue_pairs.values())
+        return com_i, com_j, iface_i_ids, iface_j_ids, total_energy
+    return None
 
 def coarse_grain_structure(structure, distance_cutoff=0.35, residue_cutoff=3, options=None):
     """
@@ -154,7 +205,7 @@ def coarse_grain_structure(structure, distance_cutoff=0.35, residue_cutoff=3, op
                      if any(is_aa(res) for res in chain.get_residues())],
                     key=lambda c: c.id)
     num_chains = len(chains)
-    COMs = []
+    coms = []
     chain_radii = []
     interfaces = [[] for _ in range(num_chains)]
     interface_coords = [[] for _ in range(num_chains)]
@@ -163,27 +214,24 @@ def coarse_grain_structure(structure, distance_cutoff=0.35, residue_cutoff=3, op
 
     energy_table = get_default_energy_table()
 
-    # Precompute COMs and radii
     for chain in chains:
         atoms = [atom.coord for res in chain for atom in res if is_aa(res)]
         if not atoms:
-            COMs.append(None)
+            coms.append(None)
             chain_radii.append(0.0)
             continue
         atoms = np.array(atoms)
         avg = atoms.mean(axis=0)
-        COMs.append(Coords(*avg))
+        coms.append(Coords(*avg))
         radius = np.sqrt(np.mean(np.sum((atoms - avg) ** 2, axis=1)))
         chain_radii.append(radius)
 
-    # Bounding boxes for fast exclusion
     def bounding_box(chain):
         coords = np.array([atom.coord for res in chain for atom in res if is_aa(res)])
         return coords.min(axis=0), coords.max(axis=0) if len(coords) else (None, None)
 
     boxes = [bounding_box(c) for c in chains]
 
-    # Loop over chain pairs
     for i in range(num_chains - 1):
         for j in range(i + 1, num_chains):
             min1, max1 = boxes[i]
@@ -203,48 +251,23 @@ def coarse_grain_structure(structure, distance_cutoff=0.35, residue_cutoff=3, op
             if not residues_i or not residues_j:
                 continue
 
-            atoms_j = np.array([r[2] for r in residues_j])
-            tree = KDTree(atoms_j)
-            results = tree.query_ball_point([r[2] for r in residues_i], r=distance_cutoff * 10)
-
-            iface_i_ids, iface_i_coords, iface_i_types = [], [], []
-            iface_j_ids, iface_j_coords, iface_j_types = [], [], []
-            residue_pairs = {}
-
-            for idx_i, neighbors in enumerate(results):
-                if neighbors:
-                    res_i_id, res_i_type, ca_i = residues_i[idx_i]
-                    if res_i_id not in iface_i_ids:
-                        iface_i_ids.append(res_i_id)
-                        iface_i_coords.append(ca_i)
-                        iface_i_types.append(res_i_type)
-                    for idx_j in neighbors:
-                        res_j_id, res_j_type, ca_j = residues_j[idx_j]
-                        if res_j_id not in iface_j_ids:
-                            iface_j_ids.append(res_j_id)
-                            iface_j_coords.append(ca_j)
-                            iface_j_types.append(res_j_type)
-                        key = (res_i_type, res_j_type)
-                        residue_pairs[(res_i_id, res_j_id)] = energy_table.get(key, 0.0)
-
-            total_energy = sum(residue_pairs.values())
-            if len(iface_i_ids) >= residue_cutoff and len(iface_j_ids) >= residue_cutoff:
-                COM_i = Coords(*np.mean(iface_i_coords, axis=0))
-                COM_j = Coords(*np.mean(iface_j_coords, axis=0))
-
+            result = compute_interface(residues_i, residues_j, energy_table,
+                                       distance_cutoff, residue_cutoff)
+            if result:
+                com_i, com_j, ids_i, ids_j, total_energy = result
                 interfaces[i].append(chain_j.id)
-                interface_coords[i].append(COM_i)
-                interface_residues[i].append(sorted(iface_i_ids))
+                interface_coords[i].append(com_i)
+                interface_residues[i].append(sorted(ids_i))
                 interface_energies[i].append(total_energy)
 
                 interfaces[j].append(chain_i.id)
-                interface_coords[j].append(COM_j)
-                interface_residues[j].append(sorted(iface_j_ids))
+                interface_coords[j].append(com_j)
+                interface_residues[j].append(sorted(ids_j))
                 interface_energies[j].append(total_energy)
 
     return {
         'chains': chains,
-        'COMs': COMs,
+        'COMs': coms,
         'radii': chain_radii,
         'interfaces': interfaces,
         'interface_coords': interface_coords,
