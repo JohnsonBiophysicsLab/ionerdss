@@ -414,21 +414,28 @@ class ReactionTemplate:
         norm1 (list): Normal vector of the first reactant.
         norm2 (list): Normal vector of the second reactant.
     """
-
-    def __init__(self):
+    def __init__(self,
+                 reactants = None,
+                 products = None,
+                 binding_angles = None,
+                 binding_radius = None,
+                 norm1 = None,
+                 norm2 = None,
+                 ka = 1.0,
+                 kb = 1.0):
         """
         Initializes a ReactionTemplate with default values.
         """
         self.expression = None
-        self.reactants = None
-        self.products = None
-        self.binding_angles = None
-        self.binding_radius = None
-        self.norm1 = None
-        self.norm2 = None
+        self.reactants = reactants
+        self.products = products
+        self.binding_angles = binding_angles
+        self.binding_radius = binding_radius
+        self.norm1 = norm1
+        self.norm2 = norm2
         self.kd = None
-        self.ka = None
-        self.kb = None
+        self.ka = ka
+        self.kb = kb
         self.energy = None
 
     def __str__(self):
