@@ -18,6 +18,9 @@ class PDBModel(Model):
     """Main driver for converting a PDB file into NERDSS molecule types and reactions."""
 
     def __init__(self, pdb_file=None, pdb_id=None, save_dir=None):
+        """
+        pdb_files must be .cif
+        """
         super().__init__(save_dir)
         self.pdb_file = pdb_file
         self.pdb_id = pdb_id
@@ -49,7 +52,7 @@ class PDBModel(Model):
         )
 
         # 3. Regularize molecules (alignment, interface generation)
-        model_data = regularize_structure(
+        model_data = regularize_model(
             cg_result, self.chains_map, self.chains_group
         )
 

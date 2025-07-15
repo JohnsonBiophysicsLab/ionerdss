@@ -1,10 +1,4 @@
-Here is a **comprehensive walkthrough** of how the `model.pdb` subpackage works after your modular refactor. This includes:
-
-1. **How interfaces are detected from a PDB (or mmCIF) file**
-2. **How binding sites are grouped into types (homologs)**
-3. **How a user uses the subpackage to generate a NERDSS model**
-
----
+# Overview
 
 ## **How binding sites / interfaces are detected from a PDB or mmCIF file**
 
@@ -116,3 +110,137 @@ model/
     ├── regularize.py        # Reindex chains/interfaces, symmetry grouping
     ├── templates.py         # Build NERDSS-ready molecule/interface templates
 ```
+
+---
+
+# Coarse-Graining Protein Structures: Interface Detection Walkthrough
+
+This document describes the algorithm implemented in the `coarse_grain_structure` function. It detects chain-chain interfaces from a PDB structure using residue contact heuristics and computes coarse-grained interface representations suitable for downstream modeling.
+
+## Overview
+
+The coarse-graining process extracts the following from a Biopython `Structure` object:
+
+* Center of mass (COM) of each chain
+* Interacting residues between chain pairs (interfaces)
+* Geometric location of interfaces (average of contacting residue CAs)
+* Energetic estimate of interface strength based on residue pair potential
+
+---
+
+## Parameters
+
+| Parameter         | Type                          | Description                                                |
+| ----------------- | ----------------------------- | ---------------------------------------------------------- |
+| `structure`       | `Bio.PDB.Structure.Structure` | Parsed PDB structure                                       |
+| `distance_cutoff` | `float`                       | Max CA-CA distance (in nm) to count as contacting          |
+| `residue_cutoff`  | `int`                         | Min number of contacting residues to consider an interface |
+
+---
+
+## Workflow Breakdown
+
+### 1. Filter Valid Chains
+
+```python
+chains = sorted([chain for chain in structure.get_chains()
+                 if any(is_aa(res) for res in chain.get_residues())],
+                key=lambda c: c.id)
+```
+
+We keep only chains that contain amino acid residues. Sorting ensures consistent output.
+
+---
+
+### 2. Compute COM and Radius for Each Chain
+
+```python
+atoms = [atom.coord for res in chain for atom in res if is_aa(res)]
+```
+
+We collect coordinates of all atoms from amino acid residues to:
+
+* Compute the center of mass (simple mean of all atom positions)
+* Estimate chain spread (RMS distance from COM)
+
+---
+
+### 3. Precompute Bounding Boxes
+
+```python
+coords = np.array([atom.coord for res in chain for atom in res if is_aa(res)])
+return coords.min(axis=0), coords.max(axis=0)
+```
+
+Bounding boxes are used to **exclude distant chain pairs** quickly.
+If bounding boxes don’t overlap within a margin, skip the pair.
+
+---
+
+### 4. For Each Chain Pair (i, j)
+
+We:
+
+* Extract all residues that have alpha carbons
+* Build a list of `(residue_id, type, CA_coord)`
+* Call `compute_interface()` to:
+
+  * Use KDTree to find CA-CA contacts within `distance_cutoff`
+  * Track contacting residue IDs and types
+  * Compute the mean CA coordinate as interface COM
+  * Compute total interaction energy from a residue pair potential table
+
+---
+
+### 5. Store Detected Interfaces
+
+```python
+interfaces[i].append(chain_j.id)
+interface_coords[i].append(com_i)
+interface_residues[i].append(sorted(ids_i))
+interface_energies[i].append(total_energy)
+```
+
+Interface metadata is saved in per-chain lists.
+Both directions (i->j and j->i) are recorded symmetrically.
+
+---
+
+## Return Format
+
+```python
+{
+  'chains': list of Bio.PDB.Chain objects,
+  'COMs': list of Coords (per-chain center of mass),
+  'radii': list of float (per-chain RMS radius),
+  'interfaces': list of lists of chain IDs (who each chain interacts with),
+  'interface_coords': list of Coords (per-chain list of interface locations),
+  'interface_residues': list of lists of residue IDs,
+  'interface_energies': list of floats
+}
+```
+
+---
+
+## Notes
+
+* All distances are assumed in nanometers (consistent with simulation input units)
+* Residue-residue energies are symmetric (i.e., E(A,B) = E(B,A))
+* Function relies on `compute_interface()` and `get_default_energy_table()` to handle geometric and energetic logic
+
+---
+
+## Dependencies
+
+* `Bio.PDB` for parsing
+* `Coords` class (user-defined or from utility module)
+* `KDTree` from `scipy.spatial`
+* `numpy` for math operations
+
+---
+
+## Suggested Improvements
+
+* Cache precomputed residue positions to avoid redundant loops
+* Replace double-loop with block-based filtering if large structures are used
+* Optionally support interface normal vectors or surface area metrics

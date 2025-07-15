@@ -86,7 +86,8 @@ def build_templates(model, collapse_homologs=True):
             reaction = ReactionTemplate(
                 reactants=[iface],
                 products=[],  # would normally point to bound complex
-                rate=1.0,      # placeholder rate
+                ka=1.0,      # placeholder rate
+                kb=1.0
             )
             react_templates.append(reaction)
 

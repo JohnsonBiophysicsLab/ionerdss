@@ -181,7 +181,7 @@ def compute_interface(residues_i, residues_j, energy_table, distance_cutoff, res
         return com_i, com_j, iface_i_ids, iface_j_ids, total_energy
     return None
 
-def coarse_grain_structure(structure, distance_cutoff=0.35, residue_cutoff=3, options=None):
+def coarse_grain_structure(structure, distance_cutoff=0.35, residue_cutoff=3):
     """
     Analyze a Biopython structure to identify chain COMs and binding interfaces.
 
@@ -250,10 +250,12 @@ def coarse_grain_structure(structure, distance_cutoff=0.35, residue_cutoff=3, op
 
             if not residues_i or not residues_j:
                 continue
-
+            
+            # compute interface using KDTree and energy scoring
             result = compute_interface(residues_i, residues_j, energy_table,
                                        distance_cutoff, residue_cutoff)
             if result:
+                # Record interface data for both chains
                 com_i, com_j, ids_i, ids_j, total_energy = result
                 interfaces[i].append(chain_j.id)
                 interface_coords[i].append(com_i)
@@ -265,6 +267,7 @@ def coarse_grain_structure(structure, distance_cutoff=0.35, residue_cutoff=3, op
                 interface_residues[j].append(sorted(ids_j))
                 interface_energies[j].append(total_energy)
 
+    # Package all results into output dictionary
     return {
         'chains': chains,
         'COMs': coms,
