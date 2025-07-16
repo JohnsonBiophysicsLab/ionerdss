@@ -1,5 +1,5 @@
 """
-homolog_alignment.py
+repeated_chain_alignment.py
 
 Provides utilities to reindex and relabel coarse-grained chain/interface data into a 
 canonical, compact format for further modeling and export.
@@ -7,13 +7,13 @@ canonical, compact format for further modeling and export.
 In the NERDSS pipeline, the coarse-graining step returns raw data:
 - Chain IDs are strings (e.g., 'A', 'B', 'E')
 - Interfaces are lists of neighbors using original IDs
-- Interface order may vary between homologous chains
+- Interface order may vary between repeated chains
 
 This module:
 - Reindexes chains to `0, 1, 2, ..., N-1`
 - Reindexes interfaces per chain to `[0, 1, ..., M-1]` with consistent ordering
 - Ensures symmetry-equivalent chains have consistent interface maps
-- Optionally merges chain/interface data by homology group
+- Optionally merges chain/interface data by repeated_chainy group
 
 Functions
 ---------

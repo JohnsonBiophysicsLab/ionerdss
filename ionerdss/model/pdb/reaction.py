@@ -6,7 +6,7 @@ interact, bind, or transition based on coarse-grained structural data.
 
 This module parses:
 - Regularized model output (with chain/interface geometry)
-- Interface pairing logic (based on proximity, energy, or homology)
+- Interface pairing logic (based on proximity, energy, or repeated_chainy)
 - Optionally energy thresholds to define reaction formation
 
 Each reaction connects two InterfaceTemplate objects from different MoleculeTemplates

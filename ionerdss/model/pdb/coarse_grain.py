@@ -2,6 +2,9 @@
 """
 ## Documentation: Coarse-Graining Protein Structure for NERDSS Modeling
 
+TODO: change the method of detecting interfaces to Yufeng's method
+TODO: switch to spherical assembly is the user prompts
+
 ### Overview
 
 The `coarse_grain_structure()` function takes a Biopython `Structure` object (typically parsed from a `.cif` or `.pdb` file) and computes a **coarse-grained molecular representation** for use in NERDSS. This includes:

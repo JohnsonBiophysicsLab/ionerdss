@@ -9,8 +9,8 @@ High-level orchestration class PDBModel; imports helper functions from submodule
 import os
 from . import io
 from .coarse_grain import coarse_grain_structure
-from .homolog_detection import identify_homologous_chains
-from .homolog_alignment import regularize_model
+from .repeated_chain_detection import identify_repeated_chains
+from .repeated_chain_alignment import regularize_model
 from .reaction import build_binding_reactions
 from ..components import Model  # assuming you have a base Model class
 
@@ -46,8 +46,8 @@ class PDBModel(Model):
         # 1. Coarse-grain the structure
         cg_result = coarse_grain_structure(self.structure, options=options)
 
-        # 2. Identify homologous chains
-        self.chains_map, self.chains_group = identify_homologous_chains(
+        # 2. Identify repeated chains
+        self.chains_map, self.chains_group = identify_repeated_chains(
             self.pdb_file, self.structure
         )
 

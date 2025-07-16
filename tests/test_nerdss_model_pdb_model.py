@@ -79,7 +79,7 @@ class TestPDBModelOutput(unittest.TestCase):
             save_pymol_script=False,
             standard_output=False,
         )
-        pdb_model.regularize_homologous_chains(
+        pdb_model.regularize_repeated_chains(
             dist_threshold_intra=3.5,
             dist_threshold_inter=3.5,
             angle_threshold=25.0,

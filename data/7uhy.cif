@@ -3645,7 +3645,7 @@ _entity.details
 2 polymer     man "GATOR complex protein WDR24"   88326.953  2  ? ? ? ? 
 3 polymer     man "GATOR complex protein WDR59"   109938.391 2  ? ? ? ? 
 4 polymer     man "Isoform B of Nucleoporin SEH1" 46636.289  6  ? ? ? ? 
-5 polymer     man "Protein SEC13 homolog"         35578.438  2  ? ? ? ? 
+5 polymer     man "Protein SEC13 repeated_chain"         35578.438  2  ? ? ? ? 
 6 polymer     man Unknown                         1294.587   2  ? ? ? ? 
 7 polymer     man Unknown                         698.854    2  ? ? ? ? 
 8 non-polymer syn "ZINC ION"                      65.409     32 ? ? ? ? 

@@ -1,7 +1,9 @@
 """
-homolog_detection.py
+repeated_chain_detection.py
 
-Identifies homologous protein chains in a biological assembly using either
+TODO: sequence alignment >>95% (look up how much % determines the same protein -> same domain?)
+
+Identifies repeated protein chains in a biological assembly using either
 header annotations (from mmCIF) or pairwise structural alignment. This module is used
 in the NERDSS modeling pipeline to group chains into molecule templates and assign
 consistent chain labels across symmetry groups.
@@ -20,9 +22,9 @@ Approaches
 
 Functions
 ---------
-- identify_homologous_chains(pdb_id: str, structure) -> (chains_map, chains_group)
+- identify_repeated_chains(pdb_id: str, structure) -> (chains_map, chains_group)
     Main interface that attempts header parsing, falls back to alignment if needed.
-- _find_homologous_chains_by_alignment(chains) -> (chains_map, chains_group)
+- _find_repeated_chains_by_alignment(chains) -> (chains_map, chains_group)
     Performs pairwise structure-based chain matching.
 - _assign_original_chain_ids(chains_group, chains_map, structure)
     Ensures original ID labels are restored for compatibility.
@@ -34,9 +36,9 @@ from collections import defaultdict
 from Bio.PDB import Superimposer, Selection
 from Bio.PDB.Polypeptide import is_aa
 
-def identify_homologous_chains(pdb_id, structure):
+def identify_repeated_chains(pdb_id, structure):
     """
-    Try to identify homologous chains from CIF header. If not found, fall back to structural alignment.
+    Try to identify repeated chains from CIF header. If not found, fall back to structural alignment.
 
     Parameters
     ----------
@@ -75,10 +77,9 @@ def identify_homologous_chains(pdb_id, structure):
         # Fall back to structural alignment
         print(f"Warning: Falling back to structural alignment for {pdb_id}")
         chains = [chain for chain in structure.get_chains() if any(is_aa(res) for res in chain)]
-        return _find_homologous_chains_by_alignment(chains)
+        return _find_repeated_chains_by_alignment(chains)
 
-
-def _find_homologous_chains_by_alignment(chains, rmsd_threshold=1.0):
+def _find_repeated_chains_by_alignment(chains, rmsd_threshold=1.0):
     """
     Fallback method: perform all-by-all structural alignment of chains using C-alpha atoms.
 
@@ -94,7 +95,7 @@ def _find_homologous_chains_by_alignment(chains, rmsd_threshold=1.0):
     chains_group : list of lists
         List of chain ID groups.
     """
-    N = len(chains)
+    num_aa = len(chains)
     groups = []
     visited = set()
     chain_ids = [chain.id for chain in chains]
@@ -102,12 +103,12 @@ def _find_homologous_chains_by_alignment(chains, rmsd_threshold=1.0):
     def extract_calpha(chain):
         return [res['CA'].get_vector() for res in chain if is_aa(res) and 'CA' in res]
 
-    for i in range(N):
+    for i in range(num_aa):
         if chain_ids[i] in visited:
             continue
         group = [chain_ids[i]]
         ref_coords = extract_calpha(chains[i])
-        for j in range(i + 1, N):
+        for j in range(i + 1, num_aa):
             if chain_ids[j] in visited:
                 continue
             mov_coords = extract_calpha(chains[j])
@@ -124,7 +125,6 @@ def _find_homologous_chains_by_alignment(chains, rmsd_threshold=1.0):
 
     chains_map = {c: group[0] for group in groups for c in group}
     return chains_map, groups
-
 
 def _assign_original_chain_ids(chains_group, chains_map, structure):
     """

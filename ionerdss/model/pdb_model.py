@@ -69,7 +69,7 @@ class PDBModel(Model):
         self.all_interfaces_residues = []
 
         self.chains_map = {}  # Records the mapping of original chain IDs to molecular types used in NERDSS
-        self.chains_group = []  # Groups chains with the same MOL_ID or entity_id or similar stucture as homologous
+        self.chains_group = []  # Groups chains with the same MOL_ID or entity_id or similar stucture as repeated
 
         # used to store the information of the molecules and interfaces for NERDSS model
         self.molecule_list = []
@@ -508,9 +508,9 @@ class PDBModel(Model):
 
         print(f"PyMOL script saved to {pymol_script}. Run 'pymol {pymol_script}' to visualize the coarse-grained structure.")
 
-    def regularize_homologous_chains(self, dist_threshold_intra=3.5, dist_threshold_inter=3.5, angle_threshold=25.0, show_coarse_grained_structure=False, save_pymol_script=False, standard_output=False):
+    def regularize_repeated_chains(self, dist_threshold_intra=3.5, dist_threshold_inter=3.5, angle_threshold=25.0, show_coarse_grained_structure=False, save_pymol_script=False, standard_output=False):
         """
-        Aligns and regularizes all molecular chains so that homologous chains share 
+        Aligns and regularizes all molecular chains so that repeated chains share 
         the same relative geometry. This method organizes molecule and interface objects 
         accordingly and sets up reaction objects.
 
@@ -522,19 +522,19 @@ class PDBModel(Model):
             save_pymol_script (bool): Whether to save a PyMOL script for visualization. Defaults to False.
             standard_output (bool): Whether to print detected interfaces. Defaults to False.
         """
-        self.identify_homologous_chains()
+        self.identify_repeated_chains()
         if not self.chains_group:
             self._assign_original_chain_ids()
         for group in self.chains_group:
             group.sort()
         self.chains_group.sort()
-        print(f"{len(self.chains_group)} homologous chain groups identified:")
+        print(f"{len(self.chains_group)} repeated chain groups identified:")
         print(self.chains_group)
 
-        # check if the structure has homologous chains
-        # if any element in self.chains_group has more than one chain, then it has homologous chains
-        has_homologous_chains = any(len(group) > 1 for group in self.chains_group)
-        if not has_homologous_chains:
+        # check if the structure has repeated chains
+        # if any element in self.chains_group has more than one chain, then it has repeated chains
+        has_repeated_chains = any(len(group) > 1 for group in self.chains_group)
+        if not has_repeated_chains:
             dist_threshold_intra = 0.0
             dist_threshold_inter = 0.0
             angle_threshold = 0.0
@@ -1628,9 +1628,9 @@ class PDBModel(Model):
 
         return energy_table
 
-    def identify_homologous_chains(self):
+    def identify_repeated_chains(self):
         """
-        Identifies homologous chains in the molecular structure and populates `self.chain_map` 
+        Identifies repeated chains in the molecular structure and populates `self.chain_map` 
         and `self.chain_groups`. Attempts to parse the header from PDB/CIF files first;
         if unsuccessful or results are invalid, falls back to sequence alignment.
         """
@@ -1645,7 +1645,7 @@ class PDBModel(Model):
             # Clear invalid results
             self.chains_map = {}
             self.chains_group = []
-            self._find_homologous_chains_by_alignment()
+            self._find_repeated_chains_by_alignment()
 
     def _validate_chain_mapping(self):
         """
@@ -1687,7 +1687,7 @@ class PDBModel(Model):
 
     def _parse_pdb_header(self):
         """
-        Parses the PDB file header to extract homologous chain information 
+        Parses the PDB file header to extract repeated chain information 
         (MOL_ID, CHAIN). Populates `self.chain_map` and `self.chain_groups` 
         based on the identified molecular groups.
         """
@@ -1704,7 +1704,7 @@ class PDBModel(Model):
                             chains = line.split(":")[1].strip().split(";")[0].split(",")
                             chains_group.append(chains)
 
-                # Group chains with the same MOL_ID as homologous
+                # Group chains with the same MOL_ID as repeated
                 available_NERDSS_mol_ids = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z']
                 for i, chains in enumerate(chains_group):
                     for chain in chains:
@@ -1712,17 +1712,17 @@ class PDBModel(Model):
                 self.chains_group = chains_group
 
                 if self.chains_map:
-                    print("Homologous chains identified using PDB header:")
+                    print("Repeated chains identified using PDB header:")
                     print(self.chains_map)
 
         except Exception as e:
-            print(f"Failed to parse PDB header for homologous chains: {str(e)}")
-            # Attempt to find homologous chains using sequence alignment
-            self._find_homologous_chains_by_alignment()
+            print(f"Failed to parse PDB header for repeated chains: {str(e)}")
+            # Attempt to find repeated chains using sequence alignment
+            self._find_repeated_chains_by_alignment()
 
     def _parse_cif_header(self):
         """
-        Parses the CIF file header to extract homologous chain information 
+        Parses the CIF file header to extract repeated chain information 
         (entity_id). Populates `self.chain_map` and `self.chain_groups`.
         """
         try:
@@ -1754,7 +1754,7 @@ class PDBModel(Model):
                     elif "," in line[0]:
                         chains_group.append(line[0].split(","))
 
-                # Group chains with the same entity_id as homologous
+                # Group chains with the same entity_id as repeated
                 available_NERDSS_mol_ids = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z']
                 for i, chains in enumerate(chains_group):
                     for chain in chains:
@@ -1762,23 +1762,23 @@ class PDBModel(Model):
                 self.chains_group = chains_group
 
                 if self.chains_map:
-                    print("Homologous chains identified using CIF header:")
+                    print("Repeated chains identified using CIF header:")
                     print(self.chains_map)
 
         except Exception as e:
-            print(f"Failed to parse CIF file for homologous chains: {str(e)}")
-            # Attempt to find homologous chains using sequence alignment
-            self._find_homologous_chains_by_alignment()
+            print(f"Failed to parse CIF file for repeated chains: {str(e)}")
+            # Attempt to find repeated chains using sequence alignment
+            self._find_repeated_chains_by_alignment()
 
-    def _find_homologous_chains_by_alignment(self, seq_identity_threshold: float = 90.0):
+    def _find_repeated_chains_by_alignment(self, seq_identity_threshold: float = 90.0):
         """
-        Identifies homologous chains by performing global sequence alignment on 
+        Identifies repeated chains by performing global sequence alignment on 
         amino acid sequences. Chains with identity above the specified threshold 
         are grouped together.
 
         Args:
             seq_identity_threshold (float, optional): Minimum sequence identity 
-                percentage to classify chains as homologous. Defaults to 90.0.
+                percentage to classify chains as repeated. Defaults to 90.0.
         """
         try:
             similar_chains = []
@@ -1850,15 +1850,15 @@ class PDBModel(Model):
                     self.chains_map[chain] = available_NERDSS_mol_ids[i]
 
             if self.chains_map:
-                print("Homologous chains identified using sequence alignment:")
+                print("Repeated chains identified using sequence alignment:")
                 print(self.chains_map)
 
         except Exception as e:
-            print(f"Failed to find homologous chains using sequence alignment: {str(e)}")
+            print(f"Failed to find repeated chains using sequence alignment: {str(e)}")
 
     def _assign_original_chain_ids(self):
         """
-        Assigns original chain IDs as molecular types if no homologous chains are detected. 
+        Assigns original chain IDs as molecular types if no repeated chains are detected. 
         Each chain receives a unique letter from A-Z.
         """
         chains = list(self.all_atoms_structure.get_chains())

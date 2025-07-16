@@ -1,6 +1,6 @@
-# Overview
+# `ionerdss.model.pdb` Module Overview
 
-## **How binding sites / interfaces are detected from a PDB or mmCIF file**
+## **How reaction / simulation systems are built up from a PDB or mmCIF file**
 
 ### Pipeline Step: `coarse_grain_structure(path_to_structure)`
 
@@ -40,22 +40,22 @@ Each chain is assigned:
 
 ---
 
-## **How interfaces are assigned types (homologous classification)**
+## **How interfaces are assigned types (repeated classification)**
 
-### Module: `homolog.py`
+### Module: `repeated_chain.py`
 
-Chains are grouped into **homologous sets** using:
+Chains are grouped into **repeated sets** using:
 
 ### Method A. **Header-based entity IDs** (from CIF header)
 
 * Extract `_entity_poly.pdbx_strand_id` to map chains from same molecule entity
-* Example: chains `A`, `B`, and `C` all belong to entity `1`, so are homologous
+* Example: chains `A`, `B`, and `C` all belong to entity `1`, so are repeated
 
 ### Method B. **Structure-based fallback** (if header missing or .pdb file):
 
 * Perform all-by-all **Cα alignment** using `Bio.PDB.Superimposer`
 * Compute RMSD between chain pairs
-* Assign chains to the same homolog group if **RMSD < threshold (e.g., 1 Å)**
+* Assign chains to the same repeated_chain group if **RMSD < threshold (e.g., 1 Å)**
 
 ### Output:
 
@@ -73,13 +73,13 @@ Used by `regularize.py` to merge redundant chains or build symmetry-aware models
 ### Minimal Usage
 
 ```python
-from model.pdb import coarse_grain, homolog, regularize, templates, reaction
+from model.pdb import coarse_grain, repeated_chain, regularize, templates, reaction
 
 # 1. Step: Coarse-grain the structure to detect interfaces
 raw = coarse_grain.coarse_grain_structure("example.cif")
 
-# 2. Step: Find homologous chain groups (from CIF header or RMSD)
-chains_map, chains_group = homolog.identify_homologous_chains("example.cif", raw["structure"])
+# 2. Step: Find repeated chain groups (from CIF header or RMSD)
+chains_map, chains_group = repeated_chain.identify_repeated_chains("example.cif", raw["structure"])
 
 # 3. Step: Regularize chain and interface indices
 model = regularize.regularize_model(raw, chains_map=chains_map)
@@ -104,7 +104,7 @@ model/
     ├── coarse_grain.py      # Detect COMs, radii, and interfaces from structure
     ├── energy_table.py      # Heuristic residue-residue energy table
     ├── geometry.py          # Tools for alignment, clash checking, RMSD
-    ├── homolog.py           # Detect homologous chains via header or RMSD
+    ├── repeated_chain.py           # Detect repeated chains via header or RMSD
     ├── molecule.py          # MoleculeTemplate and InterfaceTemplate classes
     ├── reaction.py          # ReactionTemplate logic between interfaces
     ├── regularize.py        # Reindex chains/interfaces, symmetry grouping
@@ -115,7 +115,7 @@ model/
 
 # Coarse-Graining Protein Structures: Interface Detection Walkthrough
 
-This document describes the algorithm implemented in the `coarse_grain_structure` function. It detects chain-chain interfaces from a PDB structure using residue contact heuristics and computes coarse-grained interface representations suitable for downstream modeling.
+This document describes the algorithm implemented in `ionerdss.model.pdb.coarse_grain`. It detects chain-chain interfaces from a PDB structure using residue contact heuristics and computes coarse-grained interface representations suitable for downstream modeling.
 
 ## Overview
 
@@ -237,10 +237,144 @@ Both directions (i->j and j->i) are recorded symmetrically.
 * `KDTree` from `scipy.spatial`
 * `numpy` for math operations
 
+
 ---
 
-## Suggested Improvements
+# Repeated Chain Detection Walkthrough
 
-* Cache precomputed residue positions to avoid redundant loops
-* Replace double-loop with block-based filtering if large structures are used
-* Optionally support interface normal vectors or surface area metrics
+
+Here is a thorough and well-structured `.md` documentation file explaining the purpose, logic, and usage of the repeated_chain detection code in `.pdb.repeated_chain_detection`:
+
+---
+
+# Repeated Chain Detection in PDB Structures
+
+`ionerdss.model.pdb.repeated_chain_detection` module provides utilities to **identify repeated chains** in a protein structure parsed with Biopython. It supports two strategies:
+
+1. **Parsing metadata from mmCIF headers** (preferred and fast).
+2. **Fallback to structural alignment of chain coordinates** (slower but robust).
+
+## Purpose
+
+Many PDB structures contain **repeated, symmetric subunits** such as dimers, trimers, or larger complexes. These subunits often consist of chains that are **structurally and/or sequence-wise repeated**.
+
+To simplify downstream analysis (e.g., coarse-graining, interface detection, symmetry analysis), it’s useful to **group equivalent chains** and select **canonical representatives** for each group.
+
+This module provides functions to:
+
+* Identify repeated chain groups (e.g., `['A', 'B', 'C']`)
+* Map each chain to its group representative (e.g., `{'A': 'A', 'B': 'A', 'C': 'A'}`)
+
+---
+
+## Functions Overview
+
+### `identify_repeated_chains(pdb_id, structure)`
+
+Primary function that attempts to identify repeated chains using two approaches:
+
+1. **mmCIF Header Parsing** (fast, preferred):
+
+   * Extracts chain grouping information from the `_entity_poly.pdbx_strand_id` and `_entity_poly.entity_id` fields in the mmCIF metadata.
+   * Builds a `chains_map` and `chains_group` from this metadata.
+
+2. **Fallback: Structural Alignment** (slow but general):
+
+   * If CIF fields are missing or malformed, falls back to `_find_repeated_chains_by_alignment`.
+
+**Parameters:**
+
+* `pdb_id (str)` – PDB ID or path for error messages.
+* `structure (Bio.PDB.Structure.Structure)` – Biopython structure object.
+
+**Returns:**
+
+* `chains_map (dict)` – Map each chain ID to its canonical representative.
+* `chains_group (list[list[str]])` – List of repeated chain groups.
+
+---
+
+### `_find_repeated_chains_by_alignment(chains, rmsd_threshold=1.0)`
+
+Fallback method that performs **pairwise structural alignment** using **C-alpha atoms only**. Chains are grouped based on RMSD similarity.
+
+**Algorithm:**
+
+* Loops through each chain.
+* Extracts its Cα coordinates.
+* Aligns it to each other unvisited chain.
+* If RMSD < `rmsd_threshold`, considers the chains repeated.
+
+**Parameters:**
+
+* `chains (list)` – List of Biopython `Chain` objects.
+* `rmsd_threshold (float)` – Max RMSD for chains to be grouped (default: 1.0 Å).
+
+**Returns:**
+
+* `chains_map (dict)` – Each chain mapped to a canonical ID.
+* `chains_group (list[list[str]])` – Groups of equivalent chains.
+
+---
+
+### `_assign_original_chain_ids(chains_group, chains_map, structure)`
+
+Sorts and reorders chain groups to follow the **original appearance order** in the PDB file.
+
+**Purpose:** Ensure consistency and reproducibility by preserving order.
+
+**Parameters:**
+
+* `chains_group (list of lists)` – Groups of repeated chains.
+* `chains_map (dict)` – Mapping from chain ID to representative.
+* `structure (Structure)` – Biopython structure to extract chain order.
+
+**Returns:**
+
+* Updated `chains_map` and `chains_group`.
+
+---
+
+### `_validate_chain_mapping(chains_map, structure)`
+
+Basic sanity check to ensure **every chain** in the structure has an assigned group.
+
+**Raises:**
+
+* `ValueError` if any chain is unmapped.
+
+---
+
+## Example Usage
+
+```python
+from Bio.PDB import MMCIFParser
+from ionerdss.model.pdb.repeated_chain_detection import identify_repeated_chains
+
+parser = MMCIFParser(QUIET=True)
+structure = parser.get_structure("1ABC", "1abc.cif")
+
+chains_map, chains_group = identify_repeated_chains("1abc", structure)
+
+print("Chain Mapping:", chains_map)
+print("Chain Groups:", chains_group)
+```
+
+**Example Output:**
+
+```python
+Chain Mapping: {'A': 'A', 'B': 'A', 'C': 'A', 'D': 'D'}
+Chain Groups: [['A', 'B', 'C'], ['D']]
+```
+
+This means chains A, B, and C are repeated, and D is a singleton group.
+
+---
+
+## Notes and Considerations
+
+* **CIF Header Parsing is faster and more reliable**, but not all mmCIF files include the necessary metadata.
+* **Structural alignment** is slower, especially for large assemblies, but works on any structure containing valid Cα atoms.
+* This module **does not depend on sequence alignment**, making it robust to chain ID or sequence name differences.
+* The `_assign_original_chain_ids` utility ensures that analysis follows the **original chain ordering** in the PDB file.
+

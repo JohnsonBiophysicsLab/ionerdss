@@ -7,7 +7,7 @@ coarse-grained protein structure.
 This module transforms compact numerical representations of chains and interfaces into
 template objects compatible with NERDSS's model definition system. It creates:
 
-- Molecule templates for each unique chain or homologous group
+- Molecule templates for each unique chain or repeated group
 - Interface templates positioned at contact sites
 - Optional Reaction templates (e.g., docking events)
 
@@ -21,7 +21,7 @@ Functions
 
 from ionerdss.model.components import MoleculeTemplate, ReactionTemplate, InterfaceTemplate
 
-def build_templates(model, collapse_homologs=True):
+def build_templates(model, collapse_repeated_chains=True):
     """
     Convert regularized coarse-grain data into NERDSS-compatible molecule/interface templates.
 
@@ -33,7 +33,7 @@ def build_templates(model, collapse_homologs=True):
             'interfaces', 'interface_coords', 'interface_residues',
             'interface_energies', 'representatives'
 
-    collapse_homologs : bool, optional
+    collapse_repeated_chains : bool, optional
         If True, identical molecule types will only be created once (via representatives).
 
     Returns
@@ -53,7 +53,7 @@ def build_templates(model, collapse_homologs=True):
     chain_map = {}
 
     for i, rep_idx in enumerate(model["representatives"]):
-        if collapse_homologs and rep_idx in seen_representatives:
+        if collapse_repeated_chains and rep_idx in seen_representatives:
             chain_map[i] = rep_idx  # reuse template
             continue
 

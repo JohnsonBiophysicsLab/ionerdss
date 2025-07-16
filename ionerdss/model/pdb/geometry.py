@@ -2,7 +2,7 @@
 geometry.py
 
 Provides geometric transformation utilities used throughout the NERDSS coarse-graining
-pipeline, including 3D rigid alignment of homologous chains, vector transformations,
+pipeline, including 3D rigid alignment of repeated chains, vector transformations,
 steric clash detection, and angle measurements.
 
 Key Features
