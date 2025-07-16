@@ -31,9 +31,11 @@ def _magnitude(vector):
     """Compute the Euclidean magnitude of a 3D vector."""
     return math.sqrt(sum(coord ** 2 for coord in vector))
 
-def _unit(vector):
-    """Normalize a 3D vector."""
+def _unit(vector, tol=1e-12):
+    """Normalize a 3D vector. Return zero vector if norm is below tolerance."""
     norm = _magnitude(vector)
+    if norm < tol:
+        return [0.0, 0.0, 0.0]
     return [coord / norm for coord in vector]
 
 def compute_bond_angles_and_length(com1, com2,
@@ -119,15 +121,27 @@ def compute_bond_angles_and_length(com1, com2,
     a2 = np.cross(sigma1, v2) / _magnitude(np.cross(sigma1, v2))
     omega = math.acos(np.dot(a1, a2))
 
-    # Sign correction for omega
-    sigma1_unit = _unit(sigma1)
-    v1_proj = [v1[i] - sigma1_unit[i] * np.dot(sigma1_unit, v1) for i in range(3)]
-    v2_proj = [v2[i] - sigma1_unit[i] * np.dot(sigma1_unit, v2) for i in range(3)]
-    omega_dir = _unit(np.cross(v1_proj, v2_proj))
-    if abs(sigma1_unit[0] - omega_dir[0]) < tol:
-        omega = -omega
-    elif abs(sigma1_unit[0] + omega_dir[0]) >= tol:
-        print("Warning: Unable to determine omega sign.")
+    # Omega: torsion angle between v1 and v2 around sigma1
+    cross1 = np.cross(sigma1, v1)
+    cross2 = np.cross(sigma1, v2)
+
+    if _magnitude(cross1) < tol or _magnitude(cross2) < tol:
+        omega = 0.0
+    else:
+        a1 = cross1 / _magnitude(cross1)
+        a2 = cross2 / _magnitude(cross2)
+        omega = math.acos(np.clip(np.dot(a1, a2), -1.0, 1.0))
+
+        # Sign correction for omega
+        sigma1_unit = _unit(sigma1)
+        v1_proj = [v1[i] - sigma1_unit[i] * np.dot(sigma1_unit, v1) for i in range(3)]
+        v2_proj = [v2[i] - sigma1_unit[i] * np.dot(sigma1_unit, v2) for i in range(3)]
+        omega_dir = _unit(np.cross(v1_proj, v2_proj))
+
+        if abs(sigma1_unit[0] - omega_dir[0]) < tol:
+            omega = -omega
+        elif abs(sigma1_unit[0] + omega_dir[0]) >= tol:
+            print("Warning: Unable to determine omega sign.")
 
     return theta1, theta2, phi1, phi2, omega, sigma_magnitude, normal_point1, normal_point2
 
