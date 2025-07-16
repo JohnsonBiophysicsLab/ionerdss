@@ -19,13 +19,12 @@ The setup avoids I/O and constructs test structures entirely in memory using Bio
 """
 import unittest
 import numpy as np
-from Bio.PDB import StructureBuilder, Atom
+from Bio.PDB.Atom import Atom
 from Bio.PDB.Chain import Chain
 from Bio.PDB.Residue import Residue
-from Bio.PDB.Atom import Atom
+
 from Bio.PDB.Model import Model
 from Bio.PDB.Structure import Structure
-from Bio.PDB.Polypeptide import PPBuilder
 
 from ionerdss.model.pdb.coarse_grain import coarse_grain_structure, compute_interface
 from ionerdss.model.pdb.energy_table import get_default_energy_table
