@@ -36,7 +36,7 @@ from Bio.PDB.Polypeptide import is_aa
 from Bio.PDB.Polypeptide import PPBuilder
 from Bio.Align import PairwiseAligner
 
-def identify_repeated_chains(pdb_id, structure, mode='default', rmsd_threshold=1.0, seq_threshold=0.95):
+def identify_repeated_chains(pdb_id, structure, mode='default', rmsd_threshold=1.0, seq_threshold=0.95, custom_aligner=None):
     """
     Identify repeated chains using mmCIF header, structural alignment, or sequence alignment.
 
@@ -52,6 +52,8 @@ def identify_repeated_chains(pdb_id, structure, mode='default', rmsd_threshold=1
         RMSD cutoff for structural alignment (in Å).
     seq_threshold : float
         Sequence identity cutoff (0–1) for sequence alignment.
+    custom_aligner: Bio.Align.PairwiseAligner
+        Custom pairwise aligner to use in sequence alignment.
 
     Returns
     -------
@@ -66,7 +68,8 @@ def identify_repeated_chains(pdb_id, structure, mode='default', rmsd_threshold=1
         return _find_repeated_chains_by_structure_superimposing(chains, rmsd_threshold)
 
     if mode == 'sequence':
-        return _find_repeated_chains_by_sequence(chains, seq_threshold)
+        return _find_repeated_chains_by_sequence(chains, seq_threshold,
+                                                 custom_aligner=custom_aligner)
 
     if mode == 'default':
         mmcif_dict = structure.header.get('mmcif_dict', {})
@@ -83,7 +86,8 @@ def identify_repeated_chains(pdb_id, structure, mode='default', rmsd_threshold=1
             return chains_map, chains_group
         else:
             warnings.warn(f"{pdb_id}: Missing mmCIF entity_poly info. Falling back to sequence alignment.")
-            return _find_repeated_chains_by_sequence(chains, seq_threshold)
+            return _find_repeated_chains_by_sequence(chains, seq_threshold,
+                                                     custom_aligner=custom_aligner)
 
     else:
         raise ValueError(f"Unknown mode '{mode}'. Valid modes are: 'default', 'structure', 'sequence'.")
@@ -136,7 +140,10 @@ def _find_repeated_chains_by_structure_superimposing(chains, rmsd_threshold=1.0)
     chains_map = {c: group[0] for group in groups for c in group}
     return chains_map, groups
 
-def _find_repeated_chains_by_sequence(chains, seq_threshold=0.95):
+def _find_repeated_chains_by_sequence(chains,
+                                      seq_threshold=0.95,
+                                      custom_aligner=None
+                                      ):
     """
     Group chains by pairwise sequence identity using Bio.Align.PairwiseAligner.
 
@@ -144,6 +151,8 @@ def _find_repeated_chains_by_sequence(chains, seq_threshold=0.95):
     ----------
     chains : list of Bio.PDB.Chain
     seq_threshold : float
+    custom_aligner: Bio.Align.PairwiseAligner
+        Custom pairwise aligner to use in sequence alignment.
 
     Returns
     -------
@@ -157,13 +166,15 @@ def _find_repeated_chains_by_sequence(chains, seq_threshold=0.95):
     for chain in chains:
         peptides = ppb.build_peptides(chain)
         sequences[chain.id] = str(peptides[0].get_sequence()) if peptides else ""
-
-    aligner = PairwiseAligner()
-    aligner.mode = "global"
-    aligner.match_score = 1
-    aligner.mismatch_score = 0
-    aligner.open_gap_score = -0.5
-    aligner.extend_gap_score = -0.5
+    if custom_aligner is None:
+        aligner = PairwiseAligner()
+        aligner.mode = "global"
+        aligner.match_score = 1.0
+        aligner.mismatch_score = 0.0
+        aligner.open_gap_score = -0.5
+        aligner.extend_gap_score = -0.5
+    else:
+        aligner = custom_aligner
 
     groups = []
     visited = set()
@@ -189,6 +200,6 @@ def _find_repeated_chains_by_sequence(chains, seq_threshold=0.95):
                 visited.add(cj)
         visited.update(group)
         groups.append(group)
- 
+
     chains_map = {c: group[0] for group in groups for c in group}
     return chains_map, groups
