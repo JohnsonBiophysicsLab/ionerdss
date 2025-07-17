@@ -33,6 +33,10 @@ import numpy as np
 
 from ionerdss.math.coords import Coords
 
+#=============================
+# Molecules
+#=============================
+
 class MoleculeInterface:
     """Represents an interface of a molecule type.
     
@@ -58,18 +62,153 @@ class MoleculeType:
     interfaces : list of MoleculeInterface
         List of interfaces associated with the molecule.
     diffusion_translation : float
-        Translational diffusion constant (default 0.0).
+        Translational diffusion const (default 0.0).
     diffusion_rotation : float
-        Rotational diffusion constant (default 0.0).
+        Rotational diffusion const (default 0.0).
     """
-    def __init__(self, name, interfaces=None, diffusion_translation=0.0, diffusion_rotation=0.0):
+    def __init__(self, name, interfaces=None, translational_diffusion_constant=0.0, rotational_diffusion_constant=0.0):
         self.name = name
         self.interfaces = interfaces if interfaces is not None else []
-        self.diffusion_translation = diffusion_translation
-        self.diffusion_rotation = diffusion_rotation
+        self.translational_diffusion_constant = translational_diffusion_constant
+        self.rotational_diffusion_constant = rotational_diffusion_constant
 
     def __repr__(self):
         return f"<MoleculeType {self.name} with {len(self.interfaces)} interfaces>"
+
+class MoleculeTemplate:
+    """
+    Represents a molecule type in NERDSS, including the molecule's center of mass (COM) 
+    and a list of binding interfaces.
+
+    Attributes:
+        name (str): Identifier for the molecule type.
+        interface_template_list (list): A list of BindingInterfaceTemplate objects that 
+            describe the molecule’s binding sites.
+        normal_point (list): Default normal vector direction.
+    """
+    def __init__(self, name: str = '',
+                 com=None,
+                 interfaces=None,
+                 translational_diffusion_constant = 1.0,
+                 rotational_diffusion_constant = 1.0,
+                 radius: float = 1.0):
+        """
+        Initializes a MoleculeTemplate.
+
+        Parameters
+        ----------
+        name : str, optional
+            Name or identifier of the molecule type. Default is empty string.
+        com : array-like of shape (3,), optional
+            Center of mass coordinates. Defaults to [0.0, 0.0, 0.0].
+        radius : float, optional
+            Effective molecular radius. Default is 1.0.
+        """
+        self.name = name
+        self.interface_template_list = []
+        self.com = np.asarray(com if com is not None else [0.0, 0.0, 0.0], dtype=float)
+        self.interfaces = interfaces if interfaces is not None else []
+        self.normal_point = [0.0, 0.0, 1.0]
+        self.translational_diffusion_constant = translational_diffusion_constant
+        self.rotational_diffusion_constant = rotational_diffusion_constant
+        self.radius = float(radius)
+
+    def add_interface(self, interface):
+        """
+        Add an InterfaceTemplate to this molecule.
+
+        Parameters
+        ----------
+        interface : InterfaceTemplate
+            The interface object to add.
+        """
+        self.interfaces.append(interface)
+
+    def __str__(self):
+        interfaces = "\n  ".join(str(it) for it in self.interface_template_list)
+        return f"Molecule Template: {self.name}\n  Interfaces:\n  {interfaces}"
+
+    def __repr__(self):
+        interfaces = "\n  ".join(str(it) for it in self.interface_template_list)
+        return f"Molecule Template: {self.name}\n  Interfaces:\n  {interfaces}"
+
+    def __eq__(self, other):
+        if not isinstance(other, MoleculeTemplate):
+            return False
+        return self.name == other.name
+
+class CoarseGrainedMolecule:
+    """
+    Represents a coarse-grained molecule in NERDSS, potentially derived from a PDB chain.
+
+    Attributes:
+        name (str): Identifier of the molecule.
+        my_template (MoleculeTemplate): Reference to the associated molecule template.
+        coord (Coords): Center-of-mass coordinates.
+        interface_list (list): List of binding interfaces.
+        normal_point (list): Normal vector direction.
+    """
+
+    def __init__(
+            self,
+            name: str,
+            template=None,
+            coord=None,
+            interfaces=None,
+            normal_point=None,
+            translational_diffusion_constant=1.0,
+            rotational_diffusion_constant=1.0,
+            radius=1.0
+        ):
+        """
+        Initializes a CoarseGrainedMolecule.
+
+        Parameters
+        ----------
+        name : str
+            Name or identifier of the molecule.
+        template : Any, optional
+            Reference structure or coordinate template.
+        coord : Any, optional
+            Center of mass coordinates or 3D origin of the molecule.
+        interface_list : list, optional
+            List of interaction site coordinates.
+        normal_point : Any, optional
+            Optional orientation vector or normal.
+        diffusion_translation : list or np.ndarray, optional
+            3D translational diffusion coefficients.
+        diffusion_rotation : list or np.ndarray, optional
+            3D rotational diffusion coefficients.
+        radius : float, optional
+            Effective molecular radius.
+        """
+        self.name = name
+        self.template = template
+        self.coord = coord
+        self.interfaces = interfaces if interfaces is not None else []
+        self.normal_point = normal_point
+        self.translational_diffusion_constant = translational_diffusion_constant
+        self.rotational_diffusion_constant = rotational_diffusion_constant
+        self.radius = radius
+
+    def __str__(self):
+        interfaces = "\n  ".join(str(interface) for interface in self.interfaces)
+        return (f"CoarseGrainedMolecule: {self.name}\n"
+                f"  Template: {self.template}\n"
+                f"  Coordinates: {self.coord}\n"
+                f"  Interfaces:\n  {interfaces}")
+
+    def __repr__(self):
+        # Similar to __str__ but more formal for debugging
+        return self.name
+
+    def __eq__(self, other):
+        if not isinstance(other, CoarseGrainedMolecule):
+            return False
+        return self.name == other.name
+
+    def __hash__(self):
+        return hash(self.name)
 
 class Reaction:
     """
@@ -170,15 +309,15 @@ class Model:
         Returns:
             Model: An instance of the Model class with the loaded data.
         """
-        with open(file_path, "r") as file:
+        with open(file_path, "r", encoding="utf-8") as file:
             data = json.load(file)
 
         molecule_types = [
             MoleculeType(
                 name=mol["name"],
                 interfaces=[MoleculeInterface(name=iface["name"], coord=Coords(**iface["coord"])) for iface in mol["interfaces"]],
-                diffusion_translation=mol["diffusion_translation"],
-                diffusion_rotation=mol["diffusion_rotation"],
+                translational_diffusion_constant=mol["diffusion_translation"],
+                rotational_diffusion_constant=mol["diffusion_rotation"],
             )
             for mol in data["molecule_types"]
         ]
@@ -208,61 +347,6 @@ class CustomJSONEncoder(json.JSONEncoder):
         elif isinstance(o, np.ndarray):  # Convert numpy array to list
             return o.tolist()
         return super().default(o)
-
-class MoleculeTemplate:
-    """
-    Represents a molecule type in NERDSS, including the molecule's center of mass (COM) 
-    and a list of binding interfaces.
-
-    Attributes:
-        name (str): Identifier for the molecule type.
-        interface_template_list (list): A list of BindingInterfaceTemplate objects that 
-            describe the molecule’s binding sites.
-        normal_point (list): Default normal vector direction.
-    """
-    def __init__(self, name: str = '', com = None, radius = 1.0):
-        """
-        Initializes a MoleculeTemplate.
-
-        Args:
-            name (str): Name/identifier of the molecule type.
-            com ((3) array-like)
-            
-        """
-        self.name = name
-        self.interface_template_list = []
-        if com is None:
-            com = [0.0, 0.0, 0.0]
-        self.com = np.asarray(com, dtype=float)
-        self.interfaces = []
-        self.normal_point = [0,0,1]
-        self.diffusion_translation = None
-        self.diffusion_rotation = None
-        self.radius = float(radius)
-
-    def add_interface(self, interface):
-        """
-        Add an InterfaceTemplate to this molecule.
-
-        Parameters
-        ----------
-        interface : InterfaceTemplate
-            The interface object to add.
-        """
-        self.interfaces.append(interface)
-
-    def __str__(self):
-        interfaces = "\n  ".join(str(it) for it in self.interface_template_list)
-        return f"Molecule Template: {self.name}\n  Interfaces:\n  {interfaces}"
-
-    def __repr__(self):
-        interfaces = "\n  ".join(str(it) for it in self.interface_template_list)
-        return f"Molecule Template: {self.name}\n  Interfaces:\n  {interfaces}"
-
-    def __eq__(self, other):
-        if not isinstance(other, MoleculeTemplate):
-            return False
-        return self.name == other.name
 
 class InterfaceTemplate:
     """
@@ -310,55 +394,7 @@ class InterfaceTemplate:
     def __eq__(self, other):
         if not isinstance(other, InterfaceTemplate):
             return False
-        # TODO: check this
         return self.name == other.name
-
-class CoarseGrainedMolecule:
-    """
-    Represents a coarse-grained molecule in NERDSS, potentially derived from a PDB chain.
-
-    Attributes:
-        name (str): Identifier of the molecule.
-        my_template (MoleculeTemplate): Reference to the associated molecule template.
-        coord (Coords): Center-of-mass coordinates.
-        interface_list (list): List of binding interfaces.
-        normal_point (list): Normal vector direction.
-    """
-
-    def __init__(self, name: str):
-        """
-        Initializes a CoarseGrainedMolecule.
-
-        Args:
-            name (str): Name/identifier of the molecule.
-        """
-        self.name = name
-        self.template = None
-        self.coord = None
-        self.interface_list = []
-        self.normal_point = None
-        self.diffusion_translation = None
-        self.diffusion_rotation = None
-        self.radius = None
-
-    def __str__(self):
-        interfaces = "\n  ".join(str(interface) for interface in self.interface_list)
-        return (f"CoarseGrainedMolecule: {self.name}\n"
-                f"  Template: {self.template}\n"
-                f"  Coordinates: {self.coord}\n"
-                f"  Interfaces:\n  {interfaces}")
-
-    def __repr__(self):
-        # Similar to __str__ but more formal for debugging
-        return self.name
-
-    def __eq__(self, other):
-        if not isinstance(other, CoarseGrainedMolecule):
-            return False
-        return self.name == other.name
-
-    def __hash__(self):
-        return hash(self.name)
 
 class BindingInterface:
     """
@@ -418,7 +454,7 @@ class ReactionTemplate:
                  reactants = None,
                  products = None,
                  binding_angles = None,
-                 binding_radius = None,
+                 binding_radius = 3.5,
                  norm1 = None,
                  norm2 = None,
                  ka = 1.0,
@@ -427,9 +463,9 @@ class ReactionTemplate:
         Initializes a ReactionTemplate with default values.
         """
         self.expression = None
-        self.reactants = reactants
-        self.products = products
-        self.binding_angles = binding_angles
+        self.reactants = reactants if reactants is not None else []
+        self.products = products if products is not None else []
+        self.binding_angles = binding_angles if binding_angles is not None else []
         self.binding_radius = binding_radius
         self.norm1 = norm1
         self.norm2 = norm2
