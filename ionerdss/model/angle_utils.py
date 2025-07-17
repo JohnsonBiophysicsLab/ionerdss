@@ -108,6 +108,7 @@ def angles(com1, com2, int_site1, int_site2, normal_point1, normal_point2, eps=1
             - str: Omega (twist angle in radians, formatted as string).
             - float: Distance between interface sites (sigma magnitude).
     """
+
     # Convert sequences into arrays for convenience
     com1 = np.array(com1)
     com2 = np.array(com2)
@@ -117,39 +118,83 @@ def angles(com1, com2, int_site1, int_site2, normal_point1, normal_point2, eps=1
     normal_point2 = np.array(normal_point2)
 
     # Get Vectors
-    v1 = int_site1 - com1  # from COM to interface (particle 1)
+    v1 = int_site1 - com1 # from COM to interface (particle 1)
     v2 = int_site2 - com2  # from COM to interface (particle 2)
-    sigma1 = int_site1 - int_site2  # sigma, from p2 to p1
+    sigma1 = int_site1 - int_site2 # sigma, from p2 to p1
     sigma2 = int_site2 - int_site1  # sigma, from p1 to p2
-    n1 = unit(normal_point1 - com1)  # normal vector for p1
-    n2 = unit(normal_point2 - com2)  # normal vector for p2
+    n1 = unit(normal_point1 - com1) # normal vector for p1
+    n2 = unit(normal_point2 - com2) # normal vector for p2
 
     # Calculate the magnitude of sigma
-    sigma_mag = np.linalg.norm(sigma1)
+    sigma_magnitude = np.linalg.norm(sigma1)
 
     # Calculate theta1 and theta2
-    theta1 = math.acos(_clip_cosine_value(np.dot(unit(v1), unit(sigma1))))
-    theta2 = math.acos(_clip_cosine_value(np.dot(unit(v2), unit(sigma2))))
+    costheta1 = np.dot(v1, sigma1) / np.linalg.norm(v1) / np.linalg.norm(sigma1)
+    costheta2 = np.dot(v2, sigma2) / np.linalg.norm(v2) / np.linalg.norm(sigma2)
+    theta1 = math.acos(_clip_cosine_value(costheta1))
+    theta2 = math.acos(_clip_cosine_value(costheta2))
 
-    # Calculate phi1 and phi2
-    phi1 = calculate_phi(v1, n1, sigma1, eps)
-    phi2 = calculate_phi(v2, n2, sigma2, eps)
+    # check geometry
+    errormsg = ''
+    iferror = False # determine if v // n
+    if np.linalg.norm(np.cross(n1, v1)) < eps:
+        iferror = True
+        errormsg += f'\n\tn1 ({n1}) and v1 ({v1}) parallel, phi1 not available'
+    if np.linalg.norm(np.cross(n2, v2)) < eps:
+        iferror = True
+        errormsg += f'\n\tn2 ({n2}) and v2 ({v2}) parallel, phi2 not available'
+    if iferror:
+        raise ValueError(errormsg)
 
-    # Calculate omega
-    omega = math.acos(_clip_cosine_value(np.dot(unit(n1), unit(n2))))
+    # determine if phi1 exists (v1 // sigma1 ?)
+    if np.linalg.norm(np.cross(sigma1, v1)) < eps:
+        phi1 = float('nan')
+        # omega_parallel = True
+        omega_t1 = unit(np.cross(sigma1, n1))
+    else:
+        phi1 = calculate_phi(v1, n1, sigma1)
+        omega_t1 = unit(np.cross(sigma1, v1))
 
-    # Determine the sign of omega
-    omega_dir = unit(np.cross(n1, n2))
-    if np.dot(unit(sigma1), omega_dir) > 0:
+    # determine if phi2 exists (v2 // sigma2 ?)
+    if np.linalg.norm(np.cross(sigma2, v2)) < eps:
+        phi2 = float('nan')
+        # omega_parallel = True
+        omega_t2 = unit(np.cross(sigma1, n2))
+    else:
+        phi2 = calculate_phi(v2, n2, sigma2)
+        omega_t2 = unit(np.cross(sigma1, v2))
+
+    # calculate omega (both cases are same)
+    omega = math.acos(_clip_cosine_value(np.dot(omega_t1, omega_t2)))
+    # determine the sign of omega (+/-)
+    sigma1_uni = unit(sigma1)
+    sigma1xomega_t1 = np.cross(sigma1, omega_t1)
+    sigma1xomega_t2 = np.cross(sigma1, omega_t2)
+    omega_dir = unit(np.cross(sigma1xomega_t1, sigma1xomega_t2))
+    if np.dot(sigma1_uni, omega_dir) > 0:
         omega = -omega
     else:
         omega = omega
 
-    # Format outputs
-    theta1_str = f"{theta1:.6f}"
-    theta2_str = f"{theta2:.6f}"
-    phi1_str = f"{phi1:.6f}" if not math.isnan(phi1) else "nan"
-    phi2_str = f"{phi2:.6f}" if not math.isnan(phi2) else "nan"
-    omega_str = f"{omega:.6f}"
+    if abs(theta1 - np.pi) < eps:
+        theta1 = 'M_PI'
+    else:
+        theta1 = "%.6f" % theta1
+    if abs(theta2 - np.pi) < eps:
+        theta2 = 'M_PI'
+    else:
+        theta2 = "%.6f" % theta2
+    if abs(phi1 - np.pi) < eps:
+        phi1 = 'M_PI'
+    else:
+        phi1 = "%.6f" % phi1
+    if abs(phi2 - np.pi) < eps:
+        phi2 = 'M_PI'
+    else:
+        phi2 = "%.6f" % phi2
+    if abs(omega - np.pi) < eps:
+        omega = 'M_PI'
+    else:
+        omega = "%.6f" % omega
 
-    return theta1_str, theta2_str, phi1_str, phi2_str, omega_str, sigma_mag
+    return theta1, theta2, phi1, phi2, omega, sigma_magnitude
