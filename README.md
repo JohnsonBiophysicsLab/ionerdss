@@ -33,13 +33,18 @@ pip install ioNERDSS
 2. From GitHub (for the latest development version):
    - If you want to use the latest features or contribute to the development, you can install directly from the GitHub repository:
 
-To install from source (e.g., if you’ve cloned this repo and want the most recent changes):
+To install from source (e.g., if you've cloned this repo and want the most recent changes):
 
 ```bash
 git clone https://github.com/JohnsonBiophysicsLab/ionerdss.git
 cd ionerdss
-pip install -r env/requirements.txt
+
+# Modern approach (recommended)
 pip install -e .  # Editable mode: updates reflect immediately in the environment
+
+# Alternative: Legacy approach using environment files
+pip install -r env/requirements.txt
+pip install -e .
 ```
 
 ---
@@ -108,14 +113,33 @@ docker run -it --rm -v $(pwd):/app -p 8888:8888 ionerdss_dev
 2. **Code Organization**  
    - Keep related functionality grouped in submodules.
 
-3. **Tests**  
+3. **Development Setup and Tests**  
    - Add or update unit tests in `tests/` for any new function. We use [unittest](https://docs.python.org/3/library/unittest.html).
 
-   - To run the tests locally, in the project root folder, use the following command:
+   - **Recommended setup for development and testing:**
      ```bash
-     pip install -r requirements.txt
-     export PYTHONPATH=$(pwd)
+     # Create conda environment (recommended for isolation)
+     conda create -n ionerdss python=3.9
+     conda activate ionerdss
+     
+     # Install in development mode with test dependencies
+     pip install -e ".[tests]"
+     
+     # Run tests
      pytest
+     ```
+
+   - **Alternative setup using legacy environment files:**
+     ```bash
+     # Using conda
+     conda env create -f env/environment-full.yml
+     conda activate ionerdss_env
+     
+     # OR using pip
+     pip install -r env/requirements-full.txt
+     
+     # Install package in development mode
+     pip install -e .
      ```
 
 4. **Versioning & Releases**  
