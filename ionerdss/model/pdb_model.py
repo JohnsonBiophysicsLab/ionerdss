@@ -20,6 +20,14 @@ from scipy.spatial import KDTree
 from sklearn.cluster import KMeans
 from .components import MoleculeType, MoleculeInterface, Reaction, Model
 from ..math.coords import Coords
+from .geometry_utils import calc_angle, sig_are_similar, sig_difference, compute_diffusion_constants_nm_us
+from .energy_tables import get_default_energy_table
+from .data_classes import (
+    MoleculeTemplate, BindingInterfaceTemplate, CoarseGrainedMolecule, 
+    BindingInterface, ReactionTemplate, Reaction as ReactionData,
+    rigid_transform_3d, apply_rigid_transform, rigid_transform_chains, check_steric_clashes
+)
+from .angle_utils import angles
 
 
 class PDBModel(Model):
@@ -163,7 +171,7 @@ class PDBModel(Model):
         self.all_interfaces_residues = []
         self.all_chains_radius = []
 
-        energy_table = self._get_default_energy_table()
+        energy_table = get_default_energy_table()
         self.interface_energies = []
         self.all_interface_energies = []
 
@@ -565,7 +573,7 @@ class PDBModel(Model):
                     # print(f"This is an existing molecule {mol_name}")
                     molecule = self.molecule_list[mol_index]
                     molecule.radius = self.all_chains_radius[self.all_chains.index([chain for chain in self.all_chains if chain.id == mol_name][0])]
-                    molecule.diffusion_translation, molecule.diffusion_rotation = self._compute_diffusion_constants_nm_us(molecule.radius / 10.0)
+                    molecule.diffusion_translation, molecule.diffusion_rotation = compute_diffusion_constants_nm_us(molecule.radius / 10.0)
                     molecule.my_template.diffusion_translation, molecule.my_template.diffusion_rotation = molecule.diffusion_translation, molecule.diffusion_rotation
                 else:
                     molecule = CoarseGrainedMolecule(mol_name)
@@ -573,7 +581,7 @@ class PDBModel(Model):
                     molecule.my_template = molecule_template
                     molecule.coord = self.all_COM_chains_coords[self.all_chains.index([chain for chain in self.all_chains if chain.id == mol_name][0])]
                     molecule.radius = self.all_chains_radius[self.all_chains.index([chain for chain in self.all_chains if chain.id == mol_name][0])]
-                    molecule.diffusion_translation, molecule.diffusion_rotation = self._compute_diffusion_constants_nm_us(molecule.radius / 10.0)
+                    molecule.diffusion_translation, molecule.diffusion_rotation = compute_diffusion_constants_nm_us(molecule.radius / 10.0)
                     self.molecule_list.append(molecule)
                     molecule_template.radius = molecule.radius
                     molecule_template.diffusion_translation, molecule_template.diffusion_rotation = molecule.diffusion_translation, molecule.diffusion_rotation
@@ -618,8 +626,8 @@ class PDBModel(Model):
                         "dA": np.linalg.norm([(COM_A - I_A).x, (COM_A - I_A).y, (COM_A - I_A).z]),
                         "dB": np.linalg.norm([(COM_B - I_B).x, (COM_B - I_B).y, (COM_B - I_B).z]),
                         "dAB": np.linalg.norm([(I_A - I_B).x, (I_A - I_B).y, (I_A - I_B).z]),
-                        "thetaA": self._calc_angle(COM_A, I_A, I_B),
-                        "thetaB": self._calc_angle(COM_B, I_B, I_A)
+                        "thetaA": calc_angle(COM_A, I_A, I_B),
+                        "thetaB": calc_angle(COM_B, I_B, I_A)
                     }
 
                     # print the signature
@@ -628,7 +636,7 @@ class PDBModel(Model):
                     is_existing_sig = False
 
                     for existing_sig in self.interface_signatures:
-                        if self._sig_are_similar(signature, existing_sig, dist_threshold_intra, dist_threshold_inter, angle_threshold):
+                        if sig_are_similar(signature, existing_sig, dist_threshold_intra, dist_threshold_inter, angle_threshold):
                             is_existing_sig = True
                             break
 
@@ -782,7 +790,7 @@ class PDBModel(Model):
                         matching_templates = []
                         for mol_temp in self.molecules_template_list:
                             for interface_temp in mol_temp.interface_template_list:
-                                if self._sig_are_similar(signature, interface_temp.signature, dist_threshold_intra, dist_threshold_inter, angle_threshold):
+                                if sig_are_similar(signature, interface_temp.signature, dist_threshold_intra, dist_threshold_inter, angle_threshold):
                                     matching_templates.append((interface_temp, mol_temp))
 
                         # Check for errors in template matching
@@ -808,7 +816,7 @@ class PDBModel(Model):
                                 f"Please increase the thresholds to find a match."
                             )
                         elif len(matching_templates) > 1:
-                            matching_templates.sort(key=lambda pair: self._sig_difference(signature, pair[0].signature))
+                            matching_templates.sort(key=lambda pair: sig_difference(signature, pair[0].signature))
                             interface_template, molecule_template = matching_templates[0]
                             print(f"Multiple matches found. Using closest match: {interface_template.name} ({molecule_template.name})")
                         else:
@@ -818,7 +826,7 @@ class PDBModel(Model):
                         matching_partner_templates = []
                         for mol_temp in self.molecules_template_list:
                             for interface_temp in mol_temp.interface_template_list:
-                                if self._sig_are_similar(signature_conjugated, interface_temp.signature, dist_threshold_intra, dist_threshold_inter, angle_threshold):
+                                if sig_are_similar(signature_conjugated, interface_temp.signature, dist_threshold_intra, dist_threshold_inter, angle_threshold):
                                     matching_partner_templates.append((interface_temp, mol_temp))
 
                         # Check for errors in partner template matching
@@ -844,7 +852,7 @@ class PDBModel(Model):
                                 f"Please adjust the thresholds to find a match."
                             )
                         elif len(matching_partner_templates) > 1:
-                            matching_partner_templates.sort(key=lambda pair: self._sig_difference(signature_conjugated, pair[0].signature))
+                            matching_partner_templates.sort(key=lambda pair: sig_difference(signature_conjugated, pair[0].signature))
                             partner_interface_template, partner_molecule_template = matching_partner_templates[0]
                             print(f"Multiple conjugated matches found. Using closest match: {partner_interface_template.name} ({partner_molecule_template.name})")
                         else:
@@ -1549,7 +1557,7 @@ class PDBModel(Model):
             bool: True if the signature exists, False otherwise.
         """
         for existing_sig in self.interface_signatures:
-            if self._sig_are_similar(sig, existing_sig, dist_threshold_intra=dist_threshold_intra, dist_threshold_inter=dist_threshold_inter, angle_threshold=angle_threshold):
+            if sig_are_similar(sig, existing_sig, dist_threshold_intra=dist_threshold_intra, dist_threshold_inter=dist_threshold_inter, angle_threshold=angle_threshold):
                 return True
         return False
     
