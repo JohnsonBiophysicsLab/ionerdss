@@ -202,4 +202,8 @@ def _find_repeated_chains_by_sequence(chains,
         groups.append(group)
 
     chains_map = {c: group[0] for group in groups for c in group}
+
+    print(f"{len(groups)} homologous chain groups identified:")
+    print(chains_map)
+
     return chains_map, groups

@@ -2,8 +2,8 @@
 """
 ## Documentation: Coarse-Graining Protein Structure for NERDSS Modeling
 
-TODO: change the method of detecting interfaces to Yufeng's method
-TODO: switch to spherical assembly is the user prompts
+done: change the method of detecting interfaces to Yufeng's method
+done: switch to spherical assembly is the user prompts
 
 ### Overview
 
@@ -218,6 +218,7 @@ def coarse_grain_structure(structure, distance_cutoff=0.35, residue_cutoff=3):
     energy_table = get_default_energy_table()
 
     for chain in chains:
+        # get the coordinates of all atoms that is within an amino acid in a chain
         atoms = [atom.coord for res in chain for atom in res if is_aa(res)]
         if not atoms:
             coms.append(None)
@@ -225,10 +226,15 @@ def coarse_grain_structure(structure, distance_cutoff=0.35, residue_cutoff=3):
             continue
         atoms = np.array(atoms)
         avg = atoms.mean(axis=0)
+        # com is defined as the numerical average of all atoms' positions
         coms.append(Coords(*avg))
+        # radius is calculated as RMSD of atom positions from com
         radius = np.sqrt(np.mean(np.sum((atoms - avg) ** 2, axis=1)))
         chain_radii.append(radius)
 
+    # calculate the bounding box of each chain
+    # if a pair of chains is too far away from each other, > (distance_cutoff * 10)
+    # then skip
     def bounding_box(chain):
         coords = np.array([atom.coord for res in chain for atom in res if is_aa(res)])
         return coords.min(axis=0), coords.max(axis=0) if len(coords) else (None, None)
@@ -241,6 +247,7 @@ def coarse_grain_structure(structure, distance_cutoff=0.35, residue_cutoff=3):
             min2, max2 = boxes[j]
             if min1 is None or min2 is None:
                 continue
+            # skip if they are more than distance_cutoff*10 apart
             if np.any(min2 > max1 + distance_cutoff * 10) or np.any(max2 < min1 - distance_cutoff * 10):
                 continue
 
@@ -253,8 +260,8 @@ def coarse_grain_structure(structure, distance_cutoff=0.35, residue_cutoff=3):
 
             if not residues_i or not residues_j:
                 continue
-            
-            # compute interface using KDTree and energy scoring
+
+            # compute interface using KDTree
             result = compute_interface(residues_i, residues_j, energy_table,
                                        distance_cutoff, residue_cutoff)
             if result:
