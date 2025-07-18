@@ -4,14 +4,13 @@ core.py
 High-level orchestration class PDBModel; imports helper functions from submodules.
 """
 
-# model/pdb/core.py
-
 import os
 from . import io
 from .coarse_grain import coarse_grain_structure
 from .repeated_chain_detection import identify_repeated_chains
 from .repeated_chain_alignment import regularize_model
 from .reaction import build_binding_reactions
+from .capsid_sphere_pipeline import run_capsid_pipeline  # new module for spherical gag pipeline
 from ..components import Model  # assuming you have a base Model class
 
 class PDBModel(Model):
@@ -19,7 +18,14 @@ class PDBModel(Model):
 
     def __init__(self, pdb_file=None, pdb_id=None, save_dir=None):
         """
-        pdb_files must be .cif
+        Parameters
+        ----------
+        pdb_file : str or None
+            Path to the PDB or CIF file.
+        pdb_id : str or None
+            RCSB PDB ID to fetch if pdb_file is not provided.
+        save_dir : str or None
+            Directory to save generated model files.
         """
         super().__init__(save_dir)
         self.pdb_file = pdb_file
@@ -41,7 +47,19 @@ class PDBModel(Model):
         self.chains_group = []
 
     def run_pipeline(self, options=None):
-        """Runs the full model generation pipeline."""
+        """Runs the full model generation pipeline.
+
+        Parameters
+        ----------
+        options : dict or None
+            Optional dictionary of settings. Can include:
+            - 'plot': bool
+            - 'save_cif': bool
+            - 'is_on_sphere': bool (if True, run spherical capsid pipeline)
+        """
+        options = options or {}
+
+
 
         # 1. Coarse-grain the structure
         cg_result = coarse_grain_structure(self.structure, options=options)
@@ -57,18 +75,24 @@ class PDBModel(Model):
         )
 
         # 4. Generate reactions
-        reactions = build_reactions(model_data)
+        reactions = build_binding_reactions(model_data)
 
-        # 5. Rescale energies
-        rescale_reaction_energies(reactions)
+        # 5. Rescale energies (optional)
+        # rescale_reaction_energies(reactions)  # Uncomment if needed
+
+        # If modeling a spherical capsid, use the alternate pipeline
+        if options.get("is_on_sphere"):
+            run_spherical_pipeline(self.pdb_file, self.save_dir, options)
+            print("Capsid pipeline completed.")
+            return
 
         # 6. Save model files
         self.save_model(self.pdb_id + "_model.json", model_data, reactions)
 
         # 7. Optionally plot or write CIFs
-        if options and options.get("plot"):
+        if options.get("plot"):
             plot_structure(model_data, self.save_dir)
-        if options and options.get("save_cif"):
+        if options.get("save_cif"):
             save_structure_outputs(model_data, self.save_dir)
 
         print("Pipeline completed.")
