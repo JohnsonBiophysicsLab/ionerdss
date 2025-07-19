@@ -37,6 +37,10 @@ def regularize_homologous_chains(chains_group,
                                  all_chains,
                                  all_COM_chains_coords,
                                  all_chains_radius,
+                                 all_interfaces,
+                                 all_interfaces_coords,
+                                 all_interfaces_residues,
+                                 all_interface_energies,
                                  dist_threshold_intra=3.5,
                                  dist_threshold_inter=3.5,
                                  angle_threshold=25.0,
@@ -79,7 +83,7 @@ def regularize_homologous_chains(chains_group,
     for group in chains_group:
         # print(f"Start parsing chain group / molecule template {group}")
         molecule_template_name = chains_map[group[0]]
-        is_existing_mol_temp, idx = _is_existing_mol_temp(molecule_template_name)
+        is_existing_mol_temp, idx = _is_existing_mol_temp(molecule_template_name, molecule_template_list)
         if is_existing_mol_temp:
             # print(f"This is an existed mol template {molecule_template_name}")
             molecule_template = molecule_template_list[idx]
@@ -91,7 +95,7 @@ def regularize_homologous_chains(chains_group,
         for j, chain_id in enumerate(group):
             # print(f"Start parsing chain / molecule {chain_id}")
             molecule_name = chain_id
-            is_existing_mol, mol_index = _is_existing_mol(molecule_name)
+            is_existing_mol, mol_index = _is_existing_mol(molecule_name, molecule_list)
             if is_existing_mol:
                 # print(f"This is an existing molecule {molecule_name}")
                 molecule = molecule_list[mol_index]
@@ -115,7 +119,7 @@ def regularize_homologous_chains(chains_group,
                 B = interface_id # this is the chain name of the partner
                 partner_mol_template_name = chains_map[B]
                 # print(f"Parsing the interface {interface_id} for molecule {molecule_name}; its binding partner is molecule {B} via its interface {A}")
-                is_existing_mol_temp, idx = _is_existing_mol_temp(partner_mol_template_name)
+                is_existing_mol_temp, idx = _is_existing_mol_temp(partner_mol_template_name, molecule_template_list)
                 if is_existing_mol_temp:
                     # print(f"molecule {B} already has its template created.")
                     partner_molecule_template = molecule_template_list[idx]
@@ -124,7 +128,7 @@ def regularize_homologous_chains(chains_group,
                     # print(f"new mol template {partner_mol_template_name} created for molecule {B}.")
                     molecule_template_list.append(partner_molecule_template)
 
-                is_existing_mol, partner_mol_index = _is_existing_mol(B)
+                is_existing_mol, partner_mol_index = _is_existing_mol(B, molecule_list)
                 if is_existing_mol:
                     # print(f"molecule {B} is already created.")
                     partner_molecule = molecule_list[partner_mol_index]

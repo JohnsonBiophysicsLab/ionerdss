@@ -7,7 +7,7 @@ High-level orchestration class PDBModel; imports helper functions from submodule
 import os
 from . import io
 from .coarse_grain import coarse_grain_structure
-from .repeated_chain_detection import identify_repeated_chains
+from .detect_repeats import identify_repeated_chains
 from .repeated_chain_alignment import regularize_model
 from .reaction import build_binding_reactions
 from .capsid_sphere_pipeline import run_capsid_pipeline  # new module for spherical gag pipeline

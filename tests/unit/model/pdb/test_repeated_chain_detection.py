@@ -23,7 +23,7 @@ import warnings
 import numpy as np
 from Bio.PDB import Structure, Model, Chain, Residue, Atom
 
-from ionerdss.model.pdb.repeated_chain_detection import (
+from ionerdss.model.pdb.detect_repeats import (
     identify_repeated_chains,
 )
 

@@ -82,6 +82,14 @@ def angles_between_vector_and_vectors(reference_vec, targets, tol=1e-5):
             angles.append(np.arccos(cos_theta))
     return np.array(angles)
 
+def angles_from_points(p1, p2, p3):
+    """
+    Compute angles (in radians) from sets of 3 points in 3D.
+    """
+    p1 = np.asarray(p1)
+    p2 = np.asarray(p2)
+    p3 = np.asarray(p3)
+
 def dihedrals_from_points(p1, p2, p3, p4, tol=1e-8):
     """
     Compute dihedral angles (in radians) from sets of 4 points in 3D.
