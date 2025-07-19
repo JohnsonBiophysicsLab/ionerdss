@@ -8,7 +8,7 @@ import os
 from . import io
 from .coarse_grain import coarse_grain_structure
 from .detect_repeats import identify_repeated_chains
-from .repeated_chain_alignment import regularize_model
+from .regularize_repeats import regularize_repeated_chains
 from .reaction import build_binding_reactions
 from .capsid_sphere_pipeline import run_capsid_pipeline  # new module for spherical gag pipeline
 from ..components import Model  # assuming you have a base Model class
@@ -70,7 +70,7 @@ class PDBModel(Model):
         )
 
         # 3. Regularize molecules (alignment, interface generation)
-        model_data = regularize_model(
+        model_data = regularize_repeated_chains(
             cg_result, self.chains_map, self.chains_group
         )
 

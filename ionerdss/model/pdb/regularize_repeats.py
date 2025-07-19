@@ -32,7 +32,7 @@ from ionerdss.model.components import (
 )
 from ionerdss.math.diffusion_constant import compute_diffusion_constants_nm_us
 
-def regularize_homologous_chains(chains_group,
+def regularize_repeated_chains(chains_group,
                                  chains_map,
                                  all_chains,
                                  all_COM_chains_coords,
