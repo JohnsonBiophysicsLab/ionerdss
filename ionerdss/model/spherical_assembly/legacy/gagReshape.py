@@ -1,3 +1,6 @@
+# Yiben's code
+# Hard coded for HIV Gag lattice
+
 
 # %%
 import numpy as np  # matrix, array, math calculation
