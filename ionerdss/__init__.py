@@ -56,7 +56,10 @@ ReactionStringParser = LazyLoader('.ode_solver.reaction_string_parser', 'Reactio
 solve_reaction_ode = LazyLoader('.ode_solver.reaction_ode_solver', 'solve_reaction_ode')
 reaction_dydt = LazyLoader('.ode_solver.reaction_ode_solver', 'dydt')
 calculate_macroscopic_reaction_rates = LazyLoader('.ode_solver.reaction_ode_solver', 'calculate_macroscopic_reaction_rates')
-SimpleGillespieSimulator = LazyLoader('.gillespie_simulation.simple_gillespie', 'SimpleGillespieSimulator')
+# Gillespie simulation related
+SimpleGillespie = LazyLoader('.gillespie_simulation.simple_gillespie')
+AdaptiveRates = LazyLoader('.gillespie_simulation.adaptive_rates')
+# GUI
 gui = LazyLoader('.nerdss_guis.gui', 'gui')
 pdb_gui = LazyLoader('.nerdss_guis.nerdss', 'nerdss')
 cube_face = LazyLoader('.model.platonic_solids.cube.cube_face', 'cube_face')

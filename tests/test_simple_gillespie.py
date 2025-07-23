@@ -33,7 +33,9 @@ Part of the ioNERDSS modeling framework.
 
 import unittest
 import numpy as np
-from ionerdss import SimpleGillespieSimulator
+import sys
+sys.path.append('/Users/msang/GitHub/ionerdss/')
+from ionerdss import SimpleGillespie, AdaptiveRates
 
 class TestReactionGillespie(unittest.TestCase):
 
@@ -44,7 +46,7 @@ class TestReactionGillespie(unittest.TestCase):
         self.product_matrix = np.array([[0, 0, 1], [1, 2, 1]])
         self.volume = 1.0e-18 # Litre!
         self.y = np.array([10, 5, 3])
-        self.sgs = SimpleGillespieSimulator()
+        self.sgs = SimpleGillespie
 
     def test_convert_to_microscopic_rate_constants(self):
         microscopic_rate_constants = self.sgs.convert_to_microscopic_rate_constants(
@@ -69,6 +71,35 @@ class TestReactionGillespie(unittest.TestCase):
         y_record, t_record = self.sgs.gillespie_simulation(
             max_time, y_init, self.reactant_matrix, self.product_matrix,
             self.macroscopic_rate_constants, record_interval, full_update_scheme
+        )
+
+    def test_gillespie_simulation_1D_adaptive_rate(self):
+
+        ratelist = np.array([10, 0.2])
+        y_init = np.array([10, 3])
+        reactant_matrix = np.array([[2, 0], [0, 1]])
+        product_matrix = np.array([[0, 1], [2, 0]])
+        Length = 50
+        diffusion_constants = np.array([0.1, 0.05])
+        sigmalist = np.array([1, 0])
+        reverse_reaction_pairs = {0:1}
+
+        max_time = 10.0
+        record_interval = 0.01
+        full_update_scheme = True
+
+        def rate_update_rule(ratelist, y_curr, reactant_matrix, Length):
+            return AdaptiveRates.adaptive_bimolecular_rate_1D(
+                ratelist, y_curr, reactant_matrix, Length,
+                diffusion_constants, sigmalist, reverse_reaction_pairs,
+            )
+
+        y_record, t_record = self.sgs.run_Gillespie(
+            max_time, y_init, reactant_matrix, product_matrix,
+            ratelist, Length, macroscopic=True, 
+            rate_update_rules=rate_update_rule,
+            record_interval=record_interval, 
+            full_update_scheme=full_update_scheme
         )
 
         # You can add more assertions based on the expected behavior of your simulation
