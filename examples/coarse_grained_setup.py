@@ -157,12 +157,12 @@ def process_pdb(pdb_id: str, folder_format: str = '~/Documents/{pdb_id}_dir'):
                         save_pymol_script=False, 
                         standard_output=True)
 
-    # identify, align, and regularize all molecular chains so that homologous chains share 
+    # identify, align, and regularize all molecular chains so that repeated chains share 
     # the same relative geometry. This method organizes molecule and interface objects 
     # accordingly and sets up reaction objects.
     # for all tunable parameters see
-    # https://ionerdss.readthedocs.io/en/latest/ionerdss.model.html#ionerdss.model.pdb_model.PDBModel.regularize_homologous_chains
-    pdb_model.regularize_homologous_chains(dist_threshold_intra=3.5, 
+    # https://ionerdss.readthedocs.io/en/latest/ionerdss.model.html#ionerdss.model.pdb_model.PDBModel.regularize_repeated_chains
+    pdb_model.regularize_repeated_chains(dist_threshold_intra=3.5, 
                                         dist_threshold_inter=3.5, 
                                         angle_threshold=25.0, 
                                         show_coarse_grained_structure=False, 
