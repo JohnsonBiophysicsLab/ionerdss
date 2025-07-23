@@ -348,7 +348,7 @@ class CustomJSONEncoder(json.JSONEncoder):
             return o.tolist()
         return super().default(o)
 
-class InterfaceTemplate:
+class BindingInterfaceTemplate:
     """
     Represents a binding interface template between molecules.
 
@@ -392,7 +392,7 @@ class InterfaceTemplate:
                 f"  Required Free: {required_free}")
 
     def __eq__(self, other):
-        if not isinstance(other, InterfaceTemplate):
+        if not isinstance(other, BindingInterfaceTemplate):
             return False
         return self.name == other.name
 

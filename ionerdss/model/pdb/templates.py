@@ -19,7 +19,7 @@ Functions
     Create Molecule and Interface template objects from regularized geometry.
 """
 
-from ionerdss.model.components import MoleculeTemplate, ReactionTemplate, InterfaceTemplate
+from ionerdss.model.components import MoleculeTemplate, ReactionTemplate, BindingInterfaceTemplate
 
 def build_templates(model, collapse_repeated_chains=True):
     """
@@ -66,7 +66,7 @@ def build_templates(model, collapse_repeated_chains=True):
 
         iface_list = []
         for j, neighbor_idx in enumerate(model["interfaces"][i]):
-            iface = InterfaceTemplate(
+            iface = BindingInterfaceTemplate(
                 name=f"I{i}_{j}",
                 coords=model["interface_coords"][i][j],
                 residues=model["interface_residues"][i][j],

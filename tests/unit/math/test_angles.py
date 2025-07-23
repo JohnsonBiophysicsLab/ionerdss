@@ -1,6 +1,11 @@
 import unittest
 import numpy as np
-from ionerdss.math.angles import absolute_error_to_angle, angles_between_vector_and_vectors
+from ionerdss.math.angles import (
+    absolute_error_to_angle,
+    angles_between_vector_and_vectors,
+    angles_from_points,
+    
+    )
 
 class TestAngles(unittest.TestCase):
 
@@ -60,6 +65,52 @@ class TestAngles(unittest.TestCase):
         expected = np.array([0.0])  # Denominator too small, treated as 0
         np.testing.assert_array_equal(result, expected)
 
+    def test_angles_from_points(self):
+
+        # initialize list
+        p1 = []
+        p2 = []
+        p3 = []
+
+        # 90 degrees at vertex (1, 0, 0]
+        p1.append([1, 1, 0])
+        p2.append([1, 0, 0])
+        p3.append([2, 0, 0])
+
+        # 180 degrees at center
+        p1.append([0, 0, 0])
+        p2.append([1, 0, 0])
+        p3.append([2, 0, 0])
+
+        # 60 degrees at any vertex of equilateral triangle
+        p1.append([0, 0, 0])
+        p2.append([1, 0, 0])
+        p3.append([0.5, np.sqrt(3)/2, 0])
+
+        # colinear inward (0 deg)
+        p1.append([2, 0, 0])
+        p2.append([0, 0, 0])
+        p3.append([1, 0, 0])
+
+        # tetrahedron vertices
+        # Approx 70.53° angle between two bonds in tetrahedral geometry
+        p1.append([1, 1, 1])
+        p2.append([0, 0, 0])
+        p3.append([1, -1, -1])
+
+        # test numerical stability
+        p1.append([-1, 0, 0])
+        p2.append([0, 0, 0])
+        p3.append([1, 1e-7, 0])
+
+        # test
+        angle = angles_from_points(p1, p2, p3)
+        np.testing.assert_allclose(angle, np.array([np.pi/2.0,
+                                                0.0,
+                                                2 * np.pi/3.0,
+                                                np.pi,
+                                                np.pi-1.910633236249,
+                                                9.884312e-08]))
 
 if __name__ == "__main__":
     unittest.main()

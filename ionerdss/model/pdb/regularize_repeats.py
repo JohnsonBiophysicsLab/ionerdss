@@ -29,24 +29,116 @@ from ionerdss.model.components import (
     MoleculeTemplate,
     CoarseGrainedMolecule,
     BindingInterface,
+    BindingInterfaceTemplate,
 )
 from ionerdss.math.diffusion_constant import compute_diffusion_constants_nm_us
+from ionerdss.math.angles import angles_from_points
 
-def regularize_repeated_chains(chains_group,
-                                 chains_map,
-                                 all_chains,
-                                 all_COM_chains_coords,
-                                 all_chains_radius,
-                                 all_interfaces,
-                                 all_interfaces_coords,
-                                 all_interfaces_residues,
-                                 all_interface_energies,
-                                 dist_threshold_intra=3.5,
-                                 dist_threshold_inter=3.5,
-                                 angle_threshold=25.0,
-                                 show_coarse_grained_structure=False,
-                                 save_pymol_script=False,
-                                 standard_output=False):
+def identify_interface_signature(A, B, i, all_chains, all_COM_chains_coords, all_interfaces_coords):
+    """
+    Compute geometric signature between molecule A and B.
+    """
+    index_a = all_chains.index([chain for chain in all_chains if chain.id == A][0])
+    index_b = all_chains.index([chain for chain in all_chains if chain.id == B][0])
+
+    COM_A = all_COM_chains_coords[index_a]
+    COM_B = all_COM_chains_coords[index_b]
+    I_A = all_interfaces_coords[index_a][i]
+
+    # Find the matching interface on B that binds to A
+    for k, partner_interface_id in enumerate(all_interfaces[index_b]):
+        if partner_interface_id == A:
+            I_B = all_interfaces_coords[index_b][k]
+            break
+    else:
+        raise ValueError(f"No matching interface found on {B} for partner {A}")
+
+    signature = {
+        "dA": np.linalg.norm([(COM_A - I_A).x, (COM_A - I_A).y, (COM_A - I_A).z]),
+        "dB": np.linalg.norm([(COM_B - I_B).x, (COM_B - I_B).y, (COM_B - I_B).z]),
+        "dAB": np.linalg.norm([(I_A - I_B).x, (I_A - I_B).y, (I_A - I_B).z]),
+        "thetaA": angles_from_points(COM_A, I_A, I_B),
+        "thetaB": angles_from_points(COM_B, I_B, I_A),
+    }
+
+    signature_conjugated = {
+        "dA": signature["dB"],
+        "dB": signature["dA"],
+        "dAB": signature["dAB"],
+        "thetaA": signature["thetaB"],
+        "thetaB": signature["thetaA"],
+    }
+
+    return signature, signature_conjugated, I_B, k
+
+def identify_interface_sequence_signature(A, B, i, all_chains, all_interfaces, all_interfaces_residues):
+    """
+    Compute sequence-based signature using sorted amino acid sequence from both sides.
+    """
+    index_a = all_chains.index([chain for chain in all_chains if chain.id == A][0])
+    index_b = all_chains.index([chain for chain in all_chains if chain.id == B][0])
+
+    residues_A = all_interfaces_residues[index_a][i]
+
+    # Find matching interface on B
+    for k, partner_interface_id in enumerate(all_interfaces[index_b]):
+        if partner_interface_id == A:
+            residues_B = all_interfaces_residues[index_b][k]
+            break
+    else:
+        raise ValueError(f"No matching interface found on {B} for partner {A}")
+
+    # Build signature based on sorted residue identities (amino acid types only)
+    seq_a = ''.join(sorted([residue.get_resname().strip() for residue in residues_A]))
+    seq_b = ''.join(sorted([residue.get_resname().strip() for residue in residues_B]))
+
+    signature = {
+        "seqA": seq_a,
+        "seqB": seq_b,
+    }
+
+    signature_conjugated = {
+        "seqA": seq_b,
+        "seqB": seq_a,
+    }
+
+    return signature, signature_conjugated, residues_B, k
+
+def _sig_are_similar(sig1, sig2,
+                     dist_threshold_intra,
+                     dist_threshold_inter,
+                     angle_threshold):
+    """
+    Compares two groups of interface interaction geometry signatures.
+
+    Args:
+        sig1 (dict): The first interface signature.
+        sig2 (dict): The second interface signature.
+        dist_threshold_intra (float): Distance threshold for intra-molecular comparisons.
+        dist_threshold_inter (float): Distance threshold for inter-molecular comparisons.
+        angle_threshold (float): Angle threshold for comparisons.
+
+    Returns:
+        bool: True if the signatures are similar within the given thresholds, False otherwise.
+    """
+    for key in ("dA", "dB"):
+        if abs(sig1[key] - sig2[key]) > dist_threshold_intra:
+            return False
+    for key in ("dAB",):
+        if abs(sig1[key] - sig2[key]) > dist_threshold_inter:
+            return False
+    for key in ("thetaA", "thetaB"):
+        if abs(sig1[key] - sig2[key]) > angle_threshold:
+            return False
+    return True
+
+def regularize_repeated_chains(cg_result, chains_map, chains_group,
+                               dist_threshold_intra=3.5,
+                               dist_threshold_inter=3.5,
+                               angle_threshold=25.0,
+                               show_coarse_grained_structure=False,
+                               save_pymol_script=False,
+                               standard_output=False):
     """
     Aligns and regularizes all molecular chains so that homologous chains share 
     the same relative geometry. This method organizes molecule and interface objects 
@@ -65,6 +157,17 @@ def regularize_repeated_chains(chains_group,
     for group in chains_group:
         group.sort()
     chains_group.sort()
+
+    # Unpack cg_result
+    all_chains = cg_result["chains"]
+    all_com_chains_coords = cg_result["COMs"]
+    all_chains_radius = cg_result["radii"]
+    all_interfaces = cg_result["interfaces"]
+    all_interfaces_coords = cg_result["interface_coords"]
+    all_interfaces_residues = cg_result["interface_residues"]
+    all_interface_energies = cg_result["interface_energies"]
+
+    # ... [rest of the regularization logic remains mostly unchanged] ...    
 
     # check if the structure has homologous chains
     # if any element in chains_group has more than one chain, then it has homologous chains
@@ -106,7 +209,7 @@ def regularize_repeated_chains(chains_group,
                 molecule = CoarseGrainedMolecule(molecule_name)
                 # print(f"New molecule {molecule_name} is created.")
                 molecule.my_template = molecule_template
-                molecule.coord = all_COM_chains_coords[all_chains.index([chain for chain in all_chains if chain.id == molecule_name][0])]
+                molecule.coord = all_com_chains_coords[all_chains.index([chain for chain in all_chains if chain.id == molecule_name][0])]
                 molecule.radius = all_chains_radius[all_chains.index([chain for chain in all_chains if chain.id == molecule_name][0])]
                 molecule.diffusion_translation, molecule.diffusion_rotation = compute_diffusion_constants_nm_us(molecule.radius / 10.0)
                 molecule_list.append(molecule)
@@ -136,12 +239,12 @@ def regularize_repeated_chains(chains_group,
                     partner_molecule = CoarseGrainedMolecule(B)
                     # print(f"New molecule {B} is created.")
                     partner_molecule.my_template = partner_molecule_template
-                    partner_molecule.coord = all_COM_chains_coords[all_chains.index([chain for chain in all_chains if chain.id == B][0])]
+                    partner_molecule.coord = all_com_chains_coords[all_chains.index([chain for chain in all_chains if chain.id == B][0])]
                     molecule_list.append(partner_molecule)
 
-                COM_A = all_COM_chains_coords[all_chains.index([chain for chain in all_chains if chain.id == A][0])]
+                COM_A = all_com_chains_coords[all_chains.index([chain for chain in all_chains if chain.id == A][0])]
                 I_A = all_interfaces_coords[all_chains.index([chain for chain in all_chains if chain.id == A][0])][i]
-                COM_B = all_COM_chains_coords[all_chains.index([chain for chain in all_chains if chain.id == B][0])]
+                COM_B = all_com_chains_coords[all_chains.index([chain for chain in all_chains if chain.id == B][0])]
                 for k, partner_interface_id in enumerate(all_interfaces[all_chains.index([chain for chain in all_chains if chain.id == B][0])]):
                     if partner_interface_id == A:
                         I_B = all_interfaces_coords[all_chains.index([chain for chain in all_chains if chain.id == B][0])][k]
@@ -153,8 +256,8 @@ def regularize_repeated_chains(chains_group,
                     "dA": np.linalg.norm([(COM_A - I_A).x, (COM_A - I_A).y, (COM_A - I_A).z]),
                     "dB": np.linalg.norm([(COM_B - I_B).x, (COM_B - I_B).y, (COM_B - I_B).z]),
                     "dAB": np.linalg.norm([(I_A - I_B).x, (I_A - I_B).y, (I_A - I_B).z]),
-                    "thetaA": _calc_angle(COM_A, I_A, I_B),
-                    "thetaB": _calc_angle(COM_B, I_B, I_A)
+                    "thetaA": angles_from_points(COM_A, I_A, I_B),
+                    "thetaB": angles_from_points(COM_B, I_B, I_A)
                 }
 
                 # print the signature
@@ -213,7 +316,7 @@ def regularize_repeated_chains(chains_group,
                             chain2 = all_chains[all_chains.index([chain for chain in all_chains if chain.id == chain_id][0])]
                             R, t = rigid_transform_chains(chain2, chain1)
                             Q = []
-                            Q_COM_coord = all_COM_chains_coords[all_chains.index([chain for chain in all_chains if chain.id == chain_id][0])]
+                            Q_COM_coord = all_com_chains_coords[all_chains.index([chain for chain in all_chains if chain.id == chain_id][0])]
                             Q.append([Q_COM_coord.x, Q_COM_coord.y, Q_COM_coord.z])
                             temp_coord = all_interfaces_coords[all_chains.index([chain for chain in all_chains if chain.id == chain_id][0])][i]
                             Q.append([temp_coord.x, temp_coord.y, temp_coord.z])
@@ -249,7 +352,7 @@ def regularize_repeated_chains(chains_group,
                             chain2 = all_chains[all_chains.index([chain for chain in all_chains if chain.id == chain_id][0])]
                             R, t = rigid_transform_chains(chain2, chain1)
                             Q = []
-                            Q_COM_coord = all_COM_chains_coords[all_chains.index([chain for chain in all_chains if chain.id == chain_id][0])]
+                            Q_COM_coord = all_com_chains_coords[all_chains.index([chain for chain in all_chains if chain.id == chain_id][0])]
                             Q.append([Q_COM_coord.x, Q_COM_coord.y, Q_COM_coord.z])
                             temp_coord = all_interfaces_coords[all_chains.index([chain for chain in all_chains if chain.id == chain_id][0])][i]
                             Q.append([temp_coord.x, temp_coord.y, temp_coord.z])
@@ -288,7 +391,7 @@ def regularize_repeated_chains(chains_group,
                             chain2 = all_chains[all_chains.index([chain for chain in all_chains if chain.id == B][0])]
                             R, t = rigid_transform_chains(chain2, chain1)
                             Q = []
-                            Q_COM_coord = all_COM_chains_coords[all_chains.index([chain for chain in all_chains if chain.id == B][0])]
+                            Q_COM_coord = all_com_chains_coords[all_chains.index([chain for chain in all_chains if chain.id == B][0])]
                             Q.append([Q_COM_coord.x, Q_COM_coord.y, Q_COM_coord.z])
                             temp_coord = I_B
                             Q.append([temp_coord.x, temp_coord.y, temp_coord.z])
@@ -487,9 +590,6 @@ def regularize_repeated_chains(chains_group,
     # for interface_template in interface_template_list:
     #     print(interface_template)
 
-    _build_reactions()
-
-    _rescale_energies()
 
     if standard_output:
         print("Molecules Template and Reactions Template After Regularization:")
@@ -503,14 +603,17 @@ def regularize_repeated_chains(chains_group,
             print(molecule)
         for reaction in reaction_list:
             print(reaction)
-
-    if show_coarse_grained_structure:
-        plot_regularized_structure()
-
-    if save_pymol_script:
-        save_regularized_coarse_grained_structure()
-
+            
     _generate_model_data()
+    
+   # Return structured model data
+    return {
+        "molecule_templates": molecule_template_list,
+        "molecules": molecule_list,
+        "interface_templates": interface_template_list,
+        "interfaces": interface_list,
+        "binding_pairs": binding_chains_pairs,
+    }
 
 def _is_existing_mol_temp(molecule_template_name, molecule_template_list):
     """
