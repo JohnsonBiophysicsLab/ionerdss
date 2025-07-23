@@ -34,7 +34,7 @@ Part of the ioNERDSS modeling framework.
 import unittest
 import numpy as np
 import sys
-sys.path.append('/Users/msang/GitHub/ionerdss/')
+# sys.path.append('../')
 from ionerdss import SimpleGillespie, AdaptiveRates
 
 class TestReactionGillespie(unittest.TestCase):
