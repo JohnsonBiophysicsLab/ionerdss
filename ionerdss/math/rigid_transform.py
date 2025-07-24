@@ -3,7 +3,7 @@ import numpy as np
 def rigid_transform_3d(P, Q):
     """
     Compute the optimal rigid body transform (rotation R and translation t)
-    that aligns two 3D point sets P and Q.
+    that aligns two 3D point sets P and Q using Procrustes alignment.
 
     Parameters
     ----------
@@ -35,13 +35,13 @@ def rigid_transform_3d(P, Q):
     R = Vt.T @ U.T
 
     # Correct for reflection
+    # Make sure the transform does not include reflection / improper rotation
     if np.linalg.det(R) < 0:
         Vt[-1, :] *= -1
         R = Vt.T @ U.T
 
     t = Q_mean - R @ P_mean
     return R, t
-
 
 def apply_transform(R, t, X):
     """
