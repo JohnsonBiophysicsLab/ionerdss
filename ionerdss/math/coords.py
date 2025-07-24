@@ -85,7 +85,7 @@ class Coords:
 
     def to_tuple(self):
         return (self.x, self.y, self.z)
-    
+
     def to_numpy(self) -> np.ndarray:
         """
         Converts the Coords instance to a NumPy array.
@@ -94,6 +94,16 @@ class Coords:
             np.ndarray: A (3,) array representing [x, y, z].
         """
         return np.array([self.x, self.y, self.z], dtype=float)
+
+    def as_array(self) -> np.ndarray:
+        """
+        Alias for to_numpy(), 
+        Converts the Coords instance to a NumPy array.
+
+        Returns:
+            np.ndarray: A (3,) array representing [x, y, z].
+        """
+        return self.to_numpy()
 
     @classmethod
     def from_numpy(cls, arr: Union[np.ndarray, list, tuple]) -> "Coords":
