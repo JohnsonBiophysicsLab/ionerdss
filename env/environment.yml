@@ -1,25 +1,14 @@
-name: ionerdss_env
+# Conda environment for developing ionerdss
+# This file installs conda-based dependencies and then uses pip
+# to install the local ionerdss package in editable mode.
+name: ionerdss-dev
 channels:
   - conda-forge
 dependencies:
   - python=3.9
-  - pyqt
-  - numpy
-  - pandas
-  - matplotlib
-  - seaborn
-  - tqdm
-  - jupyter
-  - jupyterlab
-  - ipykernel
-  - scikit-learn
-  - pyqtgraph
-  - PyOpenGL
-  - scipy
-  - requests
-  - ipympl
-  - ipywidgets
-  - pytest
   - pip
+  - pyqt
   - pip:
-      - biopython
+      # Install the local package in editable mode with all optional dependencies
+      # This reads dependencies from pyproject.toml
+      - -e ..[full]
