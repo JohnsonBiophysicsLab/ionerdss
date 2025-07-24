@@ -24,16 +24,14 @@ Functions
 import numpy as np
 from ionerdss.math.rigid_transform import rigid_transform_3d
 
-def rigid_transform_chains(chain1_coords, chain2_coords):
+def rigid_transform_chains(chain1, chain2):
     """
     Convenience wrapper to align one chain to another using Cα or COM coordinates.
 
     Parameters
     ----------
-    chain1_coords : ndarray (N, 3)
-        Original coordinates to be aligned.
-    chain2_coords : ndarray (N, 3)
-        Target coordinates.
+    chain1
+    chain2
 
     Returns
     -------
@@ -42,7 +40,15 @@ def rigid_transform_chains(chain1_coords, chain2_coords):
     t : ndarray (3,)
         Translation vector.
     """
-    return rigid_transform_3d(chain1_coords, chain2_coords)
+    def extract_ca_coords(chain):
+        return np.array([
+            atom.get_coord() for residue in chain
+            if residue.get_id()[0] == ' '  # Exclude hetero/water
+            for atom in residue if atom.get_name() == 'CA'
+        ])
+
+    return rigid_transform_3d(extract_ca_coords(chain1),
+                              extract_ca_coords(chain2))
 
 
 def check_steric_clashes(pos1, pos2, r1, r2, buffer=0.0):
