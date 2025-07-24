@@ -35,24 +35,41 @@ dependencies = [
     "scipy",
     "scikit-learn",
     "requests",
-    "ipympl"
+    "ipympl",
+    "networkx"  # Core dependency for graph-based molecular modeling
 ]
 
 [project.optional-dependencies]
 # Dependencies for running the test suite
 test = ["pytest", "pytest-cov"]
 
-# Dependencies for the ODE/Gillespie solver functionality
-ode = ["networkx"]
-
 # Dependencies for advanced rendering with Ovito
 ovito_rendering = ["ovito", "imageio", "Pillow"]
 
-# Dependencies for local development (Jupyter, etc.)
-dev = ["jupyter", "jupyterlab", "ipykernel", "ipywidgets"]
+# Dependencies for interactive development (Jupyter notebooks)
+jupyter = ["jupyter", "jupyterlab", "ipykernel", "ipywidgets"]
 
-# A combined group to install all optional dependencies at once
-full = ["ioNERDSS[test,ode,ovito_rendering,dev]"]
+# Dependencies for building documentation
+docs = ["furo", "nbsphinx"]
+
+# Install all optional dependencies at once
+all = [
+    # test dependencies
+    "pytest", 
+    "pytest-cov",
+    # ovito_rendering dependencies
+    "ovito", 
+    "imageio", 
+    "Pillow",
+    # jupyter dependencies
+    "jupyter", 
+    "jupyterlab", 
+    "ipykernel", 
+    "ipywidgets",
+    # docs dependencies
+    "furo",
+    "nbsphinx"
+]
 
 [tool.setuptools]
 include-package-data = true

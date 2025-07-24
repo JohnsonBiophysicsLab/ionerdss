@@ -27,13 +27,24 @@ pip install "ioNERDSS[ode,ovito_rendering]"
 
 ### 2. For Development (from GitHub)
 
-If you want to contribute to the development, you can install the package in editable mode from a local clone of this repository.
+**Quick Start (Clone and Test):**
+```bash
+# Requires Python 3.9+
+git clone https://github.com/JohnsonBiophysicsLab/ionerdss.git
+cd ionerdss
+pip install -e ".[full]"
+pytest
+```
+
+**Detailed Setup for Contributors:**
+
+If you want to contribute to development, work with examples, or need a specific environment setup:
 
 **Prerequisites:**
 *   [Git](https://git-scm.com/)
 *   Python 3.9+
 *   Your choice of environment manager: `conda`, `venv`, etc.
-*   Optionally, [uv](https://github.com/astral-sh/uv) for faster performance.
+*   Optionally, [uv](https://github.com/astral-sh/uv) for faster performance
 
 **Setup Instructions:**
 
@@ -54,16 +65,16 @@ If you want to contribute to the development, you can install the package in edi
         ```bash
         python -m venv .venv
         source .venv/bin/activate  # On Windows: .venv\Scripts\activate
-        uv pip install -r env/requirements-dev.txt
+        uv pip install -e ".[full]"
         ```
     *   **Using `pip` and `venv`:**
         ```bash
         python -m venv .venv
         source .venv/bin/activate  # On Windows: .venv\Scripts\activate
-        pip install -r env/requirements-dev.txt
+        pip install -e ".[all]"
         ```
 
-This will install `ionerdss` in editable mode (`-e`) with all dependencies required for development and testing.
+This installs `ionerdss` in editable mode with all dependencies for development, testing, and running examples.
 
 ---
 
@@ -78,14 +89,38 @@ pytest
 
 ---
 
-## Quick Start
+## Usage
 
 ```python
 import ionerdss as ion
-# Example usage:
-# ion.some_function()
+
+# Create a PDB model from structure
+model = ion.PDBModel(pdb_id="1abc")
+model.generate_model()
+
+# Run analysis on simulation data
+analysis = ion.Analysis("path/to/simulation/data")
+analysis.plot_time_evolution()
 ```
-For extended examples, see the [tutorials](https://ionerdss.readthedocs.io/en/latest/ionerdss_tutorials.html).
+
+## Examples
+
+The `examples/` directory contains hands-on Jupyter notebooks demonstrating real molecular systems:
+
+- **`Homo-3mer-5VA4.ipynb`** - 3-component homogeneous assembly
+- **`Hetero-30mer-4YD9.ipynb`** - 30-component heterogeneous system  
+- **`Homo-720mer-6MX4.ipynb`** - Large 720-component viral capsid
+- **`book_chapter_example_system_1.ipynb`** - Comprehensive tutorial example
+
+To run the examples locally:
+```bash
+git clone https://github.com/JohnsonBiophysicsLab/ionerdss.git
+cd ionerdss
+pip install -e ".[jupyter]"  # Install with Jupyter support
+jupyter lab examples/
+```
+
+For additional tutorials, see the [online documentation](https://ionerdss.readthedocs.io/en/latest/ionerdss_tutorials.html).
 
 ### Run a quick trial with our server
 Go to the [NERDSS server](http://52.15.142.249:5000/).
@@ -99,21 +134,23 @@ Go to the [NERDSS server](http://52.15.142.249:5000/).
 You can also build the docs locally using Sphinx:
 ```bash
 # Ensure you are in your activated environment
-pip install ".[dev]"  # Install dev dependencies if you haven't already
-pip install sphinx
-sphinx-apidoc -o docs/source ionerdss
-cd docs
+pip install -e ".[docs]"  # Install documentation dependencies
+sphinx-apidoc -o website/source ionerdss
+cd website
 make html
 ```
-Then open `docs/build/html/index.html` in your browser.
+Then open `website/build/html/index.html` in your browser.
 
 ---
 
-## Develop using docker container:  
+## Docker Development Environment
+
+For isolated development with Jupyter Lab:
 ```bash
 docker build --no-cache -t ionerdss_dev . 
 docker run -it --rm -v $(pwd):/app -p 8888:8888 ionerdss_dev
 ```
+This creates a containerized environment with Jupyter Lab accessible at `http://localhost:8888`.
 
 ---
 
