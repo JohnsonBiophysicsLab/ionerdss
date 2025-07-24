@@ -154,7 +154,7 @@ class CoarseGrainedMolecule:
             name: str,
             template=None,
             coord=None,
-            interfaces=None,
+            interface_list=None,
             normal_point=None,
             translational_diffusion_constant=1.0,
             rotational_diffusion_constant=1.0,
@@ -185,14 +185,14 @@ class CoarseGrainedMolecule:
         self.name = name
         self.template = template
         self.coord = coord
-        self.interfaces = interfaces if interfaces is not None else []
+        self.interface_list = interface_list if interface_list is not None else []
         self.normal_point = normal_point
         self.translational_diffusion_constant = translational_diffusion_constant
         self.rotational_diffusion_constant = rotational_diffusion_constant
         self.radius = radius
 
     def __str__(self):
-        interfaces = "\n  ".join(str(interface) for interface in self.interfaces)
+        interfaces = "\n  ".join(str(interface) for interface in self.interface_list)
         return (f"CoarseGrainedMolecule: {self.name}\n"
                 f"  Template: {self.template}\n"
                 f"  Coordinates: {self.coord}\n"
