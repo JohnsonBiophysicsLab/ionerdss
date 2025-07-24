@@ -13,7 +13,7 @@ authors = [
     { name = "Sikao Guo", email = "sikaoguo@gmail.com" },
     { name = "Mankun Sang", email = "msang2@jhu.edu" }
 ]
-requires-python = ">=3.8"
+requires-python = ">=3.9"
 keywords = ["NERDSS Simulation", "Model Setup", "Analysis Tools"]
 classifiers = [
     "Development Status :: 5 - Production/Stable",
@@ -35,14 +35,24 @@ dependencies = [
     "scipy",
     "scikit-learn",
     "requests",
-    "ipympl",
-    "jupyter",
-    "notebook"
+    "ipympl"
 ]
 
 [project.optional-dependencies]
+# Dependencies for running the test suite
+test = ["pytest", "pytest-cov"]
+
+# Dependencies for the ODE/Gillespie solver functionality
+ode = ["networkx"]
+
+# Dependencies for advanced rendering with Ovito
 ovito_rendering = ["ovito", "imageio", "Pillow"]
-tests = ["pytest", "pytest-cov"]
+
+# Dependencies for local development (Jupyter, etc.)
+dev = ["jupyter", "jupyterlab", "ipykernel", "ipywidgets"]
+
+# A combined group to install all optional dependencies at once
+full = ["ioNERDSS[test,ode,ovito_rendering,dev]"]
 
 [tool.setuptools]
 include-package-data = true
