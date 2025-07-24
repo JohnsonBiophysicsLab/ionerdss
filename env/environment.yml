@@ -9,6 +9,6 @@ dependencies:
   - pip
   - pyqt
   - pip:
-      # Install the local package in editable mode with all optional dependencies
+      # Install the local package in editable mode with typical dev dependencies
       # This reads dependencies from pyproject.toml
-      - -e ..[full]
+      - -e .[test,jupyter]

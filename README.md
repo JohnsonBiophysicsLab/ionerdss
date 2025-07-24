@@ -32,7 +32,7 @@ pip install "ioNERDSS[ode,ovito_rendering]"
 # Requires Python 3.9+
 git clone https://github.com/JohnsonBiophysicsLab/ionerdss.git
 cd ionerdss
-pip install -e ".[full]"
+pip install -e ".[test,jupyter]"  # Essential dev dependencies
 pytest
 ```
 
@@ -65,16 +65,21 @@ If you want to contribute to development, work with examples, or need a specific
         ```bash
         python -m venv .venv
         source .venv/bin/activate  # On Windows: .venv\Scripts\activate
-        uv pip install -e ".[full]"
+        uv pip install -r env/requirements-dev.txt
         ```
     *   **Using `pip` and `venv`:**
         ```bash
         python -m venv .venv
         source .venv/bin/activate  # On Windows: .venv\Scripts\activate
-        pip install -e ".[all]"
+        pip install -r env/requirements-dev.txt
         ```
 
-This installs `ionerdss` in editable mode with all dependencies for development, testing, and running examples.
+This installs `ionerdss` in editable mode with testing and Jupyter dependencies for typical development.
+
+**For comprehensive development** (including heavy rendering and documentation tools):
+```bash
+pip install -e ".[all]"
+```
 
 ---
 

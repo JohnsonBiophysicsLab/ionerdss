@@ -49,7 +49,7 @@ jobs:
       - uses: tlambert03/setup-qt-libs@v1
 
       - name: Install package in editable mode with all dependencies
-        run: pip install -r env/requirements-dev.txt
+        run: pip install -e .[all]
 
       - name: Configure headless Qt
         run: echo "QT_QPA_PLATFORM=offscreen" >> $GITHUB_ENV   #avoids xcb/display errors, according to the web
