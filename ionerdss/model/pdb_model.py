@@ -18,8 +18,14 @@ from Bio.Align import PairwiseAligner
 from Bio.SeqUtils import seq1
 from scipy.spatial import KDTree
 from sklearn.cluster import KMeans
-from .components import MoleculeType, MoleculeInterface, Reaction, Model
+from .components import MoleculeType, MoleculeInterface, Reaction, Model, MoleculeTemplate, CoarseGrainedMolecule, BindingInterfaceTemplate
+from .pdb.geometry import rigid_transform_chains
 from ..math.coords import Coords
+
+
+def apply_rigid_transform(R, t, point):
+    """Apply rigid transformation (rotation R + translation t) to a point."""
+    return R @ point + t
 
 
 class PDBModel(Model):
