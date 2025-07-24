@@ -1,5 +1,5 @@
 """
-repeated_chain_alignment.py
+regularize_repeats.py
 
 Provides utilities to reindex and relabel coarse-grained chain/interface data into a 
 canonical, compact format for further modeling and export.
