@@ -176,7 +176,7 @@ def _find_repeated_chains_by_sequence(chains,
     else:
         aligner = custom_aligner
 
-    groups = []
+    chains_groups = []
     visited = set()
 
     for i in range(len(chains)):
@@ -199,11 +199,16 @@ def _find_repeated_chains_by_sequence(chains,
                 group.append(cj)
                 visited.add(cj)
         visited.update(group)
-        groups.append(group)
+        chains_groups.append(group)
 
-    chains_map = {c: group[0] for group in groups for c in group}
+    chains_map = {c: group[0] for group in chains_groups for c in group}
 
-    print(f"{len(groups)} homologous chain groups identified:")
+    print(f"{len(chains_groups)} homologous chain groups identified:")
     print(chains_map)
 
-    return chains_map, groups
+    # sort output
+    for group in chains_groups:
+        group.sort()
+    chains_groups.sort()
+
+    return chains_map, chains_groups
