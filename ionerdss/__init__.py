@@ -10,35 +10,52 @@ logging.basicConfig(level=logging.WARNING)
 class LazyLoader:
     """Transparent lazy module loader"""
     def __init__(self, module_path, attribute=None):
-        self.module_path = module_path
-        self.attribute = attribute
-        self.loaded_module = None
-        self.loaded_attribute = None
+        self._module_path = module_path
+        self._attribute = attribute
+        self._loaded_module = None
+        self._loaded_attribute = None
     
     def __call__(self, *args, **kwargs):
         """Support calling the lazy-loaded object directly"""
-        if self.loaded_attribute is None:
-            if self.loaded_module is None:
+        if self._loaded_attribute is None:
+            if self._loaded_module is None:
                 import importlib
-                self.loaded_module = importlib.import_module(self.module_path, package="ionerdss")
+                self._loaded_module = importlib.import_module(self._module_path, package="ionerdss")
             
-            self.loaded_attribute = getattr(self.loaded_module, self.attribute) if self.attribute else self.loaded_module
+            self._loaded_attribute = getattr(self._loaded_module, self._attribute) if self._attribute else self._loaded_module
         
-        if callable(self.loaded_attribute):
-            return self.loaded_attribute(*args, **kwargs)
-        raise TypeError(f"{self.attribute} is not callable")
+        if callable(self._loaded_attribute):
+            return self._loaded_attribute(*args, **kwargs)
+        raise TypeError(f"{self._attribute} is not callable")
             
     def __getattr__(self, name):
         """Access attributes of the lazy-loaded module/object"""
-        if self.loaded_module is None:
+        if self._loaded_module is None:
             import importlib
-            self.loaded_module = importlib.import_module(self.module_path, package="ionerdss")
+            self._loaded_module = importlib.import_module(self._module_path, package="ionerdss")
         
-        if self.attribute:
-            if self.loaded_attribute is None:
-                self.loaded_attribute = getattr(self.loaded_module, self.attribute)
-            return getattr(self.loaded_attribute, name)
-        return getattr(self.loaded_module, name)
+        if self._attribute:
+            if self._loaded_attribute is None:
+                self._loaded_attribute = getattr(self._loaded_module, self._attribute)
+            return getattr(self._loaded_attribute, name)
+        return getattr(self._loaded_module, name)
+    
+    # def __dir__(self):
+    #     """
+    #     Provide attributes for autocompletion by parsing __all__.
+        
+    #     This method is called by dir() and IDEs. It attempts to parse
+    #     __all__ from the source file for speed. If that fails or is not
+    #     available, it falls back to importing the module.
+    #     """
+    #     if self._attribute:
+
+    #     else:
+    #         if self._loaded_module is None:
+    #             import importlib
+    #             self._loaded_module = importlib.import_module(self._module_path, package="ionerdss")
+        
+    #     return 
 
 # Lazily load core classes
 Model = LazyLoader('.model.model', 'Model')

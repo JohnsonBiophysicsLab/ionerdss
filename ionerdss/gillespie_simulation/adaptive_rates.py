@@ -1,3 +1,7 @@
+__all__ = [
+    "adaptive_bimolecular_rate_1D",
+]
+
 import numpy as np
 def adaptive_bimolecular_rate_1D(
         ratelist, y_curr, reactant_matrix:np.ndarray, Length,

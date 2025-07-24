@@ -33,7 +33,7 @@ Part of the ioNERDSS modeling framework.
 
 import unittest
 import numpy as np
-import sys
+# import sys
 # sys.path.append('../')
 from ionerdss import SimpleGillespie, AdaptiveRates
 

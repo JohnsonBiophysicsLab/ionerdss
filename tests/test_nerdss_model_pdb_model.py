@@ -3,7 +3,8 @@ import json
 import math
 import tempfile
 from pathlib import Path
-
+# import sys
+# sys.path.append('/home/local/WIN/msang2/mankun/GitHub/ionerdss')
 from ionerdss import PDBModel, ParseComplexes
 
 

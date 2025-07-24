@@ -9,7 +9,23 @@ Docstrings and comments are helped written by GPT3.5 and GPT API
 
 @author: MYING
 @email: yying7@jh.edu
+
+@Modified by MSANG
+@email: msang2@jh.edu
 """
+
+__all__ = [
+    "run_Gillespie",
+    "convert_to_microscopic_rate_constants",
+    "rate_constants_volume_correction",
+    "calculate_propensity",
+    "update_rates",
+    "update_rates",
+    "gillespie_simulation",
+]
+
+
+
 import numpy as np
 import math
 
