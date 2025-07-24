@@ -10,7 +10,6 @@ from .coarse_grain import coarse_grain_structure
 from .detect_repeats import identify_repeated_chains
 from .regularize_repeats import regularize_repeated_chains
 from .reaction import build_binding_reactions
-from .capsid_sphere_pipeline import run_capsid_pipeline  # new module for spherical gag pipeline
 from ..components import Model  # assuming you have a base Model class
 
 class PDBModel(Model):
@@ -44,7 +43,7 @@ class PDBModel(Model):
 
         # Initialize metadata
         self.chains_map = {}
-        self.chains_group = []
+        self.chains_groups = []
 
     def run_pipeline(self, options=None):
         """Runs the full model generation pipeline.
@@ -57,42 +56,51 @@ class PDBModel(Model):
             - 'save_cif': bool
             - 'is_on_sphere': bool (if True, run spherical capsid pipeline)
         """
-        options = options or {}
-
-
 
         # 1. Coarse-grain the structure
-        cg_result = coarse_grain_structure(self.structure, options=options)
+        cg_model = coarse_grain_structure(self.structure)
 
+        # returned cg model is a dictionary with the following k,v pairs
+        # {
+        # 'chains': chains,
+        # 'COMs': coms,
+        # 'radii': chain_radii,
+        # 'interfaces': interfaces,
+        # 'interface_coords': interface_coords,
+        # 'interface_residues': interface_residues,
+        # 'interface_energies': interface_energies,
+        # }
+
+        
         # 2. Identify repeated chains
-        self.chains_map, self.chains_group = identify_repeated_chains(
+        self.chains_map, self.chains_groups = identify_repeated_chains(
             self.pdb_file, self.structure
         )
 
         # 3. Regularize molecules (alignment, interface generation)
-        model_data = regularize_repeated_chains(
-            cg_result, self.chains_map, self.chains_group
+        regularized_model_data = regularize_repeated_chains(
+            cg_model, self.chains_map, self.chains_groups
         )
 
         # 4. Generate reactions
-        reactions = build_binding_reactions(model_data)
+        # reactions = build_binding_reactions(regularized_model_data)
 
         # 5. Rescale energies (optional)
         # rescale_reaction_energies(reactions)  # Uncomment if needed
 
         # If modeling a spherical capsid, use the alternate pipeline
-        if options.get("is_on_sphere"):
-            run_spherical_pipeline(self.pdb_file, self.save_dir, options)
-            print("Capsid pipeline completed.")
-            return
+        #if options.get("is_on_sphere"):
+        #    run_spherical_pipeline(self.pdb_file, self.save_dir, options)
+        #    print("Capsid pipeline completed.")
+        #    return
 
         # 6. Save model files
-        self.save_model(self.pdb_id + "_model.json", model_data, reactions)
+        #self.save_model(self.pdb_id + "_model.json", regularized_model_data, reactions)
 
         # 7. Optionally plot or write CIFs
-        if options.get("plot"):
-            plot_structure(model_data, self.save_dir)
-        if options.get("save_cif"):
-            save_structure_outputs(model_data, self.save_dir)
+        #if options.get("plot"):
+        #    plot_structure(regularized_model_data, self.save_dir)
+        #if options.get("save_cif"):
+        #    save_structure_outputs(regularized_model_data, self.save_dir)
 
         print("Pipeline completed.")
