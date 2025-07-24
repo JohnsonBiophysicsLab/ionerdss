@@ -33,14 +33,14 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
           cache: pip                       # built‑in dependency+wheel cache
-          cache-dependency-path: env/requirements-full.txt
+          cache-dependency-path: env/requirements-dev.txt
 
       #Extra cache layer: pre‑built wheels in ~/.cache/pip so can work between OS/versions
       - name: Cache compiled pip wheels
         uses: actions/cache@v4             
         with:
           path: ~/.cache/pip
-          key: ${{ runner.os }}-pip-${{ matrix.python-version }}-${{ hashFiles('env/requirements-full.txt') }}
+          key: ${{ runner.os }}-pip-${{ matrix.python-version }}-${{ hashFiles('env/requirements-dev.txt') }}
           restore-keys: |
             ${{ runner.os }}-pip-${{ matrix.python-version }}
             ${{ runner.os }}-pip-
@@ -48,11 +48,8 @@ jobs:
       # Qt/OpenGL runtime (Linux only; no‑op elsewhere as stated in the action repo, mac shouldn't need it)
       - uses: tlambert03/setup-qt-libs@v1
 
-      - name: Install project dependencies
-        run: pip install -r env/requirements-full.txt
-
-      - name: Install package in editable mode
-        run: pip install -e .[tests] # optional pytest/pytest-cov deps as defined in toml file
+      - name: Install package in editable mode with test dependencies
+        run: pip install -e .[test]
 
       - name: Configure headless Qt
         run: echo "QT_QPA_PLATFORM=offscreen" >> $GITHUB_ENV   #avoids xcb/display errors, according to the web

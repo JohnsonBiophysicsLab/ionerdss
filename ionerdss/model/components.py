@@ -145,7 +145,7 @@ class CoarseGrainedMolecule:
         name (str): Identifier of the molecule.
         my_template (MoleculeTemplate): Reference to the associated molecule template.
         coord (Coords): Center-of-mass coordinates.
-        interface_list (list): List of binding interfaces.
+        interfaces (list): List of binding interfaces.
         normal_point (list): Normal vector direction.
     """
 
@@ -171,7 +171,7 @@ class CoarseGrainedMolecule:
             Reference structure or coordinate template.
         coord : Any, optional
             Center of mass coordinates or 3D origin of the molecule.
-        interface_list : list, optional
+        interfaces : list, optional
             List of interaction site coordinates.
         normal_point : Any, optional
             Optional orientation vector or normal.
@@ -279,8 +279,8 @@ class Model:
                     "interfaces": [
                         {"name": iface.name, "coord": iface.coord} for iface in mol.interfaces
                     ],
-                    "diffusion_translation": mol.diffusion_translation,
-                    "diffusion_rotation": mol.diffusion_rotation,
+                    "diffusion_translation": mol.translational_diffusion_constant,
+                    "diffusion_rotation": mol.rotational_diffusion_constant,
                 }
                 for mol in self.molecule_types
             ],
