@@ -48,8 +48,8 @@ jobs:
       # Qt/OpenGL runtime (Linux only; no‑op elsewhere as stated in the action repo, mac shouldn't need it)
       - uses: tlambert03/setup-qt-libs@v1
 
-      - name: Install package in editable mode with all dependencies
-        run: pip install -e .[all]
+      - name: Install package in editable mode with test dependencies
+        run: pip install -e .[test]
 
       - name: Configure headless Qt
         run: echo "QT_QPA_PLATFORM=offscreen" >> $GITHUB_ENV   #avoids xcb/display errors, according to the web
