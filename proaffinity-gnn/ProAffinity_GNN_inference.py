@@ -794,6 +794,7 @@ def run_proaffinity_inference(
     return dG
 
 # Example usage
-if __name__ == "__main__": run_proaffinity_inference("8y7s.pdb", "A,B")
+if __name__ == "__main__": 
+        run_proaffinity_inference("./pdbfiles/1i4d.pdbqt", "HL,F", verbose=True)
 
 
