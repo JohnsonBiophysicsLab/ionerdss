@@ -48,6 +48,8 @@ THE SOFTWARE.
 
 import numpy as np
 
+from ionerdss.math.coords import Coords
+
 def angles_between_vector_and_vectors(reference_vec, targets, tol=1e-5):
     """
     Compute angles (in radians) between a reference vector and each row in a matrix.
@@ -82,28 +84,43 @@ def angles_between_vector_and_vectors(reference_vec, targets, tol=1e-5):
             angles.append(np.arccos(cos_theta))
     return np.array(angles)
 
-def angles_from_points(p1, p2, p3, complementary = True):
+def angles_from_points(p1, p2, p3):
     """
-    Calculates the angles at point p2 formed by vectors p1->p2 and p2->p3.
+    Compute the angle formed at p2 between the vectors p1->p2 and p3->p2.
 
-    Args:
-        p1 (Coords): The first points.
-        p2 (Coords): The vertex points where the angle is calculated.
-        p3 (Coords): The third points.
+    Supports both scalar (1×3) and batch (N×3) inputs.
 
     Returns:
-        float: The angle in degrees.
+        float or np.ndarray: Angle(s) in radians.
     """
-    p1 = np.asarray(p1)
-    p2 = np.asarray(p2)
-    p3 = np.asarray(p3)
+    def to_array(x):
+        if isinstance(x, Coords):
+            return x.as_array()
+        elif isinstance(x, list):
+            return np.array([c.as_array() if isinstance(c, Coords) else np.asarray(c) for c in x], dtype=float)
+        x = np.asarray(x)
+        if x.ndim == 1:
+            return x
+        elif x.ndim == 2 and x.shape[1] == 3:
+            return x
+        elif x.ndim == 2 and x.shape[0] == 3:
+            return x.T
+        else:
+            raise ValueError("Input must be shape (3,) or (N, 3)")
 
-    v1 = p2 - p1
-    v2 = p3 - p2
-    theta = np.arccos(np.einsum("ij,ij->i", v1, v2) / (np.linalg.norm(v1, axis = 1) * np.linalg.norm(v2, axis = 1)))
-    if complementary:
-        return theta
-    return np.pi - theta
+    v1 = to_array(p1) - to_array(p2)
+    v2 = to_array(p3) - to_array(p2)
+
+    v1 = np.atleast_2d(v1)
+    v2 = np.atleast_2d(v2)
+
+    dot = np.einsum("ij,ij->i", v1, v2)
+    norm = np.linalg.norm(v1, axis=1) * np.linalg.norm(v2, axis=1)
+
+    cos_theta = np.clip(dot / norm, -1.0, 1.0)
+    angles = np.arccos(cos_theta)
+
+    return angles[0] if angles.shape[0] == 1 else angles
 
 def dihedrals_from_points(p1, p2, p3, p4, tol=1e-8):
     """
