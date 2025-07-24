@@ -120,7 +120,10 @@ from ionerdss.math.coords import Coords
 from ionerdss.model.pdb.energy_table import get_default_energy_table
 
 # Optimized pairwise computation: merge residue pair loop using vectorized dot product
-def compute_interface(residues_i, residues_j, energy_table, distance_cutoff, residue_cutoff):
+def compute_interface(residues_i, residues_j,
+                      energy_table,
+                      distance_cutoff,
+                      residue_cutoff):
     """
     Optimized version of coarse_grain_structure to detect coarse-grained interfaces between chains.
 
@@ -184,7 +187,10 @@ def compute_interface(residues_i, residues_j, energy_table, distance_cutoff, res
         return com_i, com_j, iface_i_ids, iface_j_ids, total_energy
     return None
 
-def coarse_grain_structure(structure, distance_cutoff=0.35, residue_cutoff=3):
+def coarse_grain_structure(structure,
+                           distance_cutoff=0.35,
+                           residue_cutoff=3,
+                           energy_table=None):
     """
     Analyze a Biopython structure to identify chain COMs and binding interfaces.
 
@@ -215,7 +221,10 @@ def coarse_grain_structure(structure, distance_cutoff=0.35, residue_cutoff=3):
     interface_residues = [[] for _ in range(num_chains)]
     interface_energies = [[] for _ in range(num_chains)]
 
-    energy_table = get_default_energy_table()
+    # set energy_table to default if it is None
+    # see ionerdss.model.pdb.energy_table
+    if energy_table is None:
+        energy_table = get_default_energy_table()
 
     for chain in chains:
         # get the coordinates of all atoms that is within an amino acid in a chain
