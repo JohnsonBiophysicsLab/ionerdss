@@ -14,15 +14,18 @@ Docstrings and comments are helped written by GPT3.5 and GPT API
 @email: msang2@jh.edu
 """
 
+# >>>>>> For autocompletion >>>>>>
 __all__ = [
     "run_Gillespie",
     "convert_to_microscopic_rate_constants",
     "rate_constants_volume_correction",
     "calculate_propensity",
     "update_rates",
-    "update_rates",
     "gillespie_simulation",
 ]
+def __dir__():
+    return __all__
+# <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
 
 
 

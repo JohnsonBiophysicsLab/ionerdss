@@ -1,134 +1,142 @@
-# ionerdss/__init__.py
+"""
+ionerdss: A user-friendly toolkit for setting up
+NERDSS simulations and analyzing results.
+================================================
 
-# setup logging level
+Documentation is available in the docstrings and
+online at https://ionerdss.readthedocs.io/en/
+
+Subpackages
+-----------
+::
+
+ Simulation                   --- Main class for running simulations.
+ Analysis                     --- Main class for analyzing simulation data.
+ Model                        --- The core model class for defining the system.
+ MoleculeType                 --- Defines a type of molecule in the model.
+ MoleculeInterface            --- Defines the binding interface for a molecule.
+ ReactionType                 --- Defines a type of reaction in the model.
+ Coords                       --- Represents 3D coordinates.
+ PDBModel                     --- Creates a model from a PDB file.
+ DesignModel                  --- A model for designing molecular structures.
+ PlatonicSolid                --- Class for generating platonic solid geometries.
+ generate_ode_model_from_pdb  --- Generates an ODE model from PDB complexes.
+ ParseComplexes               --- Alias for generate_ode_model_from_pdb.
+ ReactionStringParser         --- Parses reaction definitions from a string.
+ solve_reaction_ode           --- Solves reaction kinetics using Ordinary Differential Equations (ODEs).
+ reaction_dydt                --- The rate-of-change function (dy/dt) for the ODE solver.
+ calculate_macroscopic_reaction_rates --- Calculates macroscopic reaction rates from microscopic parameters.
+ SimpleGillespie              --- Implements the Gillespie stochastic simulation algorithm (SSA).
+ AdaptiveRates                --- Implements adaptive rate constants for simulations.
+ gui                          --- Launches the main graphical user interface.
+ pdb_gui                      --- A specific GUI for PDB file manipulation and viewing.
+ cube_face                    --- Component class for a cube face.
+ cube_vert                    --- Component class for a cube vertex.
+ dode_face                    --- Component class for a dodecahedron face.
+ dode_vert                    --- Component class for a dodecahedron vertex.
+ icos_face                    --- Component class for an icosahedron face.
+ icos_vert                    --- Component class for an icosahedron vertex.
+ octa_face                    --- Component class for an octahedron face.
+ octa_vert                    --- Component class for an octahedron vertex.
+ tetr_face                    --- Component class for a tetrahedron face.
+ tetr_vert                    --- Component class for a tetrahedron vertex.
+ convert_simularium           --- Converts simulation data to the Simularium format.
+ DataIO                       --- Handles reading and writing of simulation data.
+
+Public API in the main ionerdss namespace
+-----------------------------------------
+::
+ 
+ __version__       --- SciPy version string
+
+"""
+
+# >>>>>>>>>>>>>>>> setup logging level >>>>>>>>>>>>>>>> 
 # TODO: Take user input to setup logging level. 
 # This might be done when creating Analysis instance.
-import logging
+import logging as _logging
+_logging.basicConfig(level=_logging.WARNING)
+# <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
 
-logging.basicConfig(level=logging.WARNING)
-
-class LazyLoader:
-    """Transparent lazy module loader"""
-    def __init__(self, module_path, attribute=None):
-        self._module_path = module_path
-        self._attribute = attribute
-        self._loaded_module = None
-        self._loaded_attribute = None
-    
-    def __call__(self, *args, **kwargs):
-        """Support calling the lazy-loaded object directly"""
-        if self._loaded_attribute is None:
-            if self._loaded_module is None:
-                import importlib
-                self._loaded_module = importlib.import_module(self._module_path, package="ionerdss")
-            
-            self._loaded_attribute = getattr(self._loaded_module, self._attribute) if self._attribute else self._loaded_module
-        
-        if callable(self._loaded_attribute):
-            return self._loaded_attribute(*args, **kwargs)
-        raise TypeError(f"{self._attribute} is not callable")
-            
-    def __getattr__(self, name):
-        """Access attributes of the lazy-loaded module/object"""
-        if self._loaded_module is None:
-            import importlib
-            self._loaded_module = importlib.import_module(self._module_path, package="ionerdss")
-        
-        if self._attribute:
-            if self._loaded_attribute is None:
-                self._loaded_attribute = getattr(self._loaded_module, self._attribute)
-            return getattr(self._loaded_attribute, name)
-        return getattr(self._loaded_module, name)
-    
-    # def __dir__(self):
-    #     """
-    #     Provide attributes for autocompletion by parsing __all__.
-        
-    #     This method is called by dir() and IDEs. It attempts to parse
-    #     __all__ from the source file for speed. If that fails or is not
-    #     available, it falls back to importing the module.
-    #     """
-    #     if self._attribute:
-
-    #     else:
-    #         if self._loaded_module is None:
-    #             import importlib
-    #             self._loaded_module = importlib.import_module(self._module_path, package="ionerdss")
-        
-    #     return 
-
-# Lazily load core classes
-Model = LazyLoader('.model.model', 'Model')
-MoleculeType = LazyLoader('.model.model', 'MoleculeType')
-MoleculeInterface = LazyLoader('.model.model', 'MoleculeInterface')
-ReactionType = LazyLoader('.model.model', 'ReactionType')
-Coords = LazyLoader('.model.coords', 'Coords')
-PDBModel = LazyLoader('.model.pdb_model', 'PDBModel')
-DesignModel = LazyLoader('.model.design_model', 'DesignModel')
-PlatonicSolid = LazyLoader('.model.PlatonicSolids', 'PlatonicSolid')
-# Standard, preferred name
-generate_ode_model_from_pdb = LazyLoader('.model.complex', 'generate_ode_model_from_pdb')
-# Backward-compatible alias
-ParseComplexes = generate_ode_model_from_pdb
-ReactionStringParser = LazyLoader('.ode_solver.reaction_string_parser', 'ReactionStringParser')
-solve_reaction_ode = LazyLoader('.ode_solver.reaction_ode_solver', 'solve_reaction_ode')
-reaction_dydt = LazyLoader('.ode_solver.reaction_ode_solver', 'dydt')
-calculate_macroscopic_reaction_rates = LazyLoader('.ode_solver.reaction_ode_solver', 'calculate_macroscopic_reaction_rates')
-# Gillespie simulation related
-SimpleGillespie = LazyLoader('.gillespie_simulation.simple_gillespie')
-AdaptiveRates = LazyLoader('.gillespie_simulation.adaptive_rates')
-# GUI
-gui = LazyLoader('.nerdss_guis.gui', 'gui')
-pdb_gui = LazyLoader('.nerdss_guis.nerdss', 'nerdss')
-cube_face = LazyLoader('.model.platonic_solids.cube.cube_face', 'cube_face')
-cube_vert = LazyLoader('.model.platonic_solids.cube.cube_vert', 'cube_vert')
-dode_face = LazyLoader('.model.platonic_solids.dode.dode_face', 'dode_face')
-dode_vert = LazyLoader('.model.platonic_solids.dode.dode_vert', 'dode_vert')
-icos_face = LazyLoader('.model.platonic_solids.icos.icos_face', 'icos_face')
-icos_vert = LazyLoader('.model.platonic_solids.icos.icos_vert', 'icos_vert')
-octa_face = LazyLoader('.model.platonic_solids.octa.octa_face', 'octa_face')
-octa_vert = LazyLoader('.model.platonic_solids.octa.octa_vert', 'octa_vert')
-tetr_face = LazyLoader('.model.platonic_solids.tetr.tetr_face', 'tetr_face')
-tetr_vert = LazyLoader('.model.platonic_solids.tetr.tetr_vert', 'tetr_vert')
-convert_simularium = LazyLoader('.simularium_converter.simularium_converter', 'convert_simularium')
+# >>>>>>>>>>>>>>>> Version information >>>>>>>>>>>>>>>>
+try:
+    import pkg_resources
+    __version__ = pkg_resources.get_distribution("ioNERDSS").version
+except:
+    __version__ = "unknown (This might be a local copy)"
+# <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
 
 
-# Lazily load simulation and analysis modules
-Simulation = LazyLoader('.nerdss_simulation.simulation', 'Simulation')
-Analysis = LazyLoader('.nerdss_analysis.analysis', 'Analysis')
-DataIO = LazyLoader('.nerdss_analysis.data_readers', 'DataIO')
+import importlib as _importlib
 
-def configure_plotting():
-    """Configure plotting styles - only call this when you're ready to plot."""
-    import seaborn as sns
-    fontsize = 12
-    sns.set_style("ticks")
-    sns.set_context("paper", rc={
-        "font.size": fontsize,
-        "axes.titlesize": fontsize,
-        "axes.labelsize": fontsize,
-        "xtick.labelsize": fontsize,
-        "ytick.labelsize": fontsize,
-        "legend.fontsize": fontsize,
-        "font.family": "serif"
-    })
 
-# Version information - only computed when __version__ is accessed
-def _get_version():
-    try:
-        import pkg_resources
-        return pkg_resources.get_distribution("ioNERDSS").version
-    except:
-        return "unknown"
+# A mapping from public API names to their internal module locations.
+# Structure:
+#     'PublicAPIName': ['.internal.module.path', 'ClassName']
+submodules = {
+    'Model': ['.model.model', 'Model'],
+    'MoleculeType': ['.model.model', 'MoleculeType'],
+    'MoleculeInterface': ['.model.model', 'MoleculeInterface'],
+    'ReactionType': ['.model.model', 'ReactionType'],
+    'Coords': ['.model.coords', 'Coords'],
+    'PDBModel': ['.model.pdb_model', 'PDBModel'],
+    'DesignModel': ['.model.design_model', 'DesignModel'],
+    'PlatonicSolid': ['.model.PlatonicSolids', 'PlatonicSolid'],
+    'generate_ode_model_from_pdb': ['.model.complex', 'generate_ode_model_from_pdb'],
+    'ParseComplexes': ['.model.complex', 'generate_ode_model_from_pdb'],
+    'ReactionStringParser': ['.ode_solver.reaction_string_parser', 'ReactionStringParser'],
+    'solve_reaction_ode': ['.ode_solver.reaction_ode_solver', 'solve_reaction_ode'],
+    'reaction_dydt': ['.ode_solver.reaction_ode_solver', 'dydt'],
+    'calculate_macroscopic_reaction_rates': ['.ode_solver.reaction_ode_solver', 'calculate_macroscopic_reaction_rates'],
+    'SimpleGillespie': ['.gillespie_simulation.simple_gillespie', ''],
+    'AdaptiveRates': ['.gillespie_simulation.adaptive_rates', ''],
+    'gui': ['.nerdss_guis.gui', 'gui'],
+    'pdb_gui': ['.nerdss_guis.nerdss', 'nerdss'],
+    'cube_face': ['.model.platonic_solids.cube.cube_face', 'cube_face'],
+    'cube_vert': ['.model.platonic_solids.cube.cube_vert', 'cube_vert'],
+    'dode_face': ['.model.platonic_solids.dode.dode_face', 'dode_face'],
+    'dode_vert': ['.model.platonic_solids.dode.dode_vert', 'dode_vert'],
+    'icos_face': ['.model.platonic_solids.icos.icos_face', 'icos_face'],
+    'icos_vert': ['.model.platonic_solids.icos.icos_vert', 'icos_vert'],
+    'octa_face': ['.model.platonic_solids.octa.octa_face', 'octa_face'],
+    'octa_vert': ['.model.platonic_solids.octa.octa_vert', 'octa_vert'],
+    'tetr_face': ['.model.platonic_solids.tetr.tetr_face', 'tetr_face'],
+    'tetr_vert': ['.model.platonic_solids.tetr.tetr_vert', 'tetr_vert'],
+    'convert_simularium': ['.simularium_converter.simularium_converter', 'convert_simularium'],
+    'Simulation': ['.nerdss_simulation', 'Simulation'],
+    'Analysis': ['.analysis', 'Analyzer'],
+}
 
-# Define __version__ as a property
-class VersionProperty:
-    def __get__(self, obj, objtype=None):
-        return _get_version()
+__all__ = list(submodules.keys()) + [
+    '__version__',
+]
 
-class _ModuleProperties:
-    __version__ = VersionProperty()
+def __dir__():
+    return __all__
 
-# Apply the properties
-import sys
-sys.modules[__name__].__class__ = type("ionerdss", (sys.modules[__name__].__class__, _ModuleProperties), {})
+_module_loaded = {}
+
+def _get_module(module_path):
+    if module_path in _module_loaded:
+        module = _module_loaded[module_path]
+    else:
+        module = _importlib.import_module(module_path, package='ionerdss')
+        _module_loaded.update({module_path:module})
+    return module
+
+def __getattr__(name):
+    if name in submodules:
+        _module_path, _attribute = submodules[name]
+        if bool(_attribute):
+            _module = _get_module(_module_path)
+            return getattr(_module, _attribute)
+        else:
+            return _get_module(_module_path)
+    else:
+        try:
+            return globals()[name]
+        except KeyError:
+            raise AttributeError(
+                f"Module 'ionerdss' has no attribute '{name}'"
+            )
+

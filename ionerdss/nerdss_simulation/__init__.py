@@ -1,2 +1,11 @@
 # ionerdss/nerdss_simulation/__init__.py
-# This file is purposely left empty to avoid imports at package initialization
+
+from .simulation import Simulation
+
+# >>>>>> For autocompletion >>>>>>
+__all__ = [
+    'Simulation',
+]
+def __dir__():
+    return __all__
+# <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
