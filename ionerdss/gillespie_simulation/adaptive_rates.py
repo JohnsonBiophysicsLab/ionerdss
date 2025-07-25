@@ -1,6 +1,18 @@
+"""
+This script contains functions for calculating adaptive 
+rates in 1D (2D in future) bimolecular reactions
+
+@author: MSANG
+@email: msang2@jh.edu
+"""
+
+# >>>>>> For autocompletion >>>>>>
 __all__ = [
     "adaptive_bimolecular_rate_1D",
 ]
+def __dir__():
+    return __all__
+# <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
 
 import numpy as np
 def adaptive_bimolecular_rate_1D(
