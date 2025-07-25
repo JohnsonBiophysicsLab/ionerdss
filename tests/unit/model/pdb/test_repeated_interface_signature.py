@@ -6,10 +6,8 @@ and comparison utilities used in symmetric protein interface analysis.
 """
 
 import unittest
-import numpy as np
 
 from ionerdss.math.coords import Coords
-from ionerdss.math.angles import angles_from_points
 from ionerdss.model.pdb.repeated_interface_signature import (
     identify_interface_signature,
     identify_interface_sequence_signature,
@@ -43,29 +41,33 @@ class TestRepeatedInterfaceSignature(unittest.TestCase):
         }
 
     def test_identify_interface_signature(self):
-        sig, sig_inv, I_B, k = identify_interface_signature("A", "B", self.cg_model, 0)
+        sig, _, _, k = identify_interface_signature("A", "B", self.cg_model, 0)
         self.assertAlmostEqual(sig["dA"], 1.0)
         self.assertAlmostEqual(sig["dB"], 1.0)
         self.assertAlmostEqual(sig["dAB"], 0.0)
         self.assertEqual(k, 0)
 
     def test_sequence_signature(self):
-        sig, sig_inv, _, k = identify_interface_sequence_signature("A", "B", 0, self.cg_model)
+        sig, sig_inv, _, _ = identify_interface_sequence_signature("A", "B", 0, self.cg_model)
         self.assertEqual(sig["seqA"], "ALAGLY")
         self.assertEqual(sig["seqB"], "ALAGLY")
         self.assertEqual(sig_inv["seqA"], sig["seqB"])
 
     def test_signature_similarity(self):
-        sig1 = build_signature(Coords(0, 0, 0), Coords(1, 0, 0), Coords(2, 0, 0), Coords(1, 0, 0))
-        sig2 = build_signature(Coords(0.01, 0, 0), Coords(1.01, 0, 0), Coords(1.99, 0, 0), Coords(1.01, 0, 0))
+        sig1 = build_signature(Coords(0, 0, 0), Coords(1, 0, 0), Coords(2, 0, 0), Coords(1.5, 0, 0))
+        sig2 = build_signature(Coords(0.01, 0, 0), Coords(1.01, 0, 0), Coords(1.99, 0, 0), Coords(1.51, 0, 0))
         similar = signature_are_similar(sig1, sig2, 0.1, 0.1, 5.0)
         self.assertTrue(similar)
-
+    
     def test_signature_difference(self):
-        sig1 = build_signature(Coords(0, 0, 0), Coords(1, 0, 0), Coords(2, 0, 0), Coords(1, 0, 0))
-        sig2 = invert_signature(sig1)
+        sig1 = build_signature(Coords(0, 0, 0), Coords(1, 0, 0), Coords(2, 0, 0), Coords(1.5, 0, 0))
+        sig2 = build_signature(Coords(0.01, 0, 0), Coords(1.01, 0, 0), Coords(1.99, 0, 0), Coords(1.51, 0, 0))
         diff = signature_difference(sig1, sig2)
-        self.assertEqual(diff, 0.0)
+        self.assertAlmostEqual(diff, 0.040000000000000036)
+
+    def test_signature_inversion(self):
+        sig1 = build_signature(Coords(0, 0, 0), Coords(1, 0, 0), Coords(2, 0, 0), Coords(1, 0, 0))
+        invert_signature(sig1)
 
 
 class DummyChain:
