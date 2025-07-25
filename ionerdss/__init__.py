@@ -103,9 +103,8 @@ submodules = {
     'tetr_face': ['.model.platonic_solids.tetr.tetr_face', 'tetr_face'],
     'tetr_vert': ['.model.platonic_solids.tetr.tetr_vert', 'tetr_vert'],
     'convert_simularium': ['.simularium_converter.simularium_converter', 'convert_simularium'],
-    'Simulation': ['.nerdss_simulation.simulation', 'Simulation'],
-    'Analysis': ['.nerdss_analysis.analysis', 'Analysis'],
-    'DataIO': ['.nerdss_analysis.data_readers', 'DataIO']
+    'Simulation': ['.nerdss_simulation', 'Simulation'],
+    'Analysis': ['.analysis', 'Analyzer'],
 }
 
 __all__ = list(submodules.keys()) + [
