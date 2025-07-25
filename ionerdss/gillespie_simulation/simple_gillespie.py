@@ -130,7 +130,7 @@ def run_Gillespie(
     
     # prepare simulation
     time = 0.0 # Simulation time elapsed
-    y = y_init  # Initial copy numbers
+    y = np.array([x for x in y_init])  # Initial copy numbers
     is_propensity_update_needed = np.zeros(len(reactant_matrix)) # 1 for updated needed
     delta_y = product_matrix - reactant_matrix  # Yield matrix
     index = np.array(range(0, len(reactant_matrix)))  # np.random.choice must be 1-d array; use indexing instead
