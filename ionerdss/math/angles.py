@@ -108,7 +108,7 @@ def angles_from_points(p1, p2, p3):
         else:
             raise ValueError("Input must be shape (3,) or (N, 3)")
 
-    v1 = to_array(p1) - to_array(p2)
+    v1 = to_array(p2) - to_array(p1)
     v2 = to_array(p3) - to_array(p2)
 
     v1 = np.atleast_2d(v1)

@@ -1,10 +1,13 @@
 import unittest
 import numpy as np
+from numpy.testing import assert_allclose
+
+
 from ionerdss.math.angles import (
     absolute_error_to_angle,
     angles_between_vector_and_vectors,
     angles_from_points,
-    
+    dihedrals_from_points,
     )
 
 class TestAngles(unittest.TestCase):
@@ -111,6 +114,50 @@ class TestAngles(unittest.TestCase):
                                                 np.pi,
                                                 np.pi-1.910633236249,
                                                 9.884312e-08]))
+
+class TestDihedralsFromPoints(unittest.TestCase):
+    def test_known_dihedral(self):
+        """
+        Test known values of dihedrals: planar and 90° configurations.
+        """
+        # Dihedral angle 0 degrees
+        p1 = np.array([[1.0, 0.0, 0.0]])
+        p2 = np.array([[0.0, 0.0, 0.0]])
+        p3 = np.array([[0.0, 1.0, 0.0]])
+        p4 = np.array([[1.0, 1.0, 0.0]])
+        dihedrals = dihedrals_from_points(p1, p2, p3, p4)
+        assert_allclose(dihedrals, [np.pi], atol=1e-6)
+
+        # Dihedral angle 90 degrees
+        p4 = np.array([[0.0, 1.0, 1.0]])
+        dihedrals = dihedrals_from_points(p1, p2, p3, p4)
+        assert_allclose(dihedrals, [np.pi/2], atol=1e-6)
+
+        # Dihedral angle -90 degrees
+        p4 = np.array([[0.0, 1.0, -1.0]])
+        dihedrals = dihedrals_from_points(p1, p2, p3, p4)
+        assert_allclose(dihedrals, [-np.pi/2], atol=1e-6)
+
+    def test_batch_dihedrals(self):
+        """
+        Test multiple dihedrals in a single call.
+        """
+        p1 = np.array([[1.0, 0.0, 0.0],
+                       [1.0, 0.0, 0.0]])
+        p2 = np.array([[0.0, 0.0, 0.0],
+                       [0.0, 0.0, 0.0]])
+        p3 = np.array([[0.0, 1.0, 0.0],
+                       [0.0, 1.0, 0.0]])
+        p4 = np.array([[1.0, 1.0, 0.0],
+                       [0.0, 1.0, 1.0]])
+
+        dihedrals = dihedrals_from_points(p1, p2, p3, p4)
+        expected = np.array([np.pi, np.pi/2])
+        assert_allclose(dihedrals, expected, atol=1e-6)
+
+if __name__ == "__main__":
+    unittest.main()
+
 
 if __name__ == "__main__":
     unittest.main()
