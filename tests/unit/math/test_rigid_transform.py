@@ -15,7 +15,7 @@ from numpy.testing import assert_allclose
 
 from ionerdss.math.rigid_transform import (
     rigid_transform_3d,
-    apply_transform,
+    apply_rigid_transform,
     )
 
 class TestRigidTransform3D(unittest.TestCase):
@@ -51,7 +51,7 @@ class TestRigidTransform3D(unittest.TestCase):
         t_true = np.array([1.0, 2.0, -1.0])
 
         P = np.random.rand(6, 3)
-        Q = apply_transform(R_true, t_true, P)
+        Q = apply_rigid_transform(R_true, t_true, P)
 
         R, t = rigid_transform_3d(P, Q)
 
@@ -63,7 +63,7 @@ class TestRigidTransform3D(unittest.TestCase):
         R = np.eye(3)
         t = np.array([1.0, 2.0, 3.0])
         x = np.array([0.5, 0.5, 0.5])
-        y = apply_transform(R, t, x)
+        y = apply_rigid_transform(R, t, x)
         expected = x + t
         assert_allclose(y, expected, atol=1e-6)
 
@@ -73,7 +73,7 @@ class TestRigidTransform3D(unittest.TestCase):
         t = np.array([1.0, -1.0, 0.0])
         X = np.array([[0.0, 0.0, 0.0],
                       [1.0, 2.0, 3.0]])
-        Y = apply_transform(R, t, X)
+        Y = apply_rigid_transform(R, t, X)
         expected = X + t
         assert_allclose(Y, expected, atol=1e-6)
 

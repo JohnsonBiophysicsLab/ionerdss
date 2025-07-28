@@ -41,13 +41,14 @@ from ionerdss.model.pdb.repeated_interface_signature import (
 from ionerdss.model.pdb.geometry import rigid_transform_chains
 from ionerdss.math.coords import Coords
 from ionerdss.math.diffusion_constant import compute_diffusion_constants_nm_us
-from ionerdss.math.rigid_transform import apply_transform
+from ionerdss.math.rigid_transform import apply_rigid_transform
 from ionerdss.math.steric_clash import check_clashes_between_two_sets
 
 def process_chain_group(group, chains_map, molecule_template_list, molecule_list, cg_model,
                         dist_threshold_intra,
                         dist_threshold_inter,
-                        angle_threshold):
+                        angle_threshold,
+                        signature_to_template_map=None):
     """
     Processes a group of molecular chains and assigns molecule and interface templates.
 
@@ -69,6 +70,8 @@ def process_chain_group(group, chains_map, molecule_template_list, molecule_list
         tuple: (interface_signatures, interface_template_list, interface_list, binding_chains_pairs)
     """
     # Initialize local collections and thresholds for this group
+    if signature_to_template_map is None:
+        signature_to_template_map = {}
     interface_signatures = []
     interface_template_list = []
     interface_list = []
@@ -86,7 +89,8 @@ def process_chain_group(group, chains_map, molecule_template_list, molecule_list
             chain_id, group, j, molecule, cg_model, chains_map,
             molecule_list, molecule_template_list, interface_signatures,
             dist_threshold_intra, dist_threshold_inter, angle_threshold,
-            interface_template_list, interface_list, binding_chains_pairs
+            interface_template_list, interface_list, binding_chains_pairs,
+            signature_to_template_map
         )
 
     return interface_signatures, interface_template_list, interface_list, binding_chains_pairs
@@ -156,13 +160,16 @@ def get_chain_data(chain_id, cg_model, key):
             [chain for chain in cg_model["chains"] if chain.id == chain_id][0]
         )
     ]
+    
+def signature_hash(sig, precision=3):
+    return tuple(round(sig[k], precision) for k in ("dA", "dB", "thetaA", "thetaB"))
 
 def process_interfaces_for_chain(
     chain_id, group, j, molecule, cg_model, chains_map,
     molecule_list, molecule_template_list, interface_signatures,
     dist_threshold_intra, dist_threshold_inter, angle_threshold,
-    interface_template_list, interface_list, binding_chains_pairs
-):
+    interface_template_list, interface_list, binding_chains_pairs,
+    signature_to_template_map):
     """
     Processes all interfaces for a given chain within its group.
 
@@ -210,30 +217,42 @@ def process_interfaces_for_chain(
                 break
 
         signature = build_signature(COM_A, I_A, COM_B, I_B)
-        sig_exists = any(
-            signature_are_similar(signature, sig, dist_threshold_intra, dist_threshold_inter, angle_threshold)
-            for sig in interface_signatures
-        )
+        inverted_signature = invert_signature(signature)
+        sig_key = signature_hash(signature)
+        inv_key = signature_hash(inverted_signature)
 
-        if not sig_exists:
-            interface_signatures.append(signature)
-            interface_signatures.append(invert_signature(signature))
+        if sig_key in signature_to_template_map:
+            interface_template = signature_to_template_map[sig_key]
+            partner_template_template = signature_to_template_map[inv_key]
+            register_interfaces(
+                chain_id, interface_id, molecule, partner_molecule,
+                interface_template, partner_template_template,
+                cg_model, I_B, R_B, E_B, i,
+                interface_list, binding_chains_pairs
+            )
+        else:
             is_homo = determine_homo_dimerization(signature, molecule_name, partner_name, chains_map, dist_threshold_intra, angle_threshold)
-            interface_template = build_new_interface_templates(
+            interface_templates = build_new_interface_templates(
                 is_homo, j, i, group, chain_id, molecule_name, partner_name, cg_model,
                 signature, chains_map, molecule_template_list, interface_template_list
             )
-        else:
-            interface_template, partner_template = match_existing_templates(
-                signature, invert_signature(signature),
-                molecule_template_list, dist_threshold_intra, dist_threshold_inter, angle_threshold
-            )
 
-        register_interfaces(
-            chain_id, interface_id, molecule, partner_molecule, interface_template,
-            partner_template, cg_model, I_B, R_B, E_B, i,
-            interface_list, binding_chains_pairs
-        )
+            # Register templates in the map
+            if is_homo:
+                signature_to_template_map[sig_key] = interface_templates[0]
+                signature_to_template_map[inv_key] = interface_templates[0]
+            else:
+                signature_to_template_map[sig_key] = interface_templates[0]
+                signature_to_template_map[inv_key] = interface_templates[1]
+
+            for interface_template in interface_templates:
+                register_interfaces(
+                    chain_id, interface_id, molecule, partner_molecule,
+                    interface_template,
+                    partner_template if interface_template != partner_template else interface_template,
+                    cg_model, I_B, R_B, E_B, i,
+                    interface_list, binding_chains_pairs
+                )
 
 def determine_homo_dimerization(signature, mol_a, mol_b,
                                 chains_map, dist_thresh, angle_thresh):
@@ -294,11 +313,12 @@ def build_new_interface_templates(
         interface_template = BindingInterfaceTemplate(interface_template_id)
         interface_template.signature = signature
         offset = compute_interface_offset(j, i, group, chain_id, cg_model)
+        print(f"[DEBUG] {interface_template_id} offset = {offset}")
         interface_template.coord = offset
         mol_template = get_or_create_molecule_template(chains_map[mol_A], mol_template_list)
         mol_template.interface_template_list.append(interface_template)
         interface_template_list.append(interface_template)
-        return interface_template
+        return [interface_template]
     else:
         appended_interface_templates = []
         for mol, sig in zip([mol_B, mol_A], [signature, invert_signature(signature)]):
@@ -307,6 +327,7 @@ def build_new_interface_templates(
             interface_template = BindingInterfaceTemplate(interface_template_id)
             interface_template.signature = sig
             offset = compute_interface_offset(j, i, group, chain_id if mol == mol_A else mol, cg_model)
+            print(f"[DEBUG] {interface_template_id} offset = {offset}")
             interface_template.coord = offset
             mol_template = get_or_create_molecule_template(chains_map[mol], mol_template_list)
             mol_template.interface_template_list.append(interface_template)
@@ -330,14 +351,18 @@ def compute_interface_offset(j, i, group, chain_id, cg_model):
         Coords: Relative offset from COM to interface site.
     """
     if j == 0:
-        return get_chain_data(chain_id, cg_model, "interface_coords")[i] - get_chain_data(chain_id, cg_model, "COMs")
+        pt = get_chain_data(chain_id, cg_model, "interface_coords")[i]
+        com = get_chain_data(chain_id, cg_model, "COMs")
+        offset = np.array([pt.x, pt.y, pt.z]) - np.array([com.x, com.y, com.z])
+        return Coords(*offset)
     else:
         chain1 = [c for c in cg_model["chains"] if c.id == group[0]][0]
         chain2 = [c for c in cg_model["chains"] if c.id == chain_id][0]
         R, t = rigid_transform_chains(chain2, chain1)
         Q_COM = get_chain_data(chain_id, cg_model, "COMs")
         Q_pt = get_chain_data(chain_id, cg_model, "interface_coords")[i]
-        Q2 = [apply_transform(R, t, np.array([pt.x, pt.y, pt.z])) for pt in [Q_COM, Q_pt]]
+        Q2 = [apply_rigid_transform(R, t, pt.to_numpy()) for pt in [Q_COM, Q_pt]]
+        assert isinstance(Q_COM, Coords), f"Expected Coords, got {type(Q_COM)}"
         return Coords(*(Q2[1] - Q2[0]))
 
 def match_existing_templates(signature, signature_conj, mol_template_list, dist_intra, dist_inter, angle):
@@ -387,7 +412,7 @@ def register_interfaces(
         interface_list (list): Global list to register new interfaces.
         binding_chains_pairs (list): List of all chain-chain binding pairs.
     """
-    if not _is_existing_interface(interface_id, molecule)[0]:
+    if not _is_existing_interface(interface_id, interface_list)[0]:
         interface = BindingInterface(interface_id)
         interface.my_template = interface_template
         interface.coord = get_chain_data(chain_id, cg_model, "interface_coords")[i]
@@ -445,9 +470,9 @@ def update_molecule_interfaces(
             chain1 = [c for c in cg_model["chains"] if c.id == group[0]][0]
             chain2 = [c for c in cg_model["chains"] if c.id == chain_id][0]
             R, t = rigid_transform_chains(chain1, chain2)
-            com_trans = apply_transform(R, t, np.array([com_coord.x, com_coord.y, com_coord.z]))
-            intf_coords_trans = [apply_transform(R, t, np.array([pt.x, pt.y, pt.z])) for pt in interface_coords]
-            norm_pt = apply_transform(R, t, np.array([com_coord.x, com_coord.y, com_coord.z + 1]))
+            com_trans = apply_rigid_transform(R, t, np.array([com_coord.x, com_coord.y, com_coord.z]))
+            intf_coords_trans = [apply_rigid_transform(R, t, np.array([pt.x, pt.y, pt.z])) for pt in interface_coords]
+            norm_pt = apply_rigid_transform(R, t, np.array([com_coord.x, com_coord.y, com_coord.z + 1]))
 
             mol = next(m for m in molecule_list if m.name == chain_id)
             mol.coord = Coords(*com_trans)
@@ -495,24 +520,23 @@ def regularize_repeated_chains(cg_model, chains_map, chains_groups,
 
     molecule_list = []
     molecule_template_list = []
-    interface_list = []
-    interface_template_list = []
+    interface_template_list = []       # This is the one you return
+    interface_list = []                # Ditto
 
     # Collect results from all groups
     all_interface_signatures = []
-    all_interface_templates = []
-    all_interfaces = []
     all_binding_pairs = []
+    signature_to_template_map = {}
 
     for group in chains_groups:
         sigs, templates, interfaces, pairs = process_chain_group(
             group, chains_map, molecule_template_list, molecule_list, cg_model,
             dist_threshold_intra, dist_threshold_inter,
-            angle_threshold
+            angle_threshold, signature_to_template_map
         )
         all_interface_signatures.extend(sigs)
-        all_interface_templates.extend(templates)
-        all_interfaces.extend(interfaces)
+        interface_template_list.extend(templates)
+        interface_list.extend(interfaces)
         all_binding_pairs.extend(pairs)
 
     # Post-processing:
@@ -541,9 +565,9 @@ def regularize_repeated_chains(cg_model, chains_map, chains_groups,
         print("Molecules:")
         for molecule in molecule_list:
             print(molecule)
-            
+
     molecule_types = _generate_molecule_types(molecule_template_list)
-    
+
    # Return structured model data
     return {
         "molecule_templates": molecule_template_list,
@@ -602,7 +626,7 @@ def _update_interface_templates_free_required_list(
                                 R, t = rigid_transform_chains(my_chain, another_chain)
 
                                 my_coords = [res['CA'].coord for res in my_partner_chain if is_aa(res) and 'CA' in res]
-                                my_coords_trans = [apply_transform(R, t, coord) for coord in my_coords]
+                                my_coords_trans = [apply_rigid_transform(R, t, coord) for coord in my_coords]
                                 other_coords = [res['CA'].coord for res in another_partner_chain if is_aa(res) and 'CA' in res]
 
                                 if check_clashes_between_two_sets(np.array(my_coords_trans), np.array(other_coords)):
@@ -628,6 +652,7 @@ def _generate_molecule_types(molecule_template_list):
         for intf_template in mol_template.interface_template_list:
             iface = MoleculeInterface(name=intf_template.name, coord=intf_template.coord)
             mol_interfaces.append(iface)
+            print(f"[DEBUG] Template: {intf_template.name}, Coord: {intf_template.coord}")
         molecule = MoleculeType(name=mol_name, interfaces=mol_interfaces, translational_diffusion_constant=mol_template.diffusion_translation, rotational_diffusion_constant=mol_template.diffusion_rotation)
         molecule_types.append(molecule)
     return molecule_types

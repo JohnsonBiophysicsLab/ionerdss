@@ -22,33 +22,102 @@ Functions
 """
 
 import numpy as np
+from Bio.PDB import is_aa
+from Bio.Align import PairwiseAligner
+from Bio.SeqUtils import seq1
+from scipy.cluster.vq import kmeans, vq
+
 from ionerdss.math.rigid_transform import rigid_transform_3d
 
 def rigid_transform_chains(chain1, chain2):
     """
-    Convenience wrapper to align one chain to another using Cα or COM coordinates.
+    Aligns chain1 to chain2 by:
+    1. Extracting amino acid sequences.
+    2. Performing sequence alignment.
+    3. Identifying matching residues.
+    4. Computing a coarse-grained set of representative points.
+    5. Computing a rigid transformation.
 
-    Parameters
-    ----------
-    chain1
-    chain2
+    Args:
+        chain1 (Bio.PDB.Chain.Chain): First molecular chain.
+        chain2 (Bio.PDB.Chain.Chain): Second molecular chain.
 
-    Returns
-    -------
-    R : ndarray (3, 3)
-        Rotation matrix.
-    t : ndarray (3,)
-        Translation vector.
+    Returns:
+        tuple:
+            - np.ndarray: 3x3 rotation matrix `R`
+            - np.ndarray: 3-element translation vector `t`
     """
-    def extract_ca_coords(chain):
-        return np.array([
-            atom.get_coord() for residue in chain
-            if residue.get_id()[0] == ' '  # Exclude hetero/water
-            for atom in residue if atom.get_name() == 'CA'
-        ])
 
-    return rigid_transform_3d(extract_ca_coords(chain1),
-                              extract_ca_coords(chain2))
+    # Step 1: Extract sequences from both chains
+    def extract_sequence(chain):
+        """Extracts the amino acid sequence from a chain."""
+        return "".join(seq1(residue.resname) for residue in chain.get_residues() if is_aa(residue))
+
+    sequence1 = extract_sequence(chain1)
+    sequence2 = extract_sequence(chain2)
+
+    # Step 2: Find the best overlap between the two sequences using PairwiseAligner
+    aligner = PairwiseAligner()
+    aligner.mode = 'global'
+    aligner.match_score = 1.0
+    aligner.mismatch_score = 0.0
+    aligner.open_gap_score = -1.0
+    aligner.extend_gap_score = -0.5
+
+    alignments = aligner.align(sequence1, sequence2)
+    alignment = alignments[0]  # Get the best alignment
+
+    aligned_seq1 = alignment[0]
+    aligned_seq2 = alignment[1]
+
+    # Step 3: Identify matching residue pairs in the aligned sequences
+    residue_pairs = []
+    idx1, idx2 = 0, 0
+    residues1 = [res for res in chain1 if is_aa(res)]
+    residues2 = [res for res in chain2 if is_aa(res)]
+
+    for a1, a2 in zip(aligned_seq1, aligned_seq2):
+        if a1 == '-' or a2 == '-':
+            if a1 != '-':
+                idx1 += 1
+            if a2 != '-':
+                idx2 += 1
+            continue
+        residue_pairs.append((residues1[idx1]['CA'].coord, residues2[idx2]['CA'].coord))
+        idx1 += 1
+        idx2 += 1
+
+    # Step 4: Group residues into four spatially groups
+    def group_residues(residues, n_groups=4):
+        """Groups residues into n_groups based on their spatial proximity."""
+
+        # get coordinates of residues
+        coords = np.array([res for res, _ in residues])
+
+        # `coords` should be a NumPy array of shape (N, D)
+        centroids, _ = kmeans(coords, n_groups)
+        labels, _ = vq(coords, centroids)
+
+        groups = [[] for _ in range(n_groups)]
+        for i, label in enumerate(labels):
+            groups[label].append(residues[i])
+        return groups
+
+    groups = group_residues(residue_pairs)
+
+    # Step 5: Compute the average position of each group and COM
+    P = [np.mean([res[0] for res in group], axis=0) for group in groups]
+    Q = [np.mean([res[1] for res in group], axis=0) for group in groups]
+    P.insert(0, np.mean([res[0] for res in residue_pairs], axis=0))
+    Q.insert(0, np.mean([res[1] for res in residue_pairs], axis=0))
+
+    P = np.array(P)
+    Q = np.array(Q)
+
+    # Step 6: Apply rigid transformation
+    R, t = rigid_transform_3d(P, Q)
+
+    return R, t
 
 
 def check_steric_clashes(pos1, pos2, r1, r2, buffer=0.0):
