@@ -6,15 +6,58 @@ rates in 1D (2D in future) bimolecular reactions
 @email: msang2@jh.edu
 """
 
+
 # >>>>>> For autocompletion >>>>>>
 __all__ = [
     "adaptive_bimolecular_rate_1D",
+    "get_rule",
 ]
 def __dir__():
     return __all__
 # <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
 
 import numpy as np
+
+
+def get_rule(rulename:callable, args=(), kwargs={}):
+    """
+    Get a function taking inputs of rates, y_curr, reactant_matrix, and volume
+    and return the updated macroscopic rates
+
+    Usages:
+        max_time = 10 #s
+        ratelist = np.array([
+            0.001*1e6, # nm/s
+            10, #s^-1
+        ])
+        y0 = np.array([
+            100, # AF
+            0, # AF_2
+        ])
+        reactant_matrix = np.array([[2, 0], [0,1]])
+        product_matrix = np.array([[0, 1], [2,0]])
+        Length = 200
+        # parameters needed for updating rates
+        diffusion_constants = np.array([0.1, 0.05])
+        sigmalist = np.array([1, 0])
+        reverse_reaction_pairs = {0:1}
+        # define how to update rules
+        rules_1D_rate = ion.AdaptiveRates.get_rule(
+            ion.AdaptiveRates.adaptive_bimolecular_rate_1D,
+            (Length, diffusion_constants, sigmalist, reverse_reaction_pairs)
+        )
+        # run Gillespie simulation with changing rates
+        gillespie = ion.SimpleGillespie.run_Gillespie(
+            max_time, y0, reactant_matrix, product_matrix, ratelist,
+            Length, macroscopic=True, full_update_scheme=True, 
+            rate_update_rules=rules_1D_rate
+        )
+    """
+    def rule(ratelist, y_curr, reactant_matrix):
+        return rulename(ratelist, y_curr, reactant_matrix, *args, **kwargs)
+    return rule
+
+
 def adaptive_bimolecular_rate_1D(
         ratelist, y_curr, reactant_matrix:np.ndarray, Length,
         diffusion_constants, sigmalist, reverse_reaction_pairs:dict[int,int],
@@ -30,7 +73,7 @@ def adaptive_bimolecular_rate_1D(
         ratelist: it contains both ka in nm/s and kb in s^-1
         y_curr: current copy numbers
         reactant_matrix (numpy.ndarray): Matrix representing reactants in each reaction.
-        Length: length in nm
+        Length: total length in nm
         diffusion_constants (array like): diffusion constant of each species
         sigmas (array like): sigma of each reaction. Dissociation may take sigma=0. 
         reverse_reaction_pairs (dict): pair forward reaction to its reverse reaction in
@@ -92,7 +135,11 @@ def adaptive_bimolecular_rate_1D(
         if len(reactant_ids) == 2:
             # find the spicies with more copy numbers
             species_id_more_counts = reactant_ids[np.argmax(y_curr[reactant_ids])]
-            b = Length / y_curr[species_id_more_counts]
+            if y_curr[species_id_more_counts] == 0:
+                # when there is no molecule, treat it as there is one
+                b = Length
+            else:
+                b = Length / y_curr[species_id_more_counts]
             D_tot = np.sum([diffusion_constants[i] for i in reactant_ids])
             sigma = sigmalist[reactionid]
             ka = ratelist[reactionid]
@@ -102,7 +149,11 @@ def adaptive_bimolecular_rate_1D(
             new_ratelist[reverse_reaction_id] = kb * new_ratelist[reactionid] / ka
         # dimerization is a special case
         elif len(dimerization_id) == 1:
-            b = Length / y_curr[dimerization_id[0]]
+            if y_curr[dimerization_id[0]] == 0:
+                # when there is no molecule, treat it as there are two (dimer)
+                b = Length / 2
+            else:
+                b = Length / y_curr[dimerization_id[0]]
             D_tot = 2 * diffusion_constants[dimerization_id[0]]
             sigma = sigmalist[reactionid]
             ka = ratelist[reactionid]
