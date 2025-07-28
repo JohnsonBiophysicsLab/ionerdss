@@ -300,40 +300,50 @@ def build_new_interface_templates(
         interface_template_list (list): Output list to append new templates.
 
     Returns:
-        BindingInterfaceTemplate or list of BindingInterfaceTemplate
+        list of BindingInterfaceTemplate: One or two templates
     """
-    def get_interface_template_id(prefix):
-        suffix = sum(1 for mt in mol_template_list if any(
-            it.name.startswith(prefix) for it in mt.interface_template_list)) + 1
-        return f"{prefix}{suffix}"
+    def get_interface_template_id(partner_prefix):
+        suffix = sum(1 for mt in mol_template_list for it in mt.interface_template_list if it.name.startswith(partner_prefix)) + 1
+        return f"{partner_prefix}_{suffix}"
 
     if is_homo:
-        prefix = chains_map[mol_A]
-        interface_template_id = get_interface_template_id(prefix)
+        # Interface is on mol_A, binding to mol_B (same template)
+        partner_prefix = chains_map[mol_B]  # or mol_A
+        interface_template_id = get_interface_template_id(partner_prefix)
         interface_template = BindingInterfaceTemplate(interface_template_id)
         interface_template.signature = signature
         offset = compute_interface_offset(j, i, group, chain_id, cg_model)
-        print(f"[DEBUG] {interface_template_id} offset = {offset}")
         interface_template.coord = offset
-        mol_template = get_or_create_molecule_template(chains_map[mol_A], mol_template_list)
-        mol_template.interface_template_list.append(interface_template)
+        print(f"[DEBUG] {interface_template_id} offset = {offset}")
+
+        # Assign to correct molecule template (chain_id is mol_A)
+        my_template = get_or_create_molecule_template(chains_map[chain_id], mol_template_list)
+        my_template.interface_template_list.append(interface_template)
         interface_template_list.append(interface_template)
         return [interface_template]
+
     else:
-        appended_interface_templates = []
-        for mol, sig in zip([mol_B, mol_A], [signature, invert_signature(signature)]):
-            prefix = chains_map[mol]
-            interface_template_id = get_interface_template_id(prefix)
+        templates = []
+        for mol, sig, side_chain_id in [
+            (mol_A, signature, chain_id),
+            (mol_B, invert_signature(signature), mol_B if chain_id == mol_A else mol_A)
+        ]:
+            partner_prefix = chains_map[mol_B if mol == mol_A else mol_A]
+            interface_template_id = get_interface_template_id(partner_prefix)
             interface_template = BindingInterfaceTemplate(interface_template_id)
             interface_template.signature = sig
-            offset = compute_interface_offset(j, i, group, chain_id if mol == mol_A else mol, cg_model)
-            print(f"[DEBUG] {interface_template_id} offset = {offset}")
+            offset = compute_interface_offset(j, i, group, side_chain_id, cg_model)
             interface_template.coord = offset
-            mol_template = get_or_create_molecule_template(chains_map[mol], mol_template_list)
-            mol_template.interface_template_list.append(interface_template)
+            print(f"[DEBUG] {interface_template_id} offset = {offset}")
+
+            # Attach to molecule template that interface lives on
+            my_template = get_or_create_molecule_template(chains_map[side_chain_id], mol_template_list)
+            my_template.interface_template_list.append(interface_template)
             interface_template_list.append(interface_template)
-            appended_interface_templates.append(interface_template)
-        return appended_interface_templates
+            templates.append(interface_template)
+
+        return templates
+
 
 def compute_interface_offset(j, i, group, chain_id, cg_model):
     """
@@ -590,6 +600,26 @@ def _update_interface_templates_free_required_list(
     Updates the `required_free_list` attribute for each interface template by checking 
     potential steric clashes among binding partners within the same molecule template.
     """
+    print("\n[DEBUG] Entering _update_interface_templates_free_required_list")
+    print("---------------------------------------------------------------")
+    print(f"Number of chain groups: {len(chains_group)}")
+    for idx, group in enumerate(chains_group):
+        print(f"  Group {idx}: {group}")
+    print(f"Total molecules: {len(molecule_list)}")
+    print("  Molecule names: ", [m.name for m in molecule_list])
+    print(f"Total chains in cg_model: {len(all_chains)}")
+    print("  All chain IDs: ", [chain.id for chain in all_chains])
+    print(f"Total molecule templates: {len(molecule_template_list)}")
+    for mt in molecule_template_list:
+        print(f"  MoleculeTemplate '{mt.name}' has interface templates: {[it.name for it in mt.interface_template_list]}")
+    print("Chains map (chain_id -> molecule_template):")
+    for k, v in chains_map.items():
+        print(f"  {k} -> {v}")
+    print("---------------------------------------------------------------\n")
+    def extract_prefix(name):
+        """Extracts the part before the last underscore."""
+        return name.rsplit("_", 1)[0] if "_" in name else name
+
     for group in chains_group:
         for i, chain_id in enumerate(group):
             if i == 0:
@@ -632,8 +662,26 @@ def _update_interface_templates_free_required_list(
                                 if check_clashes_between_two_sets(np.array(my_coords_trans), np.array(other_coords)):
                                     mol_template_id = chains_map[chain_id]
                                     mol_template = [mt for mt in molecule_template_list if mt.name == mol_template_id][0]
-                                    intf1 = [it for it in mol_template.interface_template_list if it.name == interface_template_id][0]
-                                    intf2 = [it for it in mol_template.interface_template_list if it.name == interface_template_id_2][0]
+                                    
+                                    # Match intf1
+                                    prefix1 = extract_prefix(interface_template_id)
+                                    matches1 = [it for it in mol_template.interface_template_list if extract_prefix(it.name) == prefix1]
+                                    if not matches1:
+                                        raise ValueError(
+                                            f"Interface template '{interface_template_id}' not found in molecule '{mol_template.name}'. "
+                                            f"Available: {[it.name for it in mol_template.interface_template_list]}"
+                                        )
+                                    intf1 = matches1[0]
+
+                                    # Match intf2
+                                    prefix2 = extract_prefix(interface_template_id_2)
+                                    matches2 = [it for it in mol_template.interface_template_list if extract_prefix(it.name) == prefix2]
+                                    if not matches2:
+                                        raise ValueError(
+                                            f"Interface template '{interface_template_id_2}' not found in molecule '{mol_template.name}'. "
+                                            f"Available: {[it.name for it in mol_template.interface_template_list]}"
+                                        )
+                                    intf2 = matches2[0]
 
                                     if interface_template_id not in intf2.required_free_list:
                                         intf2.required_free_list.append(interface_template_id)
