@@ -188,7 +188,7 @@ def compute_interface(residues_i, residues_j,
     return None
 
 def coarse_grain_structure(structure,
-                           distance_cutoff=0.35,
+                           distance_cutoff=0.6,
                            residue_cutoff=3,
                            energy_table=None):
     """

@@ -9,7 +9,6 @@ from . import io
 from .coarse_grain import coarse_grain_structure
 from .detect_repeats import identify_repeated_chains
 from .regularize_repeats import regularize_repeated_chains
-from .reaction import build_binding_reactions
 from ..components import Model  # assuming you have a base Model class
 
 class PDBModel(Model):
@@ -60,6 +59,9 @@ class PDBModel(Model):
         # 1. Coarse-grain the structure
         cg_model = coarse_grain_structure(self.structure)
 
+        print("cg_model ============== 1")
+        print(cg_model)
+        
         # returned cg model is a dictionary with the following k,v pairs
         # {
         # 'chains': chains,
@@ -81,6 +83,16 @@ class PDBModel(Model):
         regularized_model_data = regularize_repeated_chains(
             cg_model, self.chains_map, self.chains_groups
         )
+
+        print(self.chains_map)
+        print(self.chains_groups)
+        print(cg_model)
+        print(regularized_model_data)
+
+        print(".......")
+
+        for it in regularized_model_data["interface_templates"]:
+            print(it.name, it.coord)  # Expect nonzero Coords object
 
         # 4. Generate reactions
         # reactions = build_binding_reactions(regularized_model_data)
