@@ -22,6 +22,8 @@ __all__ = [
     "calculate_propensity",
     "update_rates",
     "gillespie_simulation",
+    "align_gillespie_simulations",
+    "run_Gillespie_repeats",
 ]
 def __dir__():
     return __all__
@@ -31,7 +33,73 @@ def __dir__():
 
 import numpy as np
 import math
+from .helpers import align_gillespie_simulations
+from progressbar import progressbar
 
+def run_Gillespie_repeats(
+        N_repeats: int = 1,
+        show_progress: bool = False,
+        target_time_points: np.ndarray = None,
+        *args, **kwargs,
+    ):
+    """
+    Args:
+        N_repeats (int): The number of simulation repeats to run.
+        show_progress (bool): True for showing progressbar
+        target_time_points (numpy.ndarray): Time points to which the
+            simulation data are aligned. If None, the time points from the
+            first trajectory are used as the target. Defaults to None.
+        *args: Positional arguments to be passed directly to `run_Gillespie`.
+        **kwargs: Keyword arguments to be passed directly to `run_Gillespie`.
+                  See the `run_Gillespie` function's docstring for a detailed
+                  list of available arguments. The 'seed' argument is handled
+                  specially by this wrapper to ensure different trajectories
+                  are generated if a seed is provided.
+
+    Returns:
+        tuple: A tuple containing two numpy arrays:
+               - aligned_t: The common time points.
+               - aligned_y: A list of the state arrays, each aligned to `aligned_t`.
+
+    Example:
+            
+    Note:
+        
+    """
+    # Make a copy of kwargs to avoid modifying the original dictionary passed by the user.
+    gillespie_kwargs = kwargs.copy()
+
+    # Handle the random seed. We set the seed once here, then remove it from
+    # kwargs so that each call to run_Gillespie within the loop produces a
+    # different random trajectory.
+    if 'seed' in gillespie_kwargs:
+        if gillespie_kwargs['seed'] is not None:
+            np.random.seed(gillespie_kwargs.pop('seed'))
+
+    y_all = []
+    t_all = []
+    
+    iterator = progressbar(range(N_repeats)) if show_progress else range(N_repeats)
+
+    for _ in iterator:
+        # Pass the arguments down to the core simulation function.
+        # Note that the 'seed' kwarg has already been removed.
+        y_record, t_record = run_Gillespie(
+            *args, **gillespie_kwargs
+        )
+        t_all.append(t_record)
+        y_all.append(y_record)
+
+    # If no target time points are provided, use the first simulation's times.
+    if target_time_points is None:
+        if not t_all:
+             # Handle case with zero repeats
+            return np.array([]), []
+        target_time_points = t_all[0]
+
+    aligned_y = align_gillespie_simulations(t_all, y_all, target_time_points)
+
+    return target_time_points, aligned_y
 
 def run_Gillespie(
         max_time:float, 
