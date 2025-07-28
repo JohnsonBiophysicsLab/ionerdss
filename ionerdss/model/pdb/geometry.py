@@ -29,7 +29,7 @@ from scipy.cluster.vq import kmeans, vq
 
 from ionerdss.math.rigid_transform import rigid_transform_3d
 
-def rigid_transform_chains(chain1, chain2):
+def rigid_transform_chains(chain1, chain2, n_cluster_groups = 4):
     """
     Aligns chain1 to chain2 by:
     1. Extracting amino acid sequences.
@@ -88,22 +88,31 @@ def rigid_transform_chains(chain1, chain2):
         idx2 += 1
 
     # Step 4: Group residues into four spatially groups
-    def group_residues(residues, n_groups=4):
-        """Groups residues into n_groups based on their spatial proximity."""
+    def group_residues(residues, n_cluster_groups=4):
+        """Groups residues into n_cluster_groups based on their spatial proximity."""
 
         # get coordinates of residues
         coords = np.array([res for res, _ in residues])
 
+        # Adjust number of groups if not enough data
+        n_from_points = len(coords) - 1
+        if n_from_points < 1:
+            raise ValueError("At least two residues must be present per chain for alignment.")
+        n_clusters = min(n_cluster_groups, n_from_points - 1)
+
+        if n_clusters < 1:
+            raise ValueError("Number of cluster groups cannot be fewer than 1 for KMeans clustering.")
+
         # `coords` should be a NumPy array of shape (N, D)
-        centroids, _ = kmeans(coords, n_groups)
+        centroids, _ = kmeans(coords, n_cluster_groups)
         labels, _ = vq(coords, centroids)
 
-        groups = [[] for _ in range(n_groups)]
+        groups = [[] for _ in range(n_cluster_groups)]
         for i, label in enumerate(labels):
             groups[label].append(residues[i])
         return groups
 
-    groups = group_residues(residue_pairs)
+    groups = group_residues(residue_pairs, n_cluster_groups=n_cluster_groups)
 
     # Step 5: Compute the average position of each group and COM
     P = [np.mean([res[0] for res in group], axis=0) for group in groups]
