@@ -33,8 +33,6 @@ Part of the ioNERDSS modeling framework.
 
 import unittest
 import numpy as np
-# import sys
-# sys.path.append('../')
 from ionerdss import SimpleGillespie, AdaptiveRates
 
 class TestReactionGillespie(unittest.TestCase):
@@ -88,11 +86,10 @@ class TestReactionGillespie(unittest.TestCase):
         record_interval = 0.01
         full_update_scheme = True
 
-        def rate_update_rule(ratelist, y_curr, reactant_matrix, Length):
-            return AdaptiveRates.adaptive_bimolecular_rate_1D(
-                ratelist, y_curr, reactant_matrix, Length,
-                diffusion_constants, sigmalist, reverse_reaction_pairs,
-            )
+        rate_update_rule = AdaptiveRates.get_rule(
+            AdaptiveRates.adaptive_bimolecular_rate_1D,
+            Length, diffusion_constants, sigmalist, reverse_reaction_pairs
+        )
 
         y_record, t_record = self.sgs.run_Gillespie(
             max_time, y_init, reactant_matrix, product_matrix,

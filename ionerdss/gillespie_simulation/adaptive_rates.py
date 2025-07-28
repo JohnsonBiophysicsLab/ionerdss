@@ -19,7 +19,7 @@ def __dir__():
 import numpy as np
 
 
-def get_rule(rulename:callable, args=(), kwargs={}):
+def get_rule(rulename:callable, *args, **kwargs):
     """
     Get a function taking inputs of rates, y_curr, reactant_matrix, and volume
     and return the updated macroscopic rates
@@ -44,7 +44,7 @@ def get_rule(rulename:callable, args=(), kwargs={}):
         # define how to update rules
         rules_1D_rate = ion.AdaptiveRates.get_rule(
             ion.AdaptiveRates.adaptive_bimolecular_rate_1D,
-            (Length, diffusion_constants, sigmalist, reverse_reaction_pairs)
+            Length, diffusion_constants, sigmalist, reverse_reaction_pairs
         )
         # run Gillespie simulation with changing rates
         gillespie = ion.SimpleGillespie.run_Gillespie(
