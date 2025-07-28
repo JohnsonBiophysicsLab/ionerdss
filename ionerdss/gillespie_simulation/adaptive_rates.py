@@ -44,7 +44,7 @@ def get_rule(rulename:callable, args=(), kwargs={}):
         # define how to update rules
         rules_1D_rate = ion.AdaptiveRates.get_rule(
             ion.AdaptiveRates.adaptive_bimolecular_rate_1D,
-            (diffusion_constants, sigmalist, reverse_reaction_pairs)
+            (Length, diffusion_constants, sigmalist, reverse_reaction_pairs)
         )
         # run Gillespie simulation with changing rates
         gillespie = ion.SimpleGillespie.run_Gillespie(
@@ -53,8 +53,8 @@ def get_rule(rulename:callable, args=(), kwargs={}):
             rate_update_rules=rules_1D_rate
         )
     """
-    def rule(ratelist, y_curr, reactant_matrix, Length):
-        return rulename(ratelist, y_curr, reactant_matrix, Length, *args, **kwargs)
+    def rule(ratelist, y_curr, reactant_matrix):
+        return rulename(ratelist, y_curr, reactant_matrix, *args, **kwargs)
     return rule
 
 
@@ -73,7 +73,7 @@ def adaptive_bimolecular_rate_1D(
         ratelist: it contains both ka in nm/s and kb in s^-1
         y_curr: current copy numbers
         reactant_matrix (numpy.ndarray): Matrix representing reactants in each reaction.
-        Length: length in nm
+        Length: total length in nm
         diffusion_constants (array like): diffusion constant of each species
         sigmas (array like): sigma of each reaction. Dissociation may take sigma=0. 
         reverse_reaction_pairs (dict): pair forward reaction to its reverse reaction in
@@ -135,7 +135,11 @@ def adaptive_bimolecular_rate_1D(
         if len(reactant_ids) == 2:
             # find the spicies with more copy numbers
             species_id_more_counts = reactant_ids[np.argmax(y_curr[reactant_ids])]
-            b = Length / y_curr[species_id_more_counts]
+            if y_curr[species_id_more_counts] == 0:
+                # when there is no molecule, treat it as there is one
+                b = Length
+            else:
+                b = Length / y_curr[species_id_more_counts]
             D_tot = np.sum([diffusion_constants[i] for i in reactant_ids])
             sigma = sigmalist[reactionid]
             ka = ratelist[reactionid]
@@ -145,7 +149,11 @@ def adaptive_bimolecular_rate_1D(
             new_ratelist[reverse_reaction_id] = kb * new_ratelist[reactionid] / ka
         # dimerization is a special case
         elif len(dimerization_id) == 1:
-            b = Length / y_curr[dimerization_id[0]]
+            if y_curr[dimerization_id[0]] == 0:
+                # when there is no molecule, treat it as there are two (dimer)
+                b = Length / 2
+            else:
+                b = Length / y_curr[dimerization_id[0]]
             D_tot = 2 * diffusion_constants[dimerization_id[0]]
             sigma = sigmalist[reactionid]
             ka = ratelist[reactionid]
