@@ -135,7 +135,7 @@ def run_Gillespie(
         full_update_scheme (bool): controls if update every propensity entry in each iteration. Defualt `full_update_scheme=False`.
         rate_update_rules (callable): How to update kinetic rates. 
             It takes inputs (rate_constants, y_curr, reactant_matrix, volume)
-        avogadro=6.02214e23,
+        avogadro=6.02214e23, set `avogadro=1` if Molar is not used in units.
         seed (int): Set random seed if given. 
         excluded_volume (float): Consider excluded volume in 1D or other reasonable systems.
         excluded_species_id (int): Index of the species that creates excluded volume.
@@ -176,6 +176,8 @@ def run_Gillespie(
         raise ValueError('To update rates, macroscopic rates must be provided.')
     elif (rate_update_rules is not None) and (bool(macroscopic)):
         need_update_rates = True
+    # print('[DEBUG] rate_update_rules:', rate_update_rules)
+    # print('[DEBUG] need_update_rates:', need_update_rates)
         
     # process excluded volume
     if excluded_volume is not None:
@@ -198,15 +200,14 @@ def run_Gillespie(
         volume_corrected_rates = rate_constants 
     elif bool(macroscopic) ^ bool(volume_corrected):
         if macroscopic:
+            new_volume = reduced_volume(y_init, excluded_volume, volume)
             if need_update_rates:
                 volume_corrected_rates = update_rates(
-                    rate_constants, y_init, reduced_volume(y_init, excluded_volume, volume), 
-                    rate_update_rules, reactant_matrix, avogadro
+                    rate_constants, y_init, new_volume, rate_update_rules, reactant_matrix, avogadro
                 )
             else:
                 volume_corrected_rates = rate_constants_volume_correction(
-                    rate_constants, reactant_matrix, 
-                    reduced_volume(y_init, excluded_volume, volume)
+                    rate_constants, reactant_matrix, new_volume, avogadro
                 )
         else:
             volume_corrected_rates = rate_constants
@@ -236,7 +237,9 @@ def run_Gillespie(
         # update volume if needed
         if excluded_volume is not None:
             new_volume = reduced_volume(y, excluded_volume, volume)
-            volume_corrected_rates = rate_constants_volume_correction(rate_constants, reactant_matrix, new_volume)
+            volume_corrected_rates = rate_constants_volume_correction(
+                rate_constants, reactant_matrix, new_volume, avogadro
+            )
         else:
             new_volume = volume
         
@@ -244,7 +247,7 @@ def run_Gillespie(
         if need_update_rates: volume_corrected_rates = update_rates(
                 rate_constants, y, new_volume, rate_update_rules, reactant_matrix, avogadro
             )
-
+        # print('[DEBUG] volume corrected rates:', volume_corrected_rates)
         if full_update_scheme:
             # Calculate propensity
             propensities = calculate_propensity(y, reactant_matrix, volume_corrected_rates)
