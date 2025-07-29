@@ -232,22 +232,24 @@ def run_Gillespie(
     if seed is not None: np.random.seed(seed) # set random seed if given
 
     while time < max_time:  # Control simulation time scale
+
+        # update volume if needed
+        if excluded_volume is not None:
+            new_volume = reduced_volume(y, excluded_volume, volume)
+            volume_corrected_rates = rate_constants_volume_correction(rate_constants, reactant_matrix, new_volume)
+        else:
+            new_volume = volume
         
+        # update rates if needed (adaptive rates)
+        if need_update_rates: volume_corrected_rates = update_rates(
+                rate_constants, y, new_volume, rate_update_rules, reactant_matrix, avogadro
+            )
+
         if full_update_scheme:
-            # update rates
-            if need_update_rates: volume_corrected_rates = update_rates(
-                    rate_constants, y, reduced_volume(y, excluded_volume, volume), 
-                    rate_update_rules, reactant_matrix, avogadro
-                )
             # Calculate propensity
             propensities = calculate_propensity(y, reactant_matrix, volume_corrected_rates)
         
         else:
-            # update rates
-            if need_update_rates: volume_corrected_rates = update_rates(
-                rate_constants, y, reduced_volume(y, excluded_volume, volume), 
-                rate_update_rules, reactant_matrix, avogadro
-            )
             # Calculate propensity
             propensities = calculate_propensity(y, reactant_matrix, volume_corrected_rates,
                                             propensities, is_propensity_update_needed)
