@@ -184,7 +184,7 @@ def run_Gillespie(
         if excluded_species_id is None:
             raise ValueError('Must give a species that excludes others.')
         def reduced_volume(y_curr, excluded_volume, volume): 
-            new_vol = volume - y_curr[excluded_species_id]*excluded_volume
+            new_vol = volume - (y_curr[excluded_species_id]+2)*excluded_volume
             if new_vol == 0:
                 # when there is no place to move, consider the available 
                 # space is infinitesmal to the excluded volume
