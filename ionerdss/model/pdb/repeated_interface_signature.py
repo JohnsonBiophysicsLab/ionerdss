@@ -34,13 +34,21 @@ and for consolidating equivalent interfaces in coarse-grained models used in NER
 import numpy as np
 
 from ionerdss.math.angles import angles_from_points
-from ionerdss.math.coords import Coords
 
-def identify_interface_signature(mol_a, mol_b,
-                                 cg_model,
-                                 interface_index_on_a = -1):
+def signature_hash(sig, precision=3):
+    """
+    Create hasing for signature
+    """
+    return tuple(round(sig[k], precision) for k in ("dA", "dB", "thetaA", "thetaB"))
+
+def identify_interface_structure_signature(mol_a, mol_b,
+                                           cg_model,
+                                           interface_index_on_a = -1):
     """
     Computes a geometric interaction signature between two chains/molecules.
+    The returned dictionary contains the following signatures (as k,v pairs):
+    
+    - "dA" : 
 
     Args:
         mol_a (str): Chain ID of molecule A.

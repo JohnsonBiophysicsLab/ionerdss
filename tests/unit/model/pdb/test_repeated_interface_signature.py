@@ -9,7 +9,7 @@ import unittest
 
 from ionerdss.math.coords import Coords
 from ionerdss.model.pdb.repeated_interface_signature import (
-    identify_interface_signature,
+    identify_interface_structure_signature,
     identify_interface_sequence_signature,
     signature_are_similar,
     signature_difference,
@@ -41,7 +41,7 @@ class TestRepeatedInterfaceSignature(unittest.TestCase):
         }
 
     def test_identify_interface_signature(self):
-        sig, _, _, k = identify_interface_signature("A", "B", self.cg_model, 0)
+        sig, _, _, k = identify_interface_structure_signature("A", "B", self.cg_model, 0)
         self.assertAlmostEqual(sig["dA"], 1.0)
         self.assertAlmostEqual(sig["dB"], 1.0)
         self.assertAlmostEqual(sig["dAB"], 0.0)

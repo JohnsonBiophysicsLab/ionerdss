@@ -37,6 +37,7 @@ from ionerdss.model.pdb.repeated_interface_signature import (
     signature_difference,
     build_signature,
     invert_signature,
+    signature_hash,
 )
 from ionerdss.model.pdb.geometry import rigid_transform_chains
 from ionerdss.math.coords import Coords
@@ -160,9 +161,6 @@ def get_chain_data(chain_id, cg_model, key):
             [chain for chain in cg_model["chains"] if chain.id == chain_id][0]
         )
     ]
-    
-def signature_hash(sig, precision=3):
-    return tuple(round(sig[k], precision) for k in ("dA", "dB", "thetaA", "thetaB"))
 
 def process_interfaces_for_chain(
     chain_id, group, j, molecule, cg_model, chains_map,
@@ -616,6 +614,7 @@ def _update_interface_templates_free_required_list(
     for k, v in chains_map.items():
         print(f"  {k} -> {v}")
     print("---------------------------------------------------------------\n")
+    
     def extract_prefix(name):
         """Extracts the part before the last underscore."""
         return name.rsplit("_", 1)[0] if "_" in name else name

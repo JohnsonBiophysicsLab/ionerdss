@@ -1,4 +1,4 @@
-# `ionerdss.model.pdb` Module Overview
+# 1. `ionerdss.model.pdb` Module Overview
 
 ## **How reaction / simulation systems are built up from a PDB or mmCIF file**
 
@@ -105,7 +105,7 @@ model/
     ├── templates.py         # Build NERDSS-ready molecule/interface templates
 ```
 
-# Coarse-Graining Protein Structures: Interface Detection Walkthrough
+# 2. Coarse-Graining Protein Structures: Interface Detection Walkthrough
 
 This document describes the algorithm implemented in `ionerdss.model.pdb.coarse_grain`. It detects chain-chain interfaces from a PDB structure using residue contact heuristics and computes coarse-grained interface representations suitable for downstream modeling.
 
@@ -118,11 +118,12 @@ The coarse-graining process extracts the following from a Biopython `Structure` 
 * Geometric location of interfaces (average of contacting residue CAs)
 * Energetic estimate of interface strength based on residue pair potential
 
+Note that we are using **CA-CA** distance for now! (More options?)
+
 ## Parameters
 
 | Parameter         | Type                          | Description                                                |
 | ----------------- | ----------------------------- | ---------------------------------------------------------- |
-| `structure`       | `Bio.PDB.Structure.Structure` | Parsed PDB structure                                       |
 | `distance_cutoff` | `float`                       | Max CA-CA distance (in nm) to count as contacting          |
 | `residue_cutoff`  | `int`                         | Min number of contacting residues to consider an interface |
 
@@ -212,7 +213,7 @@ Both directions (i->j and j->i) are recorded symmetrically.
 * `numpy` for math operations
 
 
-# Repeated Chain Detection Walkthrough
+# 3. Repeated Chain Detection Walkthrough
 
 This module provides utility functions to identify **repeated protein chains** in a biological structure (e.g., derived from PDB/mmCIF files). These chains may be identical or nearly identical due to symmetry, assembly, or template-based modeling. Identifying such equivalence is essential for **coarse-graining** and **downstream simulation** steps in tools like **NERDSS**.
 
@@ -309,8 +310,6 @@ You can also provide a **custom aligner** to modify scoring schemes (e.g., for g
 
 | Parameter        | Type                          | Description                                                    |
 | ---------------- | ----------------------------- | -------------------------------------------------------------- |
-| `pdb_id`         | `str`                         | Name or path (used for warning messages only)                  |
-| `structure`      | `Bio.PDB.Structure.Structure` | Parsed structure object from Biopython                         |
 | `mode`           | `str`                         | `'default'`, `'structure'`, or `'sequence'`                    |
 | `rmsd_threshold` | `float`                       | Max C-alpha RMSD to consider chains as structurally equivalent |
 | `seq_threshold`  | `float`                       | Min sequence identity to consider chains equivalent            |
@@ -358,7 +357,204 @@ print(chains_group)
 
 ## Caveats
 
-* `sequence` mode depends on proper peptide atom construction (`N`, `CA`, `C`). Synthetic structures must mimic real peptide geometry.
+* `sequence` mode depends on proper peptide atom construction (`N`, `CA`, `C`). Synthetic structures must mimic real peptide geometry. i.e. currently only work for proteins or polypeptide-like structures. 
 * `structure` mode assumes all chains are alignable — it skips chains with missing C-alpha atoms.
 * This tool doesn't consider reflection/inversion symmetry — only RMSD/sequence identity.
 
+Here's a detailed module-level documentation for the `regularize_repeats.py` file, explaining its **purpose, logic, and algorithmic pipeline** within the broader NERDSS framework:
+
+---
+
+# 4. `regularize_repeats.py` — molecule template regularization for repeated chains
+
+## Purpose
+
+This module processes coarse-grained molecular models that contain **repeated protein chains** (i.e. symmetric or repeated units in the same PDB structure). Its primary goal is to generate a **uniform, symmetry-aware representation** of:
+
+* **Molecule templates**: shared geometry, diffusion constants, and structure.
+* **Interface templates**: representative coordinates, signature geometry, and orientations.
+* **Binding interactions**: consistent partner naming and directional symmetry (e.g., `A_2` means interface on molecule that binds another `A`).
+
+---
+
+## Problem Context
+
+After **coarse-graining** a molecular structure:
+
+* Each protein chain is abstracted into a center-of-mass (COM) and interaction sites.
+* Chains may repeat (e.g., A1, A2, A3) but have different interface order or coordinate noise.
+* Chain-chain interactions (e.g., dimers, trimers) may be structurally symmetric or asymmetric.
+
+What’s needed:
+
+* A **single consistent template** per molecular unit (e.g., A) across all its repeats.
+* A **shared interface template** for each type of interaction (e.g., A+A vs A+B).
+* **Canonical geometry** that averages or registers noisy replicas into one reference model.
+* **Symmetry-aware interface registration** for use in NERDSS reaction network generation.
+
+---
+
+## Core Logic
+
+The pipeline performs the following key steps:
+
+### 1. **Group and Iterate Over Repeated Chains**
+
+Each chain group (e.g., `[A, B, C]`) is assumed to consist of repeated or repeated chains.
+
+```python
+for group in chains_groups:
+    process_chain_group(...)
+```
+
+---
+
+### 2. **Assign Templates and Molecules**
+
+* Assign a **MoleculeTemplate** object to each unique chain type.
+* For each chain instance, create a **CoarseGrainedMolecule** with COM, radius, and diffusion constants.
+
+```python
+get_or_create_molecule_template(...)
+get_or_create_molecule(...)
+```
+
+---
+
+### 3. **Identify Interfaces Between Chains**
+
+For each interaction:
+
+* Extract interface coordinates (COM + site)
+* Compute a **signature**: `{dA, dB, θA, θB}` — capturing geometry between two chains
+* Invert the signature to check the reverse direction
+
+Then:
+
+* If this signature has been seen before, reuse the **existing interface templates**
+* If not, generate **new interface templates** and register them with molecule templates
+
+```python
+build_signature(COM_A, I_A, COM_B, I_B)
+invert_signature(...)
+signature_hash(...)
+```
+
+---
+
+### 4. **Determine Homodimer vs Heterodimer**
+
+* If both chains map to the **same template**, and the geometry is symmetric:
+  → It’s a **homodimer** (`A_2`)
+* Otherwise, it’s a **heterodimer** (`B_1` on A; `A_1` on B)
+
+```python
+if chains_map[mol_a] == chains_map[mol_b] and geometry_is_symmetric(...):
+    is_repeated = True
+```
+
+---
+
+### 5. **Align All Chains to First Copy**
+
+To ensure consistent geometry across all repeats:
+
+* Rigidly align each repeated chain to the first in the group using `rigid_transform_chains`
+* Apply the transform to COM and interface coordinates
+* Store relative interface offsets for consistent modeling
+
+```python
+R, t = rigid_transform_chains(chain2, chain1)
+apply_rigid_transform(...)
+```
+
+---
+
+### 6. **Detect Required-Free Interface Conflicts**
+
+To avoid steric clashes from simultaneous use of incompatible interfaces:
+
+* Loop over all interfaces across repeated chains
+* Superimpose potential partner positions
+* If overlap is detected, mark those templates as **mutually exclusive** (required\_free)
+
+```python
+if check_clashes_between_two_sets(...):
+    intf1.required_free_list.append(...)
+```
+
+---
+
+### 7. **Build MoleculeTypes**
+
+Generate `MoleculeType` objects with:
+
+* Template name
+* Interface coordinates (global, not relative)
+* Diffusion constants
+
+Used later for:
+
+* Network generation
+* Simulation setup
+
+```python
+MoleculeType(name, interfaces, ...)
+```
+
+---
+
+## Interface Naming Convention
+
+Interface templates are named by their **binding partner**:
+
+* `E_2` on molecule `A` means “this site on A binds to E”
+* `A_2` on `A` means “this site on A binds to another A” (i.e. dimer)
+
+This convention ensures:
+
+* Partner identity is clear
+* Homodimeric interactions are recognizable
+* Templates are grouped logically
+
+---
+
+## Customization & Parameters
+
+* `dist_threshold_intra`: Tolerance for geometric symmetry (used in homo-dimer detection)
+* `dist_threshold_inter`: Tolerance for different molecule types
+* `angle_threshold`: Angular deviation for signature matching
+
+---
+
+## Returns
+
+The final result is a structured model:
+
+```python
+{
+    "molecule_templates": [...],
+    "molecules": [...],
+    "interface_templates": [...],
+    "interfaces": [...],
+    "binding_pairs": [...],
+    "molecule_types": [...],
+}
+```
+
+Used downstream for:
+
+* Network export
+* `.mol` and `.parm.inp` files
+* PyMOL rendering and visual validation
+
+---
+
+## Summary
+
+This module performs **symmetry-aware, structure-consistent regularization** of repeated molecular chains by:
+
+* Recognizing **structural repetitions** across chains
+* Computing **geometric interface signatures**
+* **Aligning**, **merging**, and **registering** templates consistently
+* Producing **uniform molecule/interface templates** for simulation and analysis
