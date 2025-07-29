@@ -14,7 +14,7 @@ Tests cover:
 import unittest
 import numpy as np
 from math import isclose
-from ionerdss.math.rotations import (
+from ionerdss.utils.rotations import (
     rotation_matrix,
     Rotation,
     ImproperRotation

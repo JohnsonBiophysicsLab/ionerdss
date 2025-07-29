@@ -13,7 +13,7 @@ import numpy as np
 from numpy.testing import assert_allclose
 
 
-from ionerdss.math.rigid_transform import (
+from ionerdss.utils.rigid_transform import (
     rigid_transform_3d,
     apply_rigid_transform,
     )

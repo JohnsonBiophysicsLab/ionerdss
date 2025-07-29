@@ -40,10 +40,10 @@ from ionerdss.model.pdb.repeated_interface_signature import (
     signature_hash,
 )
 from ionerdss.model.pdb.geometry import rigid_transform_chains
-from ionerdss.math.coords import Coords
-from ionerdss.math.diffusion_constant import compute_diffusion_constants_nm_us
-from ionerdss.math.rigid_transform import apply_rigid_transform
-from ionerdss.math.steric_clash import check_clashes_between_two_sets
+from ionerdss.utils.coords import Coords
+from ionerdss.utils.diffusion_constant import compute_diffusion_constants_nm_us
+from ionerdss.utils.rigid_transform import apply_rigid_transform
+from ionerdss.utils.steric_clash import check_clashes_between_two_sets
 
 def process_chain_group(group, chains_map, molecule_template_list, molecule_list, cg_model,
                         dist_threshold_intra,

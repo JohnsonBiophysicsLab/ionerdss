@@ -11,7 +11,7 @@ from scipy.spatial import KDTree
 # Replace this import with the actual path if needed
 # from your_module.steric_clash import check_clashes_between_two_sets
 
-from ionerdss.math.steric_clash import check_clashes_between_two_sets
+from ionerdss.utils.steric_clash import check_clashes_between_two_sets
 
 
 class TestStericClash(unittest.TestCase):

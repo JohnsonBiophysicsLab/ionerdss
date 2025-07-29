@@ -28,7 +28,7 @@ from Bio.PDB.Structure import Structure
 
 from ionerdss.model.pdb.coarse_grain import coarse_grain_structure, compute_interface
 from ionerdss.model.pdb.energy_table import get_default_energy_table
-from ionerdss.math.coords import Coords
+from ionerdss.utils.coords import Coords
 
 class TestCoarseGrainStructure(unittest.TestCase):
     def setUp(self):

@@ -28,9 +28,9 @@ THE SOFTWARE.
 import numpy as np
 from . import utils
 from .grid import get_cubed_sphere_grid_points
-from ionerdss.math.coords import get_perpendicular_vector
-from ionerdss.math.rotations import Rotation, rotation_matrix
-from ionerdss.math import inertia_tensors, angles
+from ionerdss.utils.coords import get_perpendicular_vector
+from ionerdss.utils.rotations import Rotation, rotation_matrix
+from ionerdss.utils import inertia_tensors, angles
 
 class PointGroup:
     """

@@ -33,7 +33,7 @@ and for consolidating equivalent interfaces in coarse-grained models used in NER
 
 import numpy as np
 
-from ionerdss.math.angles import angles_from_points
+from ionerdss.utils.angles import angles_from_points
 
 def signature_hash(sig, precision=3):
     """

@@ -3,7 +3,7 @@ import numpy as np
 from numpy.testing import assert_allclose
 
 
-from ionerdss.math.angles import (
+from ionerdss.utils.angles import (
     absolute_error_to_angle,
     angles_between_vector_and_vectors,
     angles_from_points,

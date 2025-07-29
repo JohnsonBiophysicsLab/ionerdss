@@ -20,7 +20,7 @@ from scipy.spatial import KDTree
 from sklearn.cluster import KMeans
 from .components import MoleculeType, MoleculeInterface, Reaction, Model, MoleculeTemplate, CoarseGrainedMolecule, BindingInterfaceTemplate, BindingInterface, ReactionTemplate
 from .pdb.geometry import rigid_transform_chains
-from ..math.coords import Coords
+from ..utils.coords import Coords
 
 
 def apply_rigid_transform(R, t, point):

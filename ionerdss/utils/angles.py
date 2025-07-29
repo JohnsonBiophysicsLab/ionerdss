@@ -48,7 +48,7 @@ THE SOFTWARE.
 
 import numpy as np
 
-from ionerdss.math.coords import Coords
+from ionerdss.utils.coords import Coords
 
 def angles_between_vector_and_vectors(reference_vec, targets, tol=1e-5):
     """

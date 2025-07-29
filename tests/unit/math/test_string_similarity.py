@@ -24,7 +24,7 @@ These tests ensure robust behavior in interface residue comparison and fuzzy seq
 """
 
 import unittest
-from ionerdss.math.string_similarity import (
+from ionerdss.utils.string_similarity import (
     levenshtein_distance,
     levenshtein_similarity,
     jaccard_similarity,

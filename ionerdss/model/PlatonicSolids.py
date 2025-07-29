@@ -7,7 +7,7 @@ from .components import Model
 from .components import Reaction
 from .components import MoleculeType
 from .components import MoleculeInterface
-from ..math.coords import Coords
+from ..utils.coords import Coords
 from .platonic_solids.dode.dode_face_write import dode_face_write
 from .platonic_solids.cube.cube_face_write import cube_face_write
 from .platonic_solids.icos.icos_face_write import icos_face_write

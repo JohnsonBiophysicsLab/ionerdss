@@ -21,7 +21,7 @@ Test coverage includes:
 
 import unittest
 import numpy as np
-from ionerdss.math.inertia_tensors import (
+from ionerdss.utils.inertia_tensors import (
     get_inertia_tensor,
     get_degeneracy,
     get_non_degenerated

@@ -22,7 +22,7 @@ The test cases include:
 import unittest
 import numpy as np
 from math import pi
-from ionerdss.math import bond_geometry
+from ionerdss.utils import bond_geometry
 
 class TestBondGeometry(unittest.TestCase):
 

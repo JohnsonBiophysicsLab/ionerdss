@@ -7,7 +7,7 @@ and comparison utilities used in symmetric protein interface analysis.
 
 import unittest
 
-from ionerdss.math.coords import Coords
+from ionerdss.utils.coords import Coords
 from ionerdss.model.pdb.repeated_interface_signature import (
     identify_interface_structure_signature,
     identify_interface_sequence_signature,

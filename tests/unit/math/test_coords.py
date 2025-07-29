@@ -1,6 +1,6 @@
 import unittest
 import numpy as np
-from ionerdss.math.coords import Coords, get_perpendicular_vector
+from ionerdss.utils.coords import Coords, get_perpendicular_vector
 
 class TestCoords(unittest.TestCase):
 

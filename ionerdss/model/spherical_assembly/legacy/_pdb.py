@@ -10,7 +10,7 @@ import math
 import sys
 import copy
 import numpy as np
-from ionerdss.math.bond_geometry import compute_bond_angles_and_length, compute_bond_angles_and_length_auto
+from ionerdss.utils.bond_geometry import compute_bond_angles_and_length, compute_bond_angles_and_length_auto
 
 # This function will go over every atom between two chains to determine whether they are interacting (distance smaller
 # than 3.5A)

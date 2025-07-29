@@ -11,7 +11,7 @@ are abstracted into geometric templates and reused or created based on spatial s
 Mocks are used for molecule and template objects, and a minimal cg_model-like structure is provided for test input.
 
 Author: yying7@jh.edu
-
+in
 """
 
 import unittest

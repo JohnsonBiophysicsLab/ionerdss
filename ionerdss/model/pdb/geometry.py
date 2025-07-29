@@ -27,7 +27,7 @@ from Bio.Align import PairwiseAligner
 from Bio.SeqUtils import seq1
 from scipy.cluster.vq import kmeans, vq
 
-from ionerdss.math.rigid_transform import rigid_transform_3d
+from ionerdss.utils.rigid_transform import rigid_transform_3d
 
 def rigid_transform_chains(chain1, chain2, n_cluster_groups = 4):
     """

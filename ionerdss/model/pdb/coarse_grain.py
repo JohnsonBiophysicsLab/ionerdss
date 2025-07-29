@@ -116,7 +116,7 @@ from scipy.spatial import KDTree
 from Bio.PDB.Polypeptide import is_aa
 # Assuming your Coords class is already implemented
 
-from ionerdss.math.coords import Coords
+from ionerdss.utils.coords import Coords
 from ionerdss.model.pdb.energy_table import get_default_energy_table
 
 # Optimized pairwise computation: merge residue pair loop using vectorized dot product

@@ -31,7 +31,7 @@ import json
 
 import numpy as np
 
-from ionerdss.math.coords import Coords
+from ionerdss.utils.coords import Coords
 
 #=============================
 # Molecules

@@ -18,7 +18,7 @@ All constants are validated against expected physical behavior and known analyti
 
 import unittest
 
-from ionerdss.math.diffusion_constant import (
+from ionerdss.utils.diffusion_constant import (
     compute_diffusion_constants_nm_us,
 )
 
