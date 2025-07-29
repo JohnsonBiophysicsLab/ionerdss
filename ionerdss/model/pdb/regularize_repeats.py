@@ -229,14 +229,14 @@ def process_interfaces_for_chain(
                 interface_list, binding_chains_pairs
             )
         else:
-            is_homo = determine_homo_dimerization(signature, molecule_name, partner_name, chains_map, dist_threshold_intra, angle_threshold)
+            is_homodimerize = determine_homo_dimerization(signature, molecule_name, partner_name, chains_map, dist_threshold_intra, angle_threshold)
             interface_templates = build_new_interface_templates(
-                is_homo, j, i, group, chain_id, molecule_name, partner_name, cg_model,
+                is_homodimerize, j, i, group, chain_id, molecule_name, partner_name, cg_model,
                 signature, chains_map, molecule_template_list, interface_template_list
             )
 
             # Register templates in the map
-            if is_homo:
+            if is_homodimerize:
                 signature_to_template_map[sig_key] = interface_templates[0]
                 signature_to_template_map[inv_key] = interface_templates[0]
             else:
