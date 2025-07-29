@@ -143,6 +143,7 @@ def adaptive_bimolecular_rate_1D(
             D_tot = np.sum([diffusion_constants[i] for i in reactant_ids])
             sigma = sigmalist[reactionid]
             ka = ratelist[reactionid]
+            if b < sigma: raise ValueError(f'Too many molecules! b - sigma = {b-sigma:.2f} < 0')
             new_ratelist[reactionid] = ( 1/ka + (b-sigma)/3/D_tot )**(-1)
             reverse_reaction_id = reverse_reaction_pairs[reactionid]
             kb = ratelist[reverse_reaction_id]
@@ -157,6 +158,7 @@ def adaptive_bimolecular_rate_1D(
             D_tot = 2 * diffusion_constants[dimerization_id[0]]
             sigma = sigmalist[reactionid]
             ka = ratelist[reactionid]
+            if b < sigma: raise ValueError(f'Too many molecules! b - sigma = {b-sigma:.2f} < 0')
             new_ratelist[reactionid] = ( 1/ka + (b-sigma)/3/D_tot )**(-1)
             reverse_reaction_id = reverse_reaction_pairs[reactionid]
             kb = ratelist[reverse_reaction_id]
