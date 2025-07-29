@@ -34,7 +34,6 @@ def __dir__():
 import numpy as np
 import math
 from .helpers import align_gillespie_simulations
-from progressbar import progressbar
 
 def run_Gillespie_repeats(
         N_repeats: int = 1,
@@ -79,7 +78,11 @@ def run_Gillespie_repeats(
     y_all = []
     t_all = []
     
-    iterator = progressbar(range(N_repeats)) if show_progress else range(N_repeats)
+    if show_progress:
+        from progressbar import progressbar
+        iterator = progressbar(range(N_repeats)) 
+    else: 
+        range(N_repeats)
 
     for _ in iterator:
         # Pass the arguments down to the core simulation function.
