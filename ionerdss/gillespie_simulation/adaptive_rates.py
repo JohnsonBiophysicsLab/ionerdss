@@ -134,15 +134,15 @@ def adaptive_bimolecular_rate_1D(
         # Find bimolecular reactions
         if len(reactant_ids) == 2:
             # find the spicies with more copy numbers
+            D_tot = np.sum([diffusion_constants[i] for i in reactant_ids])
+            sigma = sigmalist[reactionid]
+            ka = ratelist[reactionid]
             species_id_more_counts = reactant_ids[np.argmax(y_curr[reactant_ids])]
             if y_curr[species_id_more_counts] == 0:
                 # when there is no molecule, treat it as there is one
                 b = Length
             else:
                 b = Length / y_curr[species_id_more_counts]
-            D_tot = np.sum([diffusion_constants[i] for i in reactant_ids])
-            sigma = sigmalist[reactionid]
-            ka = ratelist[reactionid]
             if b < sigma: raise ValueError(f'Too many molecules! b - sigma = {b-sigma:.2f} < 0')
             new_ratelist[reactionid] = ( 1/ka + (b-sigma)/3/D_tot )**(-1)
             reverse_reaction_id = reverse_reaction_pairs[reactionid]
@@ -150,14 +150,14 @@ def adaptive_bimolecular_rate_1D(
             new_ratelist[reverse_reaction_id] = kb * new_ratelist[reactionid] / ka
         # dimerization is a special case
         elif len(dimerization_id) == 1:
+            D_tot = 2 * diffusion_constants[dimerization_id[0]]
+            sigma = sigmalist[reactionid]
+            ka = ratelist[reactionid]
             if y_curr[dimerization_id[0]] == 0:
                 # when there is no molecule, treat it as there are two (dimer)
                 b = Length / 2
             else:
-                b = Length / y_curr[dimerization_id[0]]
-            D_tot = 2 * diffusion_constants[dimerization_id[0]]
-            sigma = sigmalist[reactionid]
-            ka = ratelist[reactionid]
+                b = (Length) / y_curr[dimerization_id[0]]
             if b < sigma: raise ValueError(f'Too many molecules! b - sigma = {b-sigma:.2f} < 0')
             new_ratelist[reactionid] = ( 1/ka + (b-sigma)/3/D_tot )**(-1)
             reverse_reaction_id = reverse_reaction_pairs[reactionid]

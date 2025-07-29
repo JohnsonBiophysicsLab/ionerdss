@@ -104,7 +104,7 @@ submodules = {
     'tetr_vert': ['.model.platonic_solids.tetr.tetr_vert', 'tetr_vert'],
     'convert_simularium': ['.simularium_converter.simularium_converter', 'convert_simularium'],
     'Simulation': ['.nerdss_simulation', 'Simulation'],
-    'Analysis': ['.analysis', 'Analyzer'],
+    'Analyzer': ['.analysis', 'Analyzer'],
 }
 
 __all__ = list(submodules.keys()) + [
