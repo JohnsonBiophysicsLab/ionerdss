@@ -30,6 +30,15 @@ class PlatonicSolid(Model):
   
     @classmethod
     def create_Solid(cls, solid_type: str ,radius:float,sigma: float=None,distances:float = None, mol_name=None) -> Model:
+        """
+        Parameters:
+            cls:
+            solid_type (str):  The platonic solid type within ["cube","dode","icos","octa","tetr"]
+            radius (float): the radius of the circumscribed sphere around the platonic solid (nm) — that is, the distance from the center of the dodecahedron to any of its vertices.
+            sigma (float): distance between two binding sites (nm)
+            distances (float): not used
+            mol_name: not used
+        """
         types: list = ["cube","dode","icos","octa","tetr"]
         reactions_to_return = []   #this function returns all reactions generated in this module
         molecule_interfaces = []    #this returns the molecule information needed to generate a model class
