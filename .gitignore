@@ -115,3 +115,5 @@ cython_debug/
 
 # Specficially ignore pdbfiles in proaffinity
 proaffinity-gnn/pdbfiles
+*.cif
+*.cif.gz
