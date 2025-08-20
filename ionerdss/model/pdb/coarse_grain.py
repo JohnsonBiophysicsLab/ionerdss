@@ -7,14 +7,17 @@ done: switch to spherical assembly is the user prompts
 
 ### Overview
 
-The `coarse_grain_structure()` function takes a Biopython `Structure` object (typically parsed from a `.cif` or `.pdb` file) and computes a **coarse-grained molecular representation** for use in NERDSS. This includes:
+The `coarse_grain_structure()` function takes a Biopython `Structure`
+object (typically parsed from a `.cif` or `.pdb` file) and computes
+a **coarse-grained molecular representation** for use in NERDSS. This includes:
 
 * Center-of-mass (COM) for each chain.
 * Approximate molecular radii.
 * Detection of **binding interfaces** between chains.
 * Interface coordinates, residues, and pairwise contact energies.
 
-This step is a foundational part of the NERDSS modeling pipeline that enables downstream creation of `Molecule`, `Interface`, and `Reaction` templates.
+This step is a foundational part of the NERDSS modeling pipeline
+that enables downstream creation of `Molecule`, `Interface`, and `Reaction` templates.
 
 ---
 
@@ -24,9 +27,12 @@ This step is a foundational part of the NERDSS modeling pipeline that enables do
 coarse_grain_structure(structure, distance_cutoff=0.35, residue_cutoff=3, options=None)
 ```
 
-* **`structure`**: A Biopython `Structure` object, parsed using `Bio.PDB.MMCIFParser` or `PDBParser`.
-* **`distance_cutoff`** (`float`): Max atom-atom distance (in nanometers) for two residues to be considered interacting. Default is `0.35 nm` (i.e., 3.5 Å).
-* **`residue_cutoff`** (`int`): Minimum number of contacting residues required to define a valid interface between two chains.
+* **`structure`**: A Biopython `Structure` object, parsed using
+`Bio.PDB.MMCIFParser` or `PDBParser`.
+* **`distance_cutoff`** (`float`): Max atom-atom distance (in nanometers)
+for two residues to be considered interacting. Default is `0.35 nm` (i.e., 3.5 Å).
+* **`residue_cutoff`** (`int`): Minimum number of contacting residues
+required to define a valid interface between two chains.
 * **`options`** (`dict` or `None`): Reserved for future use (e.g., plotting flags).
 
 ---
@@ -56,12 +62,14 @@ coarse_grain_structure(structure, distance_cutoff=0.35, residue_cutoff=3, option
 * For each valid pair of chains:
 
   * All Cα atoms are extracted from each chain.
-  * A KD-tree is built on chain B’s atoms to query neighbors within `distance_cutoff × 10` from each atom in chain A.
+  * A KD-tree is built on chain B’s atoms to query neighbors within
+  `distance_cutoff × 10` from each atom in chain A.
   * If enough residue pairs are found:
 
     * Define a **binding interface** for each chain (as the average of contact residue coordinates).
     * Record the list of contacting residues.
-    * Look up interaction energies for each residue pair using the `energy_table` (e.g., ARG–GLU → −3.5 kcal/mol).
+    * Look up interaction energies for each residue pair using the
+    `energy_table` (e.g., ARG–GLU → −3.5 kcal/mol).
     * Store total contact energy.
 
 ---
@@ -118,12 +126,13 @@ from Bio.PDB.Polypeptide import is_aa
 
 from ionerdss.utils.coords import Coords
 from ionerdss.model.pdb.energy_table import get_default_energy_table
+from ionerdss.model.pdb.hyperparameters import PDBModelHyperparameters
 
 # Optimized pairwise computation: merge residue pair loop using vectorized dot product
+
+
 def compute_interface(residues_i, residues_j,
-                      energy_table,
-                      distance_cutoff,
-                      residue_cutoff):
+                      params: PDBModelHyperparameters):
     """
     Optimized version of coarse_grain_structure to detect coarse-grained interfaces between chains.
 
@@ -157,7 +166,7 @@ def compute_interface(residues_i, residues_j,
     coords_i = np.array([r[2] for r in residues_i])
     coords_j = np.array([r[2] for r in residues_j])
     tree = KDTree(coords_j)
-    neighbors_list = tree.query_ball_point(coords_i, r=distance_cutoff * 10)
+    neighbors_list = tree.query_ball_point(coords_i, r=params.distance_cutoff * 10)
 
     iface_i_ids, iface_i_coords, iface_i_types = [], [], []
     iface_j_ids, iface_j_coords, iface_j_types = [], [], []
@@ -178,19 +187,22 @@ def compute_interface(residues_i, residues_j,
                 iface_j_coords.append(ca_j)
                 iface_j_types.append(res_j_type)
             key = (res_i_type, res_j_type)
-            residue_pairs[(res_i_id, res_j_id)] = energy_table.get(key, 0.0)
+            residue_pairs[(res_i_id, res_j_id)] = params.energy_table.get(key, 0.0)
 
-    if len(iface_i_ids) >= residue_cutoff and len(iface_j_ids) >= residue_cutoff:
+    if len(iface_i_ids) >= params.residue_cutoff and len(iface_j_ids) >= params.residue_cutoff:
         com_i = Coords(*np.mean(iface_i_coords, axis=0))
         com_j = Coords(*np.mean(iface_j_coords, axis=0))
         total_energy = sum(residue_pairs.values())
         return com_i, com_j, iface_i_ids, iface_j_ids, total_energy
+
+    print("distance_cutoff : " + str(params.distance_cutoff))
+    print("residue_cutoff : " + str(params.residue_cutoff))
+
     return None
 
+
 def coarse_grain_structure(structure,
-                           distance_cutoff=0.6,
-                           residue_cutoff=3,
-                           energy_table=None):
+                           params: PDBModelHyperparameters):
     """
     Analyze a Biopython structure to identify chain COMs and binding interfaces.
 
@@ -221,11 +233,6 @@ def coarse_grain_structure(structure,
     interface_residues = [[] for _ in range(num_chains)]
     interface_energies = [[] for _ in range(num_chains)]
 
-    # set energy_table to default if it is None
-    # see ionerdss.model.pdb.energy_table
-    if energy_table is None:
-        energy_table = get_default_energy_table()
-
     for chain in chains:
         # get the coordinates of all atoms that is within an amino acid in a chain
         atoms = [atom.coord for res in chain for atom in res if is_aa(res)]
@@ -245,7 +252,8 @@ def coarse_grain_structure(structure,
     # if a pair of chains is too far away from each other, > (distance_cutoff * 10)
     # then skip
     def bounding_box(chain):
-        coords = np.array([atom.coord for res in chain for atom in res if is_aa(res)])
+        coords = np.array(
+            [atom.coord for res in chain for atom in res if is_aa(res)])
         return coords.min(axis=0), coords.max(axis=0) if len(coords) else (None, None)
 
     boxes = [bounding_box(c) for c in chains]
@@ -254,10 +262,21 @@ def coarse_grain_structure(structure,
         for j in range(i + 1, num_chains):
             min1, max1 = boxes[i]
             min2, max2 = boxes[j]
+
+            print(f"\n[DEBUG] Checking chain pair ({i}, {j})")
+            print(f"[DEBUG]   Box{i}: min={min1}, max={max1}")
+            print(f"[DEBUG]   Box{j}: min={min2}, max={max2}")
+
             if min1 is None or min2 is None:
+                print(
+                    f"[DEBUG]   Skipping pair ({i},{j}) due to missing bounding box")
                 continue
+
             # skip if they are more than distance_cutoff*10 apart
-            if np.any(min2 > max1 + distance_cutoff * 10) or np.any(max2 < min1 - distance_cutoff * 10):
+            if np.any(min2 > max1 + params.distance_cutoff * 10) or\
+                    np.any(max2 < min1 - params.distance_cutoff * 10):
+                print(
+                    f"[DEBUG]   Skipping pair ({i},{j}) - boxes too far apart")
                 continue
 
             chain_i = chains[i]
@@ -267,15 +286,27 @@ def coarse_grain_structure(structure,
             residues_j = [(res.id[1], res.get_resname().upper(), res['CA'].coord)
                           for res in chain_j if is_aa(res) and 'CA' in res]
 
+            print(
+                f"[DEBUG]   Chain {chain_i.id} residues found: {len(residues_i)}")
+            print(
+                f"[DEBUG]   Chain {chain_j.id} residues found: {len(residues_j)}")
+
             if not residues_i or not residues_j:
+                print(f"[DEBUG]   Skipping pair ({i},{j}) - missing residues")
                 continue
 
             # compute interface using KDTree
-            result = compute_interface(residues_i, residues_j, energy_table,
-                                       distance_cutoff, residue_cutoff)
+            result = compute_interface(residues_i, residues_j, params)
             if result:
-                # Record interface data for both chains
                 com_i, com_j, ids_i, ids_j, total_energy = result
+                print(
+                    f"[DEBUG]   Interface detected between chain {chain_i.id} and {chain_j.id}")
+                print(f"[DEBUG]     COM_i={com_i}, COM_j={com_j}")
+                print(f"[DEBUG]     Residues_i={sorted(ids_i)}")
+                print(f"[DEBUG]     Residues_j={sorted(ids_j)}")
+                print(f"[DEBUG]     Total energy={total_energy}")
+
+                # Record interface data for both chains
                 interfaces[i].append(chain_j.id)
                 interface_coords[i].append(com_i)
                 interface_residues[i].append(sorted(ids_i))
@@ -285,6 +316,9 @@ def coarse_grain_structure(structure,
                 interface_coords[j].append(com_j)
                 interface_residues[j].append(sorted(ids_j))
                 interface_energies[j].append(total_energy)
+            else:
+                print(
+                    f"[DEBUG]   No interface found between chain {chain_i.id} and {chain_j.id}")
 
     # Package all results into output dictionary
     return {
