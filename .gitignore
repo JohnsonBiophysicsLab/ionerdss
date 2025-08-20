@@ -117,3 +117,4 @@ cython_debug/
 proaffinity-gnn/pdbfiles
 *.cif
 *.cif.gz
+*.log
