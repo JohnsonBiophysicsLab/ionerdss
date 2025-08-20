@@ -28,6 +28,7 @@ from Bio.PDB.Structure import Structure
 
 from ionerdss.model.pdb.coarse_grain import coarse_grain_structure, compute_interface
 from ionerdss.model.pdb.energy_table import get_default_energy_table
+from ionerdss.model.pdb.hyperparameters import PDBModelHyperparameters
 from ionerdss.utils.coords import Coords
 
 class TestCoarseGrainStructure(unittest.TestCase):
@@ -58,8 +59,7 @@ class TestCoarseGrainStructure(unittest.TestCase):
         add_residue(chainB, 2, "LEU", [0.6, 0.0, 0.0])
         add_residue(chainB, 3, "THR", [0.5, 0.3, 0.1])
 
-        self.distance_cutoff = 0.35
-        self.residue_cutoff = 2
+        self.params = PDBModelHyperparameters()
         self.energy_table = get_default_energy_table()
 
     def test_compute_interface_returns_valid_result(self):
@@ -71,19 +71,19 @@ class TestCoarseGrainStructure(unittest.TestCase):
         residues_j = [(res.id[1], res.get_resname().upper(), res['CA'].coord)
                       for res in chainB]
 
-        result = compute_interface(residues_i, residues_j, self.energy_table,
-                                   self.distance_cutoff, self.residue_cutoff)
+        result = compute_interface(residues_i, residues_j,
+                                   params=self.params)
         self.assertIsNotNone(result, "Interface should be detected with close chains")
 
         com_i, com_j, ids_i, ids_j, energy = result
         self.assertIsInstance(com_i, Coords)
         self.assertIsInstance(com_j, Coords)
-        self.assertGreaterEqual(len(ids_i), self.residue_cutoff)
-        self.assertGreaterEqual(len(ids_j), self.residue_cutoff)
+        self.assertGreaterEqual(len(ids_i), self.params.residue_cutoff)
+        self.assertGreaterEqual(len(ids_j), self.params.residue_cutoff)
         self.assertIsInstance(energy, float)
 
     def test_coarse_grain_structure_detects_interface(self):
-        result = coarse_grain_structure(self.structure, self.distance_cutoff, self.residue_cutoff)
+        result = coarse_grain_structure(self.structure, params=self.params)
 
         self.assertEqual(len(result['chains']), 2)
         self.assertEqual(len(result['COMs']), 2)

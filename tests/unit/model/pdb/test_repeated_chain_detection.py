@@ -26,8 +26,12 @@ from Bio.PDB import Structure, Model, Chain, Residue, Atom
 from ionerdss.model.pdb.detect_repeats import (
     identify_repeated_chains,
 )
+from ionerdss.model.pdb.hyperparameters import PDBModelHyperparameters
 
 class TestIdentifyRepeatedChains(unittest.TestCase):
+
+    def setUp(self):
+        self.params = PDBModelHyperparameters()
 
     def build_chain(self, chain_id, coords, seq_resnames=None):
         """Create a chain with N-CA-C atoms so that PPBuilder can build peptides."""
@@ -74,7 +78,7 @@ class TestIdentifyRepeatedChains(unittest.TestCase):
                   [(5,5,5), (6,5,5), (12,14,16), (15,25,35)],
                   [(0,0.01,0.01), (0.99,0,0), (7.98,9.02,11), (10.01,20.02,30.03)]]
         structure = self.build_structure([('A', coords[0]), ('B', coords[1]), ('C', coords[2]), ('D', coords[3])])
-        chains_map, chains_group = identify_repeated_chains("test", structure, mode='structure')
+        chains_map, chains_group = identify_repeated_chains("test", structure, matching_mode='structure', params = self.params)
         self.assertEqual(len(chains_group), 1)
         self.assertEqual(chains_map['A'], chains_map['B'])
         self.assertEqual(chains_map['A'], chains_map['C'])
@@ -90,7 +94,7 @@ class TestIdentifyRepeatedChains(unittest.TestCase):
             ('B', coords[1], seq2),
             ('C', coords[2], seq3),
         ])
-        chains_map, chains_group = identify_repeated_chains("test", structure, mode='sequence')
+        chains_map, chains_group = identify_repeated_chains("test", structure, matching_mode='sequence', params = self.params)
         print(chains_map)
         print(chains_group)
         self.assertEqual(len(chains_group), 2)
@@ -105,7 +109,7 @@ class TestIdentifyRepeatedChains(unittest.TestCase):
                 '_entity_poly.pdbx_strand_id': ['A,B', 'C']
             }
         }
-        chains_map, chains_group = identify_repeated_chains("test", structure, mode='default')
+        chains_map, chains_group = identify_repeated_chains("test", structure, matching_mode='default', params = self.params)
         self.assertIn(['A', 'B'], chains_group)
         self.assertIn(['C'], chains_group)
         self.assertEqual(chains_map['A'], chains_map['B'])
@@ -121,15 +125,16 @@ class TestIdentifyRepeatedChains(unittest.TestCase):
         structure.header = {}  # no mmCIF info
         with warnings.catch_warnings(record=True) as w:
             warnings.simplefilter("always")
-            chains_map, chains_group = identify_repeated_chains("test", structure, mode='default')
+            chains_map, chains_group = identify_repeated_chains("test", structure, matching_mode='default', params=self.params)
             self.assertTrue(any("Falling back" in str(wi.message) for wi in w))
         self.assertEqual(len(chains_group), 1)
         self.assertEqual(chains_map['X'], chains_map['Y'])
 
     def test_invalid_mode_raises_error(self):
         structure = self.build_structure([('A', [(0,0,0)])])
+        invalid_mode_params = PDBModelHyperparameters(options = {'matching_mode' : 'invalid_mode'})
         with self.assertRaises(ValueError):
-            identify_repeated_chains("test", structure, mode='invalid_mode')
+            identify_repeated_chains("test", structure, matching_mode='invalid_mode', params = invalid_mode_params)
 
 if __name__ == "__main__":
     unittest.main()

@@ -21,28 +21,32 @@ from ionerdss.model.pdb.regularize_repeats import (
     determine_homo_dimerization,
     process_interfaces_for_chain
 )
+from ionerdss.model.pdb.hyperparameters import PDBModelHyperparameters
 
 class TestInterfaceProcessing(unittest.TestCase):
+    
+    def setUp(self):
+        self.params = PDBModelHyperparameters()
 
     def test_determine_homo_dimerization_symmetric(self):
         signature = {"dA": 1.0, "dB": 1.01, "thetaA": 45.0, "thetaB": 45.1}
         chains_map = {"A": "mol", "B": "mol"}
         self.assertTrue(
-            determine_homo_dimerization(signature, "A", "B", chains_map, dist_thresh=0.1, angle_thresh=0.2)
+            determine_homo_dimerization(signature, "A", "B", chains_map, params=self.params)
         )
 
     def test_determine_homo_dimerization_asymmetric(self):
-        signature = {"dA": 1.0, "dB": 1.3, "thetaA": 45.0, "thetaB": 50.0}
+        signature = {"dA": 1.0, "dB": 1.3, "thetaA": 45.0, "thetaB": 75.0}
         chains_map = {"A": "mol", "B": "mol"}
         self.assertFalse(
-            determine_homo_dimerization(signature, "A", "B", chains_map, dist_thresh=0.1, angle_thresh=0.2)
+            determine_homo_dimerization(signature, "A", "B", chains_map, params=self.params)
         )
 
     def test_determine_homo_dimerization_different_templates(self):
         signature = {"dA": 1.0, "dB": 1.0, "thetaA": 45.0, "thetaB": 45.0}
         chains_map = {"A": "mol1", "B": "mol2"}
         self.assertFalse(
-            determine_homo_dimerization(signature, "A", "B", chains_map, dist_thresh=0.1, angle_thresh=0.1)
+            determine_homo_dimerization(signature, "A", "B", chains_map, params=self.params)
         )
 
     def test_process_interfaces_for_chain_registers_interface(self):
@@ -92,9 +96,7 @@ class TestInterfaceProcessing(unittest.TestCase):
             molecule_list=molecule_list,
             molecule_template_list=molecule_template_list,
             interface_signatures=interface_signatures,
-            dist_threshold_intra=0.2,
-            dist_threshold_inter=0.3,
-            angle_threshold=0.5,
+            params=self.params,
             interface_template_list=interface_template_list,
             interface_list=interface_list,
             binding_chains_pairs=binding_chains_pairs,
