@@ -1,6 +1,9 @@
 """
 core.py
 
+
+@TODO: logging
+@TODO: more clear error message when the program fails to align the repeated subunits
 High-level orchestration class PDBModel; imports helper functions from submodules.
 """
 
@@ -10,7 +13,9 @@ from .coarse_grain import coarse_grain_structure
 from .detect_repeats import identify_repeated_chains
 from .regularize_repeats import regularize_repeated_chains
 from .hyperparameters import PDBModelHyperparameters
+from .visualize import plot_coarse_grain_model, save_original_coarse_grained_structure
 from ..components import Model  # assuming you have a base Model class
+
 
 class PDBModel(Model):
     """Main driver for converting a PDB file into NERDSS molecule types and reactions."""
@@ -63,7 +68,7 @@ class PDBModel(Model):
         # Initialize metadata
         self.chains_map = {}
         self.chains_groups = []
-        
+
         # Step 3: Auto run if set to True
         if auto_run:
             self.run_pipeline()
@@ -79,9 +84,6 @@ class PDBModel(Model):
             - 'save_cif': bool
             - 'is_on_sphere': bool (if True, run spherical capsid pipeline)
         """
-        # unpack parameters
-        if options is None:
-            options = {}
 
         # 1. Coarse-grain the structure
         cg_model = coarse_grain_structure(self.structure,
@@ -122,6 +124,20 @@ class PDBModel(Model):
 
         for it in regularized_model_data["interface_templates"]:
             print(it.name, it.coord)  # Expect nonzero Coords object
+
+        # Generate a regularized model while keeping the original
+        # cg_model intact via deep copy
+        #regularize_cg_model = cg_model.copy()
+        #regularize_cg_model["COMs"] = [
+        #    mol.coord for mol in regularized_model_data["molecules"]]
+        #regularize_cg_model["interface_coords"] = [
+        #    mol.interface_list for mol in regularized_model_data["molecules"]]
+
+        # Draw plot
+        print(cg_model["interface_coords"])
+        plot_coarse_grain_model(cg_model)
+        save_original_coarse_grained_structure(
+            cg_model, self.save_dir, self.pdb_file)
 
         # 4. Generate reactions
         # reactions = build_binding_reactions(regularized_model_data)
