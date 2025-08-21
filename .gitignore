@@ -119,3 +119,4 @@ proaffinity-gnn/pdbfiles
 *.cif.gz
 *.log
 *.png
+*.pml
