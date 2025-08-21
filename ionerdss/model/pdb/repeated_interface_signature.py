@@ -253,14 +253,14 @@ def invert_signature(sig):
     }
 
 
-def find_matching_signature(sig_key, signature_to_template_map,
-                            params: PDBModelHyperparameters):
+def find_matching_signature_hash(sig_key, signature_to_template_map,
+                                 params: PDBModelHyperparameters):
     """
     Find a matching signature in signature_to_template_map
     within distance/angle thresholds.
 
     Args:
-        sig_key (dict): The candidate signature (with dA, dB, thetaA, thetaB).
+        sig_key (tuple): The candidate signature hash (with dA, dB, thetaA, thetaB).
         signature_to_template_map (dict): Existing signatures -> templates.
         dist_thresh (float): Distance tolerance.
         angle_thresh (float): Angular tolerance.
@@ -269,10 +269,9 @@ def find_matching_signature(sig_key, signature_to_template_map,
         matching_key, template if found, else (None, None).
     """
     for existing_key, template in signature_to_template_map.items():
-        if (abs(sig_key["dA"] - existing_key["dA"]) < params.dist_threshold_intra and
-            abs(sig_key["dB"] - existing_key["dB"]) < params.dist_threshold_intra and
-            abs(sig_key["dAB"] - existing_key["dAB"]) < params.dist_threshold_inter and
-            abs(sig_key["thetaA"] - existing_key["thetaA"]) < params.angle_threshold and
-                abs(sig_key["thetaB"] - existing_key["thetaB"]) < params.angle_threshold):
+        if (abs(sig_key[0] - existing_key[0]) < params.dist_threshold_intra and
+            abs(sig_key[1] - existing_key[1]) < params.dist_threshold_intra and
+            abs(sig_key[2] - existing_key[2]) < params.angle_threshold and
+            abs(sig_key[3] - existing_key[3]) < params.angle_threshold):
             return existing_key, template
     return None, None
