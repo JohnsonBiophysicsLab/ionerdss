@@ -18,9 +18,11 @@ Functions
 - plot_interfaces(ax, coords, color, label=None)
 """
 import os
+import logging
 import matplotlib.pyplot as plt
 import numpy as np
 
+logger = logging.getLogger("ionerdss.model.pdb")       # module-level logger
 
 def plot_interfaces(ax, coords, color="red", label=None, size=40):
     """
@@ -40,7 +42,7 @@ def plot_interfaces(ax, coords, color="red", label=None, size=40):
         Marker size.
     """
     coords = np.array([com.to_numpy() for com in coords])
-    print(coords)
+    logger.debug("Plot coords : \n %s", coords)
     ax.scatter(coords[:, 0], coords[:, 1], coords[:, 2],
                c=color, s=size, label=label)
 
@@ -104,16 +106,16 @@ def plot_coarse_grain_model(model, show_reactions=False, figsize=(10, 8), elev=3
     plt.show()
 
 
-def save_original_coarse_grained_structure(cg_model,
+def save_coarse_grained_structure(cg_model,
                                            save_dir, pdb_file,
-                                           output_cif: str = "original_coarse_grained_structure.cif",
-                                           pymol_script: str = "original_visualize_coarse_grained.pml"):
-    """Saves the original coarse-grained structure (COM and interface coordinates for each chain)
+                                           output_cif: str = "updated_coarse_grained_structure.cif",
+                                           pymol_script: str = "updated_visualize_coarse_grained.pml"):
+    """Saves the coarse-grained structure (COM and interface coordinates for each chain)
     to a CIF file and generates a PyMOL script for quick visualization.
 
     Args:
-        output_cif (str, optional): Output .cif filename. Defaults to "original_coarse_grained_structure.cif".
-        pymol_script (str, optional): Output .pml filename for PyMOL. Defaults to "original_visualize_coarse_grained.pml".
+        output_cif (str, optional): Output .cif filename. Defaults to "updated_coarse_grained_structure.cif".
+        pymol_script (str, optional): Output .pml filename for PyMOL. Defaults to "updated_visualize_coarse_grained.pml".
     """
     output_cif = os.path.join(save_dir, output_cif)
     pymol_script = os.path.join(save_dir, pymol_script)
@@ -158,7 +160,8 @@ def save_original_coarse_grained_structure(cg_model,
                 )
                 atom_id += 1
 
-    print(f"Coarse-grained structure saved to {output_cif}.")
+    logger.debug(
+        "Coarse-grained structure saved to %s.", output_cif)
 
     # Generate PyMOL script for visualization
     with open(pymol_script, 'w', encoding="utf-8") as pml_file:
@@ -209,5 +212,5 @@ def save_original_coarse_grained_structure(cg_model,
         save_figure = os.path.join(save_dir, "comparison_initial.png")
         pml_file.write(f"png {save_figure}, 800, 800, 150, 1\n")
 
-    print(
-        f"PyMOL script saved to {pymol_script}. Run 'pymol {pymol_script}' to visualize the coarse-grained structure.")
+    logger.info(
+        "PyMOL script saved to %s. Run 'pymol %s' to visualize the coarse-grained structure.", pymol_script, pymol_script)
