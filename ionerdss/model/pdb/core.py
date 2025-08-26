@@ -1,28 +1,45 @@
 """
 core.py
 
-
-@TODO: logging
-@TODO: more clear error message when the program fails to align the repeated subunits
 High-level orchestration class PDBModel; imports helper functions from submodules.
 """
 
 import os
+import logging
+
+from ionerdss.model.graph_based.complexes.graphize import (
+    networkx_graph_to_string,
+    build_simple_graph,
+)
+from ionerdss.model.graph_based.complexes.subcomplexes import (
+    get_unique_fully_connected_subgraphs,
+)
+from ionerdss.model.graph_based.reactions.dimer import (
+    find_all_dimer_reactions,
+    get_broken_edges,
+)
+from ionerdss.model.graph_based.reactions.transformation import (         
+    find_all_transformable_subgraph_pairs,
+)
+
 from . import io
 from .coarse_grain import coarse_grain_structure
 from .detect_repeats import identify_repeated_chains
 from .regularize_repeats import regularize_repeated_chains
 from .hyperparameters import PDBModelHyperparameters
-from .visualize import plot_coarse_grain_model, save_original_coarse_grained_structure
+from .visualize import plot_coarse_grain_model, save_coarse_grained_structure
 from ..components import Model  # assuming you have a base Model class
 
+# get module level logger
+logger = logging.getLogger("ionerdss.model.pdb")       # module-level logger
 
 class PDBModel(Model):
     """Main driver for converting a PDB file into NERDSS molecule types and reactions."""
 
     def __init__(self, pdb_file=None, pdb_id=None, save_dir=None,
-                 hyperparameters=None,
-                 auto_run=True):
+                 auto_run=True,
+                 options=None,
+                 **kwargs):
         """
         Parameters
         ----------
@@ -32,12 +49,15 @@ class PDBModel(Model):
             RCSB PDB ID to fetch if pdb_file is not provided.
         save_dir : str or None
             Directory to save generated model files.
-        hyperparameters :
+        options :
             Provide a dictionary or a PDBModelHyperparameters instance for pipeline
             hyperparameters:
         auto_run : bool (default : True)
             automaitcally run pipleline if set to true
         """
+        # -------------------------------------------------------------------
+        # Initialize parent
+        # -------------------------------------------------------------------
         super().__init__(save_dir)
         self.pdb_file = pdb_file
         self.pdb_id = pdb_id
@@ -45,16 +65,32 @@ class PDBModel(Model):
             os.path.expanduser(save_dir or os.getcwd()))
         os.makedirs(self.save_dir, exist_ok=True)
 
+        # -------------------------------------------------------------------
+        # Configure logging once in your main script (NOT in every module)
+        # -------------------------------------------------------------------
+        logging.basicConfig(
+            format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+        )
+
         # Step 0: Setup hyperparameters
-        if hyperparameters is None:
-            self.params = PDBModelHyperparameters()
-        elif isinstance(hyperparameters, dict):
-            self.params = PDBModelHyperparameters(options=hyperparameters)
-        elif isinstance(hyperparameters, PDBModelHyperparameters):
-            self.params = hyperparameters
-        else:
+        # if provided a hyperparameter class, directly use that
+        if isinstance(options, PDBModelHyperparameters):
+            self.params = options
+        # Validate dict/None path
+        elif options is not None and not isinstance(options, dict):
             raise TypeError(
-                "hyperparameters only supports None, dict, or PDBModelHyperparameters type")
+            "hyperparameters only supports None, dict, or PDBModelHyperparameters"
+        )
+        else:
+            # merge dict-style options and keyword-style options
+            opts = {**(options or {}), **kwargs}
+            self.params = PDBModelHyperparameters(options=opts)
+
+        # set verbose mode if enabled in hyperparameters
+        if self.params.logger_level == "DEBUG":
+            logger.setLevel(logging.DEBUG)     # enable verbose per-run
+        else:
+            logger.setLevel(logging.INFO)      # disable verbose per-run
 
         # Step 1: Download if necessary
         if not pdb_file and pdb_id:
@@ -73,7 +109,8 @@ class PDBModel(Model):
         if auto_run:
             self.run_pipeline()
 
-    def run_pipeline(self):
+    def run_pipeline(self,
+                     do_plot = False):
         """Runs the full model generation pipeline.
 
         Parameters
@@ -85,12 +122,14 @@ class PDBModel(Model):
             - 'is_on_sphere': bool (if True, run spherical capsid pipeline)
         """
 
+        logger.info("Starting Coarse-graining the structure...")
+
         # 1. Coarse-grain the structure
         cg_model = coarse_grain_structure(self.structure,
                                           params=self.params)
 
-        print("cg_model ============== 1")
-        print(cg_model)
+        logger.debug("Generated cg_model :")
+        logger.debug(cg_model)
 
         # returned cg model is a dictionary with the following k,v pairs
         # {
@@ -114,16 +153,16 @@ class PDBModel(Model):
             cg_model, self.chains_map, self.chains_groups,
             params=self.params
         )
+        updated_cg_model = regularized_model_data["updated_cg_model"]
 
-        print(self.chains_map)
-        print(self.chains_groups)
-        print(cg_model)
-        print(regularized_model_data)
-
-        print(".......")
+        # logging
+        logger.debug("Generated regularized model data : ")
+        logger.debug(regularized_model_data)
+        logger.debug(".....................")
 
         for it in regularized_model_data["interface_templates"]:
-            print(it.name, it.coord)  # Expect nonzero Coords object
+            logger.debug("Interface template %s", it.name)  # Expect nonzero Coords object
+            logger.debug("IT Coordinate %s", it.coords)
 
         # Generate a regularized model while keeping the original
         # cg_model intact via deep copy
@@ -133,14 +172,58 @@ class PDBModel(Model):
         #regularize_cg_model["interface_coords"] = [
         #    mol.interface_list for mol in regularized_model_data["molecules"]]
 
-        # Draw plot
-        print(cg_model["interface_coords"])
-        plot_coarse_grain_model(cg_model)
-        save_original_coarse_grained_structure(
-            cg_model, self.save_dir, self.pdb_file)
+        # Draw plot if prompted
+        logger.debug("Interface coordinates : ")
+        logger.debug(updated_cg_model["interface_coords"])
+
+        if do_plot:
+            plot_coarse_grain_model(updated_cg_model)
+        save_coarse_grained_structure(
+            updated_cg_model, self.save_dir, self.pdb_file)
 
         # 4. Generate reactions
-        # reactions = build_binding_reactions(regularized_model_data)
+        
+        # Suppose you have cg_model (from your coarse graining),
+        # and a chains_map like {"A":"A","B":"A",...}
+        G = build_simple_graph(cg_model, chains_map=self.chains_map)
+
+        # If you want 5l93-like edge labels:
+        # annotate_edges_by_cycles(G)
+
+        # debug output
+        logger.debug(networkx_graph_to_string(G))
+
+        # get all subspecies
+        species = get_unique_fully_connected_subgraphs(G)
+        logger.debug(species)
+
+        reactions = find_all_dimer_reactions(species, use_multiprocessing=False)
+
+        reactions_list = [
+            {
+                "product": list(r[2].nodes),
+                "part1": list(r[0]),
+                "part2": list(r[1]),
+                "bonds_broken": get_broken_edges(r[2], r[0], r[1])
+            }
+            for r in reactions
+        ]
+
+        logger.debug(reactions_list)
+        
+        transformations = find_all_transformable_subgraph_pairs(G, species)
+
+        transformations_list = [
+            {
+                "monomer_1_nodes": list(t1.nodes),
+                "monomer_2_nodes": list(t2.nodes),
+                "diff": list(set(t1.edges(data="type")) ^ set(t2.edges(data="type")))
+            }
+            for t1, t2 in transformations
+        ]
+
+        logger.debug(transformations_list)
+
 
         # 5. Rescale energies (optional)
         # rescale_reaction_energies(reactions)  # Uncomment if needed
@@ -160,4 +243,4 @@ class PDBModel(Model):
         # if options.get("save_cif"):
         #    save_structure_outputs(regularized_model_data, self.save_dir)
 
-        print("Pipeline completed.")
+        logger.info("Pipeline completed.")
