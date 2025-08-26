@@ -107,7 +107,7 @@ if __name__ == "__main__":
     G.add_edge(3, 1, type="ab")
 
     transformable_pairs = find_all_transformable_subgraph_pairs(G)
-    
+
     for t1, t2, dir, list_of_edges_changed in transformable_pairs:
         print(t1.nodes)
         print(t2.nodes)

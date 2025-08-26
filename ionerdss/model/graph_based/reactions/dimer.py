@@ -16,7 +16,7 @@ def all_unique_induced_splits(G):
     nodes = list(G.nodes)
     n = len(nodes)
     seen = set()
-    
+
     for r in range(1, n // 2 + 1):
         for A in combinations(nodes, r):
             A = set(A)
