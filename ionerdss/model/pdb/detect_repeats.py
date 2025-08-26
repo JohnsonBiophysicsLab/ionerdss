@@ -92,8 +92,7 @@ def identify_repeated_chains(pdb_id, structure,
             chains_map = {c: group[0] for group in chains_group for c in group}
             return chains_map, chains_group
         else:
-            warnings.warn(
-                f"{pdb_id}: Missing mmCIF entity_poly info. Falling back to sequence alignment.")
+            warnings.warn(f"{pdb_id}: Missing mmCIF entity_poly info. Falling back to #sequence alignment.")
             return _find_repeated_chains_by_sequence(chains, params=params)
 
     else:
@@ -211,9 +210,6 @@ def _find_repeated_chains_by_sequence(chains,
         chains_groups.append(group)
 
     chains_map = {c: group[0] for group in chains_groups for c in group}
-
-    print(f"{len(chains_groups)} homologous chain groups identified:")
-    print(chains_map)
 
     # sort output
     for group in chains_groups:
