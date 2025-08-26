@@ -20,6 +20,8 @@ Functions
 - regularize_model(raw_data, chains_map=None)
     Canonicalize and simplify the structure of the coarse-grained model.
 """
+import logging
+from copy import deepcopy
 
 import numpy as np
 from Bio.PDB.Polypeptide import is_aa
@@ -47,8 +49,12 @@ from ionerdss.utils.diffusion_constant import compute_diffusion_constants_nm_us
 from ionerdss.utils.rigid_transform import apply_rigid_transform
 from ionerdss.utils.steric_clash import check_clashes_between_two_sets
 
+# set up logger
+logger = logging.getLogger("ionerdss.model.pdb")       # module-level logger
 
-def process_chain_group(group, chains_map, molecule_template_list, molecule_list, cg_model,
+
+def process_chain_group(group, chains_map, molecule_template_list,
+                        molecule_list, cg_model,
                         params: PDBModelHyperparameters,
                         signature_to_template_map=None):
     """
@@ -137,7 +143,7 @@ def get_or_create_molecule(name, template, molecule_list, cg_model):
         molecule = molecule_list[idx]
     else:
         molecule = CoarseGrainedMolecule(name)
-        molecule.coord = get_chain_data(name, cg_model, "COMs")
+        molecule.coords = get_chain_data(name, cg_model, "COMs")
         molecule.radius = get_chain_data(name, cg_model, "radii")
         molecule_list.append(molecule)
         template.radius = molecule.radius
@@ -178,54 +184,76 @@ def process_interfaces_for_chain(
     Processes all interfaces for a given chain within its group.
 
     Debug prints have been added to trace flow and parameter values.
+    
+    Args:
+        binding_partner_map (map): (chain_idx, iface_idx) -> (partner_chain_idx, partner_iface_idx)
     """
 
-    print(f"\n[DEBUG] Processing chain={chain_id}, group={group}, index={j}")
-    print(
-        f"[DEBUG] Current molecule={molecule.name if hasattr(molecule, 'name') else molecule}")
+    # debug log the current chain
+    logger.debug(
+        "Processing chain=%s, group=%s, index=%d", chain_id, group, j)
+    logger.debug(
+        "Current molecule=%s", molecule.name if hasattr(molecule, 'name') else molecule)
 
     molecule_name = chain_id
+
+    # get interfaces of this molecule
+    # the interfaces are named after partner molecule name
     interfaces = get_chain_data(molecule_name, cg_model, "interfaces")
-    print(
-        f"[DEBUG] Found {len(interfaces)} interfaces for chain {molecule_name}")
 
-    for i, interface_id in enumerate(interfaces):
-        print(f"\n[DEBUG]   Interface {i}: {molecule_name} -> {interface_id}")
+    # debug log the number of interfaces in the current chain
+    logger.debug(
+        "Found %d interfaces for chain %s", len(interfaces), molecule_name)
 
-        partner_name = interface_id
+    for i, partner_name in enumerate(interfaces):
+
+        # debug log the current interface
+        logger.debug(
+            "Start processing new interface...")
+        logger.debug(
+            "Interface %d: %s -> %s", i, molecule_name, partner_name)
+
         partner_template_name = chains_map[partner_name]
-        print(
-            f"[DEBUG]   Partner={partner_name}, template={partner_template_name}")
+        logger.debug(
+            "Partner=%s, template=%s", partner_name, partner_template_name)
 
+        # create template and mlecule for partner
         partner_template = get_or_create_molecule_template(
             partner_template_name, molecule_template_list)
         partner_molecule = get_or_create_molecule(
             partner_name, partner_template, molecule_list, cg_model)
 
-        COM_A = get_chain_data(molecule_name, cg_model, "COMs")
-        I_A = get_chain_data(molecule_name, cg_model, "interface_coords")[i]
-        COM_B = get_chain_data(partner_name, cg_model, "COMs")
-        print(f"[DEBUG]   COM_A={COM_A}, I_A={I_A}, COM_B={COM_B}")
+        # get coordinates of center of mass and interfaces
+        com_a = get_chain_data(molecule_name, cg_model, "COMs")
+        intf_a = get_chain_data(molecule_name, cg_model, "interface_coords")[i]
+        com_b = get_chain_data(partner_name, cg_model, "COMs")
 
-        I_B, R_B, E_B = None, None, None
+        logger.debug(
+            "COM_A=%s, I_A=%s, COM_B=%s", com_a, intf_a, com_b)
+
+        intf_b, res_b, energy_b = None, None, None
         for k, pid in enumerate(get_chain_data(partner_name, cg_model, "interfaces")):
             if pid == molecule_name:
-                I_B = get_chain_data(
+                intf_b = get_chain_data(
                     partner_name, cg_model, "interface_coords")[k]
-                R_B = get_chain_data(partner_name, cg_model,
-                                     "interface_residues")[k]
-                E_B = get_chain_data(partner_name, cg_model,
-                                     "interface_energies")[k]
-                print(
-                    f"[DEBUG]   Found reciprocal interface: I_B={I_B}, residues={R_B}, energies={E_B}")
+                res_b = get_chain_data(partner_name, cg_model,
+                                       "interface_residues")[k]
+                energy_b = get_chain_data(partner_name, cg_model,
+                                          "interface_energies")[k]
+                logger.debug(
+                    "Found reciprocal interface: I_B=%s,\n\tresidues=%s,\n\tenergies=%s", intf_b, res_b, energy_b)
                 break
 
-        signature = build_signature(COM_A, I_A, COM_B, I_B)
+        # build signature hash of the forward and reverse interaction
+        # forward interaction = this -> partner
+        # reverse interaction = partner -> this
+        signature = build_signature(com_a, intf_a, com_b, intf_b)
         inverted_signature = invert_signature(signature)
         sig_key = signature_hash(signature)
         inv_key = signature_hash(inverted_signature)
 
-        print(f"[DEBUG]   Signature hash={sig_key}, inverted={inv_key}")
+        logger.debug(
+            "Signature hash=%s, inverted=%s", sig_key, inv_key)
 
         # check if sig_key is in the signature_to_template_map
         # get a subset map of signature_to_template_map that corresponds
@@ -233,67 +261,83 @@ def process_interfaces_for_chain(
         subset_map = {
             k: v
             for k, v in signature_to_template_map.items()
-            if hasattr(v, "name") and isinstance(v.name, str)\
-                and v.name.startswith(chains_map[molecule_name])
+            if hasattr(v, "name") and isinstance(v.name, str)
+            and v.name.startswith(chains_map[molecule_name])
         }
-        print(f"[DEBUG] signature_to_template_map subset : \n {subset_map}")
+        logger.debug(
+            "signature_to_template_map subset : \n %s", subset_map)
         matching_key, interface_template = find_matching_signature_hash(
             sig_key, subset_map, params)
         # partner is searched from all interfaces
         matching_inv_key, interface_template = find_matching_signature_hash(
             inv_key, signature_to_template_map, params)
-        print(f"[DEBUG] signature_to_template_map matchkey : \n {matching_key}; {matching_inv_key}")
-        print(f"[DEBUG] signature_to_template_map : \n {chains_map[molecule_name]}")
-        print(f"[DEBUG] signature_to_template_map : \n {signature_to_template_map}")
-
+        logger.debug(
+            "signature_to_template_map matchkey : \n %s; %s",
+            matching_key, matching_inv_key
+        )
+        logger.debug(
+            "signature_to_template_map : \n %s",
+            chains_map[molecule_name]
+        )
+        logger.debug(
+            "signature_to_template_map : \n %s",
+            signature_to_template_map
+        )
 
         if matching_key is not None and matching_inv_key is not None:
-            print("[DEBUG]   Reusing existing template")
+            logger.debug("Reusing existing template")
             interface_template = signature_to_template_map[matching_key]
             partner_template_template = signature_to_template_map[matching_inv_key]
             register_interfaces(
-                chain_id, interface_id, molecule, partner_molecule,
+                chain_id, partner_name, molecule, partner_molecule,
                 interface_template, partner_template_template,
-                cg_model, I_B, R_B, E_B, i,
+                cg_model, intf_b, res_b, energy_b, i,
                 interface_list, binding_chains_pairs
             )
         else:
-            print("[DEBUG]   Building new interface templates")
+            logger.debug("Building new interface templates")
             is_homodimerize = determine_homo_dimerization(
                 signature, molecule_name, partner_name, chains_map,
                 params
             )
-            print(f"[DEBUG]   Homodimerization? {is_homodimerize}")
+            logger.debug("[Homodimerization? : %s", is_homodimerize)
 
             interface_templates = build_new_interface_templates(
                 is_homodimerize, j, i, group, chain_id, molecule_name,
                 partner_name, cg_model, signature, chains_map,
                 molecule_template_list, interface_template_list
             )
-            print(
-                f"[DEBUG]   Created {len(interface_templates)} new templates")
+            logger.debug(
+                "Created %d new templates", len(interface_templates))
 
             # Register templates in the map
             if is_homodimerize:
                 signature_to_template_map[sig_key] = interface_templates[0]
-                signature_to_template_map[inv_key] = interface_templates[0]
-                print("[DEBUG]   Stored single homodimer template in map")
+                #signature_to_template_map[inv_key] = interface_templates[0]
+                logger.debug(
+                    "Stored single homodimer template in map")
             else:
                 signature_to_template_map[sig_key] = interface_templates[0]
                 signature_to_template_map[inv_key] = interface_templates[1]
-                print("[DEBUG]   Stored heterodimer templates in map")
+                logger.debug(
+                    "Stored heterodimer templates in map")
 
             for t in interface_templates:
-                print(f"[DEBUG]   Registering interface template={t}")
+                logger.debug(
+                    "Registering interface template= %s", t)
                 register_interfaces(
-                    chain_id, interface_id, molecule, partner_molecule,
+                    chain_id, partner_name, molecule, partner_molecule,
                     t,
                     partner_template if t != partner_template else t,
-                    cg_model, I_B, R_B, E_B, i,
+                    cg_model, intf_b, res_b, energy_b, i,
                     interface_list, binding_chains_pairs
                 )
 
-    print(f"[DEBUG] Finished processing chain={chain_id}")
+    # debug log end of processing and separator
+    logger.debug(
+        "Finished processing chain=%s", chain_id)
+    logger.debug(
+        "......................................")
 
 
 def determine_homo_dimerization(signature, mol_a, mol_b,
@@ -341,6 +385,7 @@ def build_new_interface_templates(
         chains_map (dict): Chain-to-template map.
         mol_template_list (list): Existing molecule templates.
         interface_template_list (list): Output list to append new templates.
+        binding_partner_map (map): (chain_idx, iface_idx) -> (partner_chain_idx, partner_iface_idx)
 
     Returns:
         list of BindingInterfaceTemplate: One or two templates
@@ -350,15 +395,22 @@ def build_new_interface_templates(
             molecule_prefix)) + 1
         return f"{molecule_prefix}_{suffix}"
 
+    # prepare chain index enumeration
+    chain_index = {getattr(c, "id", c): idx for idx, c in enumerate(cg_model["chains"])}
+
+
     if is_homo:
+        # Case 1 : homodimerize
         # Interface is on mol_A, binding to mol_B (same template)
         molecule_prefix = chains_map[mol_A]
         interface_template_id = get_interface_template_id(molecule_prefix)
         interface_template = BindingInterfaceTemplate(interface_template_id)
         interface_template.signature = signature
         offset = compute_interface_offset(j, i, group, chain_id, cg_model)
-        interface_template.coord = offset
-        print(f"[DEBUG] {interface_template_id} offset = {offset}")
+        interface_template.coords = offset
+
+        # debug log the offset of the current interface
+        logger.debug("interface %s offset = %s", interface_template_id, offset)
 
         # Assign to correct molecule template (chain_id is mol_A)
         my_template = get_or_create_molecule_template(
@@ -368,21 +420,40 @@ def build_new_interface_templates(
         return [interface_template]
 
     else:
+        # Case 2 : two species binding
         templates = []
         for mol, sig, side_chain_id in [
             (mol_A, signature, chain_id),
             (mol_B, invert_signature(signature),
              mol_B if chain_id == mol_A else mol_A)
         ]:
-            molecule_prefix = chains_map[mol_A if mol == mol_A else mol_B]
+            gidx = chain_index[chain_id]     # chain_id like "L"
+                                             # note gidx is global index
+                                             # whereas j is local index
+                                             # within chain group
+            # determine current group
+            # determine current interface in terms of (chain id, interface id)
+            if mol == mol_A:
+                molecule_prefix = chains_map[mol_A]
+                current_chain_id = gidx
+                current_interface_id = i
+            else:
+                molecule_prefix = chains_map[mol_B]
+                current_chain_id, current_interface_id = cg_model["binding_partner_map"][(gidx,i)]
+
+            # get all keys with value == current group prefix
+            current_group = [k for k, v in chains_map.items() if v == molecule_prefix]
             interface_template_id = get_interface_template_id(molecule_prefix)
             interface_template = BindingInterfaceTemplate(
                 interface_template_id)
             interface_template.signature = sig
             offset = compute_interface_offset(
-                j, i, group, side_chain_id, cg_model)
-            interface_template.coord = offset
-            print(f"[DEBUG] {interface_template_id} offset = {offset}")
+                current_chain_id, current_interface_id,
+                current_group, side_chain_id, cg_model)
+            interface_template.coords = offset
+
+            # debug log the offset of the current interface
+            logger.debug("interface %s offset = %s", interface_template_id, offset)
 
             # Attach to molecule template that interface lives on
             my_template = get_or_create_molecule_template(
@@ -393,37 +464,89 @@ def build_new_interface_templates(
 
         return templates
 
-
 def compute_interface_offset(j, i, group, chain_id, cg_model):
     """
     Computes the relative coordinate of the interface site with respect to COM.
     Applies rigid transform if not the first chain in the group.
 
     Args:
-        j (int): Chain index.
-        i (int): Interface index.
-        group (list): Group of chains.
+        j (int): Chain index within the group.
+        i (int): Interface index within the chain.
+        group (list): Group of chains (list of chain IDs).
         chain_id (str): Chain ID of current molecule.
         cg_model (dict): CG data containing coords.
 
     Returns:
         Coords: Relative offset from COM to interface site.
     """
+
+    logger.debug(
+        "[compute_interface_offset] START chain_id=%s, j=%d, i=%d, group=%s",
+        chain_id, j, i, group
+    )
+
     if j == 0:
         pt = get_chain_data(chain_id, cg_model, "interface_coords")[i]
         com = get_chain_data(chain_id, cg_model, "COMs")
         offset = np.array([pt.x, pt.y, pt.z]) - np.array([com.x, com.y, com.z])
+
+        logger.debug(
+            "[compute_interface_offset] j==0 (reference chain)\n"
+            "  COM = (%f, %f, %f)\n"
+            "  Pt  = (%f, %f, %f)\n"
+            "  Offset = (%f, %f, %f)",
+            com.x, com.y, com.z,
+            pt.x, pt.y, pt.z,
+            offset[0], offset[1], offset[2]
+        )
         return Coords(*offset)
+
     else:
         chain1 = [c for c in cg_model["chains"] if c.id == group[0]][0]
         chain2 = [c for c in cg_model["chains"] if c.id == chain_id][0]
+
+        logger.debug(
+            "[compute_interface_offset] j>0 (aligned chain)\n"
+            "  Reference chain = %s\n"
+            "  Current chain   = %s",
+            chain1.id, chain2.id
+        )
+
+        # Compute rigid transform from current chain to reference chain
         R, t = rigid_transform_chains(chain2, chain1)
+        logger.debug(
+            "[compute_interface_offset] Rigid transform (R,t):\n"
+            "  R = %s\n"
+            "  t = %s",
+            np.array2string(R, precision=3), np.array2string(t, precision=3)
+        )
+
         Q_COM = get_chain_data(chain_id, cg_model, "COMs")
         Q_pt = get_chain_data(chain_id, cg_model, "interface_coords")[i]
+        logger.debug(
+            "[compute_interface_offset] Raw COM = %s, Raw Pt = %s",
+            Q_COM, Q_pt
+        )
+
+        # Apply rigid transform to both COM and interface point
         Q2 = [apply_rigid_transform(R, t, pt.to_numpy())
               for pt in [Q_COM, Q_pt]]
+
+        logger.debug(
+            "[compute_interface_offset] Transformed COM = %s\n"
+            "  Transformed Pt  = %s",
+            Q2[0], Q2[1]
+        )
+
         assert isinstance(Q_COM, Coords), f"Expected Coords, got {type(Q_COM)}"
-        return Coords(*(Q2[1] - Q2[0]))
+
+        offset = Q2[1] - Q2[0]
+        logger.debug(
+            "[compute_interface_offset] Final Offset = (%f, %f, %f)",
+            offset[0], offset[1], offset[2]
+        )
+        return Coords(*offset)
+
 
 
 def match_existing_templates(signature, signature_conj, mol_template_list, params):
@@ -478,7 +601,7 @@ def register_interfaces(
     if not _is_existing_interface(interface_id, interface_list)[0]:
         interface = BindingInterface(interface_id)
         interface.my_template = interface_template
-        interface.coord = get_chain_data(
+        interface.coords = get_chain_data(
             chain_id, cg_model, "interface_coords")[i]
         interface.my_residues = get_chain_data(
             chain_id, cg_model, "interface_residues")[i]
@@ -490,7 +613,7 @@ def register_interfaces(
 
         partner_interface = BindingInterface(chain_id)
         partner_interface.my_template = partner_template
-        partner_interface.coord = I_B
+        partner_interface.coords = I_B
         partner_interface.my_residues = R_B
         partner_interface.energy = E_B
         partner_interface.my_template.energy = E_B
@@ -526,34 +649,34 @@ def update_molecule_interfaces(
             mol_template = next(
                 mt for mt in mol_template_list if mt.name == chains_map[chain_id])
             mol0 = next(m for m in molecule_list if m.name == group[0])
-            com_coord = mol0.coord
+            com_coords = mol0.coords
             interface_coords = [
-                it.coord + com_coord for it in mol_template.interface_template_list]
+                it.coords + com_coords for it in mol_template.interface_template_list]
             interface_ids = [
                 it.name for it in mol_template.interface_template_list]
 
             if i == 0:
                 mol = next(m for m in molecule_list if m.name == chain_id)
-                mol.normal_point = [com_coord.x, com_coord.y, com_coord.z + 1]
+                mol.normal_point = [com_coords.x, com_coords.y, com_coords.z + 1]
                 continue
 
             chain1 = [c for c in cg_model["chains"] if c.id == group[0]][0]
             chain2 = [c for c in cg_model["chains"] if c.id == chain_id][0]
             R, t = rigid_transform_chains(chain1, chain2)
             com_trans = apply_rigid_transform(R, t, np.array(
-                [com_coord.x, com_coord.y, com_coord.z]))
+                [com_coords.x, com_coords.y, com_coords.z]))
             intf_coords_trans = [apply_rigid_transform(
                 R, t, np.array([pt.x, pt.y, pt.z])) for pt in interface_coords]
             norm_pt = apply_rigid_transform(R, t, np.array(
-                [com_coord.x, com_coord.y, com_coord.z + 1]))
+                [com_coords.x, com_coords.y, com_coords.z + 1]))
 
             mol = next(m for m in molecule_list if m.name == chain_id)
-            mol.coord = Coords(*com_trans)
+            mol.coords = Coords(*com_trans)
             mol.normal_point = list(norm_pt)
             for j, interface in enumerate(mol.interface_list):
                 for k, tid in enumerate(interface_ids):
                     if interface.my_template.name == tid:
-                        interface.coord = Coords(*intf_coords_trans[k])
+                        interface.coords = Coords(*intf_coords_trans[k])
                         break
 
 
@@ -576,7 +699,7 @@ def regularize_repeated_chains(cg_model, chains_map, chains_groups,
     # if any element in chains_group has more than one chain, then it has homologous chains
     has_repeated_chains = any(len(group) > 1 for group in chains_groups)
     if not has_repeated_chains:
-        print("NO REPEATED CHAINS! OVERRIDE THRESHOLDS TO ZERO!")
+        logger.debug("NO REPEATED CHAINS! OVERRIDE THRESHOLDS TO ZERO!")
 
         # try not to change the passed-in values via initializing a new hyperparameter class
         options = {"dist_threshold_intra": 0.0,
@@ -601,16 +724,28 @@ def regularize_repeated_chains(cg_model, chains_map, chains_groups,
         )
         all_interface_signatures.extend(sigs)
         interface_template_list.extend(templates)
+        # debug log
+        logger.debug("interface templates : %s \n", templates)
+        logger.debug("All interface templates : %s \n",
+                     interface_template_list)
+        logger.debug("All interface coords : %s \n",
+                     [it.coords for it in interface_template_list])
+
         interface_list.extend(interfaces)
         all_binding_pairs.extend(pairs)
 
     # Post-processing:
+    # this function updates the regularized positions in-place
+    # on `molecule_list` (and each molecule’s interface_list).
+    # The original, raw coarse-grained data in cg_model remains
+    # untouched—so the “original copy” is intact.
     update_molecule_interfaces(
         chains_groups, chains_map,
         molecule_template_list, molecule_list,
         cg_model
     )
 
+    # update requirement list
     _update_interface_templates_free_required_list(chains_groups,
                                                    molecule_list,
                                                    cg_model["chains"],
@@ -622,19 +757,25 @@ def regularize_repeated_chains(cg_model, chains_map, chains_groups,
     interface_list.sort(key=lambda i: i.name)
     interface_template_list.sort(key=lambda it: it.name)
 
-    if params.standard_output:
-        print("Molecules Template and Reactions Template After Regularization:")
-        for molecule_template in molecule_template_list:
-            print(molecule_template)
 
-        print("Molecules:")
-        for molecule in molecule_list:
-            print(molecule)
+    logger.debug(
+        "Molecules Template and Reactions Template After Regularization:")
+    for molecule_template in molecule_template_list:
+        logger.debug(molecule_template)
+
+    logger.debug("Molecules:")
+    for molecule in molecule_list:
+        logger.debug(molecule)
 
     molecule_types = _generate_molecule_types(molecule_template_list)
 
+    # get updated cg_model
+    updated_cg_model = build_updated_cg_model(cg_model, molecule_list)
+    logger.debug("updated cg_model : \n%s", updated_cg_model)
+
    # Return structured model data
     return {
+        "updated_cg_model": updated_cg_model,
         "molecule_templates": molecule_template_list,
         "molecules": molecule_list,
         "interface_templates": interface_template_list,
@@ -646,7 +787,58 @@ def regularize_repeated_chains(cg_model, chains_map, chains_groups,
 # This is a modularized scaffold for the original parsing loop
 # The functions are broken down by responsibility
 
-# ... (existing code) ...
+def build_updated_cg_model(cg_model, molecule_list):
+    """
+    Create a new cg_model dict whose COMs and interface_coords are replaced
+    with the regularized positions from `molecule_list`. All other fields are
+    copied from the original cg_model. The original cg_model is not modified.
+
+    Returns
+    -------
+    dict
+        A deepcopy of cg_model with updated 'COMs' and 'interface_coords'.
+    """
+    updated = deepcopy(cg_model)
+
+    # Fast lookups
+    mol_by_name = {m.name: m for m in molecule_list}
+    chains = cg_model["chains"]                   # list of Bio.PDB Chain objects
+    interfaces = cg_model["interfaces"]           # list[list[str]] partner IDs
+
+    new_COMs = []
+    new_interface_coords = []
+
+    for idx, chain in enumerate(chains):
+        chain_id = chain.id
+        mol = mol_by_name.get(chain_id)
+
+        # Fallback to original data if we don't have a regularized molecule
+        if mol is None or mol.coords is None:
+            new_COMs.append(cg_model["COMs"][idx])
+            new_interface_coords.append(cg_model["interface_coords"][idx])
+            continue
+
+        # 1) COM from regularized molecule
+        new_COMs.append(mol.coords)  # Coords
+
+        # 2) Interface coords in the same partner order as cg_model['interfaces'][idx]
+        partner_order = interfaces[idx]
+        # Build dict partner_name -> Coords from the molecule's interfaces
+        intf_coord_by_partner = {
+            intf.name: intf.coords for intf in getattr(mol, "interface_list", [])}
+
+        # Keep array length identical to original; fallback to old if missing
+        old_chain_iface_coords = cg_model["interface_coords"][idx]
+        coords_for_chain = []
+        for j, partner in enumerate(partner_order):
+            coords_for_chain.append(
+                intf_coord_by_partner.get(partner, old_chain_iface_coords[j])
+            )
+        new_interface_coords.append(coords_for_chain)
+
+    updated["COMs"] = new_COMs
+    updated["interface_coords"] = new_interface_coords
+    return updated
 
 
 def _update_interface_templates_free_required_list(
@@ -656,23 +848,26 @@ def _update_interface_templates_free_required_list(
     Updates the `required_free_list` attribute for each interface template by checking 
     potential steric clashes among binding partners within the same molecule template.
     """
-    print("\n[DEBUG] Entering _update_interface_templates_free_required_list")
-    print("---------------------------------------------------------------")
-    print(f"Number of chain groups: {len(chains_group)}")
+    logger.debug("\nStarting _update_interface_templates_free_required_list")
+    logger.debug("---------------------------------------------------------------")
+    logger.debug("Number of chain groups: %d", len(chains_group))
     for idx, group in enumerate(chains_group):
-        print(f"  Group {idx}: {group}")
-    print(f"Total molecules: {len(molecule_list)}")
-    print("  Molecule names: ", [m.name for m in molecule_list])
-    print(f"Total chains in cg_model: {len(all_chains)}")
-    print("  All chain IDs: ", [chain.id for chain in all_chains])
-    print(f"Total molecule templates: {len(molecule_template_list)}")
+        logger.debug("  Group %d: %s", idx, group)
+    logger.debug("Total molecules: %d", len(molecule_list))
+    logger.debug("  Molecule names: %s", [m.name for m in molecule_list])
+    logger.debug("Total chains in cg_model: %d", len(all_chains))
+    logger.debug("  All chain IDs: %s", [chain.id for chain in all_chains])
+    logger.debug("Total molecule templates: %d", len(molecule_template_list))
     for mt in molecule_template_list:
-        print(
-            f"  MoleculeTemplate '{mt.name}' has interface templates: {[it.name for it in mt.interface_template_list]}")
-    print("Chains map (chain_id -> molecule_template):")
+        logger.debug(
+            "  MoleculeTemplate '%s' has interface templates: %s",
+            mt.name, [it.name for it in mt.interface_template_list]
+        )
+    logger.debug("Chains map (chain_id -> molecule_template):")
     for k, v in chains_map.items():
-        print(f"  {k} -> {v}")
-    print("---------------------------------------------------------------\n")
+        logger.debug("  %s -> %s", k, v)
+    logger.debug("---------------------------------------------------------------\n")
+
 
     def extract_prefix(name):
         """Extracts the part before the last underscore."""
@@ -700,20 +895,24 @@ def _update_interface_templates_free_required_list(
             if i == 0:
                 continue
 
-            molecule = next(mol for mol in molecule_list if mol.name == chain_id)
+            molecule = next(
+                mol for mol in molecule_list if mol.name == chain_id)
 
             for interface in molecule.interface_list:
                 # Partner chain for THIS interface
-                interface_id = interface.name  # partner chain id (e.g., 'A' or 'H')
+                # partner chain id (e.g., 'A' or 'H')
+                interface_id = interface.name
 
                 # --- FIRST APPEARANCE CHECK (by partner prefix) ---
                 # Determine the partner template prefix of THIS interface
-                this_partner_prefix = chains_map[interface_id]  # e.g., 'A' or 'H'
+                # e.g., 'A' or 'H'
+                this_partner_prefix = chains_map[interface_id]
 
                 first_appearance = True
                 for j in range(i):
                     chain_id_2 = group[j]
-                    molecule_2 = next(m for m in molecule_list if m.name == chain_id_2)
+                    molecule_2 = next(
+                        m for m in molecule_list if m.name == chain_id_2)
                     for interface_2 in molecule_2.interface_list:
                         # Compare by partner template prefix (not by .my_template.name)
                         other_partner_prefix = chains_map[interface_2.name]
@@ -727,30 +926,38 @@ def _update_interface_templates_free_required_list(
                     continue
 
                 # Get chains needed for clash check
-                my_partner_chain = next(c for c in all_chains if c.id == interface_id)
+                my_partner_chain = next(
+                    c for c in all_chains if c.id == interface_id)
                 my_chain = next(c for c in all_chains if c.id == chain_id)
 
                 for j in range(i):
                     chain_id_2 = group[j]
-                    molecule_2 = next(m for m in molecule_list if m.name == chain_id_2)
+                    molecule_2 = next(
+                        m for m in molecule_list if m.name == chain_id_2)
 
                     for interface_2 in molecule_2.interface_list:
                         # Skip same-partner-prefix interfaces? (optional)
                         # if chains_map[interface_2.name] == this_partner_prefix:
                         #     continue
 
-                        another_partner_chain = next(c for c in all_chains if c.id == interface_2.name)
-                        another_chain = next(c for c in all_chains if c.id == chain_id_2)
+                        another_partner_chain = next(
+                            c for c in all_chains if c.id == interface_2.name)
+                        another_chain = next(
+                            c for c in all_chains if c.id == chain_id_2)
 
                         R, t = rigid_transform_chains(my_chain, another_chain)
 
-                        my_coords = [res['CA'].coord for res in my_partner_chain if is_aa(res) and 'CA' in res]
-                        my_coords_trans = [apply_rigid_transform(R, t, coord) for coord in my_coords]
-                        other_coords = [res['CA'].coord for res in another_partner_chain if is_aa(res) and 'CA' in res]
+                        my_coords = [res['CA'].coords for res in my_partner_chain if is_aa(
+                            res) and 'CA' in res]
+                        my_coords_trans = [apply_rigid_transform(
+                            R, t, coords) for coords in my_coords]
+                        other_coords = [
+                            res['CA'].coords for res in another_partner_chain if is_aa(res) and 'CA' in res]
 
                         if check_clashes_between_two_sets(np.array(my_coords_trans), np.array(other_coords)):
                             # Resolve the molecule template for THIS chain
-                            mol_template_id = chains_map[chain_id]         # e.g., 'H'
+                            # e.g., 'H'
+                            mol_template_id = chains_map[chain_id]
                             mol_template = get_mol_template(mol_template_id)
 
                             # Resolve interface templates on this molecule template
@@ -783,10 +990,12 @@ def _generate_molecule_types(molecule_template_list):
         mol_interfaces = []
         for intf_template in mol_template.interface_template_list:
             iface = MoleculeInterface(
-                name=intf_template.name, coord=intf_template.coord)
+                name=intf_template.name, coords=intf_template.coords)
             mol_interfaces.append(iface)
-            print(
-                f"[DEBUG] Template: {intf_template.name}, Coord: {intf_template.coord}")
+            logger.debug(
+                "Template: %s", intf_template.name)
+            logger.debug(
+                "Coords: %s", intf_template.coords)
         molecule = MoleculeType(name=mol_name, interfaces=mol_interfaces, translational_diffusion_constant=mol_template.diffusion_translation,
                                 rotational_diffusion_constant=mol_template.diffusion_rotation)
         molecule_types.append(molecule)
