@@ -54,4 +54,44 @@ class PDBModelHyperparameters():
         self.angle_threshold = options.get("angle_threshold", 25.0)
         # Output control
         self.standard_output = options.get("standard_output", False)
-        self.verbose_mode = options.get("verbose_mode", False)
+        self.logger_level = options.get("logger_level", "INFO")
+
+    def __repr__(self):
+        """
+        Developer-oriented representation. Should be unambiguous and ideally valid Python.
+        """
+        attrs = (
+            f"distance_cutoff={self.distance_cutoff}, "
+            f"residue_cutoff={self.residue_cutoff}, "
+            f"energy_table={self.energy_table!r}, "
+            f"rmsd_threshold={self.rmsd_threshold}, "
+            f"seq_threshold={self.seq_threshold}, "
+            f"custom_aligner={self.custom_aligner!r}, "
+            f"matching_mode={self.matching_mode!r}, "
+            f"dist_threshold_intra={self.dist_threshold_intra}, "
+            f"dist_threshold_inter={self.dist_threshold_inter}, "
+            f"angle_threshold={self.angle_threshold}, "
+            f"standard_output={self.standard_output}, "
+            f"logger_level={self.logger_level}"
+        )
+        return f"{self.__class__.__name__}({attrs})"
+
+    def __str__(self):
+        """
+        User-friendly string for pretty printing (multi-line).
+        """
+        return (
+            f"PDBModelHyperparameters:\n"
+            f"  distance_cutoff      = {self.distance_cutoff}\n"
+            f"  residue_cutoff       = {self.residue_cutoff}\n"
+            f"  energy_table         = {self.energy_table}\n"
+            f"  rmsd_threshold       = {self.rmsd_threshold}\n"
+            f"  seq_threshold        = {self.seq_threshold}\n"
+            f"  custom_aligner       = {self.custom_aligner}\n"
+            f"  matching_mode        = {self.matching_mode}\n"
+            f"  dist_threshold_intra = {self.dist_threshold_intra}\n"
+            f"  dist_threshold_inter = {self.dist_threshold_inter}\n"
+            f"  angle_threshold      = {self.angle_threshold}\n"
+            f"  standard_output      = {self.standard_output}\n"
+            f"  logger_level         = {self.logger_level}"
+        )
