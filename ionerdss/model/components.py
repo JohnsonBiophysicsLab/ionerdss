@@ -42,14 +42,14 @@ class MoleculeInterface:
     
     Attributes:
         name (str): Name of the interface.
-        coord (Tuple[float, float, float]): Coordinates of the interface.
+        coords (Tuple[float, float, float]): Coordinates of the interface.
     """
-    def __init__(self, name, coord):
+    def __init__(self, name, coords):
         self.name = name
-        self.coord = coord
+        self.coords = coords
 
     def __repr__(self):
-        return f"<MoleculeInterface {self.name} @ {self.coord}>"
+        return f"<MoleculeInterface {self.name} @ {self.coords}>"
 
 class MoleculeType:
     """
@@ -115,11 +115,11 @@ class MoleculeTemplate:
 
     def add_interface(self, interface):
         """
-        Add an InterfaceTemplate to this molecule.
+        Add an BindingInterfaceTemplate to this molecule.
 
         Parameters
         ----------
-        interface : InterfaceTemplate
+        interface : BindingInterfaceTemplate
             The interface object to add.
         """
         self.interfaces.append(interface)
@@ -144,7 +144,7 @@ class CoarseGrainedMolecule:
     Attributes:
         name (str): Identifier of the molecule.
         my_template (MoleculeTemplate): Reference to the associated molecule template.
-        coord (Coords): Center-of-mass coordinates.
+        coords (Coords): Center-of-mass coordinates.
         interfaces (list): List of binding interfaces.
         normal_point (list): Normal vector direction.
     """
@@ -153,7 +153,7 @@ class CoarseGrainedMolecule:
             self,
             name: str,
             template=None,
-            coord=None,
+            coords=None,
             interface_list=None,
             normal_point=None,
             translational_diffusion_constant=1.0,
@@ -169,7 +169,7 @@ class CoarseGrainedMolecule:
             Name or identifier of the molecule.
         template : Any, optional
             Reference structure or coordinate template.
-        coord : Any, optional
+        coords : Any, optional
             Center of mass coordinates or 3D origin of the molecule.
         interfaces : list, optional
             List of interaction site coordinates.
@@ -184,7 +184,7 @@ class CoarseGrainedMolecule:
         """
         self.name = name
         self.template = template
-        self.coord = coord
+        self.coords = coords
         self.interface_list = interface_list if interface_list is not None else []
         self.normal_point = normal_point
         self.translational_diffusion_constant = translational_diffusion_constant
@@ -195,7 +195,7 @@ class CoarseGrainedMolecule:
         interfaces = "\n  ".join(str(interface) for interface in self.interface_list)
         return (f"CoarseGrainedMolecule: {self.name}\n"
                 f"  Template: {self.template}\n"
-                f"  Coordinates: {self.coord}\n"
+                f"  Coordinates: {self.coords}\n"
                 f"  Interfaces:\n  {interfaces}")
 
     def __repr__(self):
@@ -277,7 +277,7 @@ class Model:
                 {
                     "name": mol.name,
                     "interfaces": [
-                        {"name": iface.name, "coord": iface.coord} for iface in mol.interfaces
+                        {"name": iface.name, "coords": iface.coords} for iface in mol.interfaces
                     ],
                     "diffusion_translation": mol.translational_diffusion_constant,
                     "diffusion_rotation": mol.rotational_diffusion_constant,
@@ -315,7 +315,7 @@ class Model:
         molecule_types = [
             MoleculeType(
                 name=mol["name"],
-                interfaces=[MoleculeInterface(name=iface["name"], coord=Coords(**iface["coord"])) for iface in mol["interfaces"]],
+                interfaces=[MoleculeInterface(name=iface["name"], coords=Coords(**iface["coords"])) for iface in mol["interfaces"]],
                 translational_diffusion_constant=mol["diffusion_translation"],
                 rotational_diffusion_constant=mol["diffusion_rotation"],
             )
@@ -354,7 +354,7 @@ class BindingInterfaceTemplate:
 
     Attributes:
         name (str): Identifier of the interface template.
-        coord (Coords): Relative coordinates of the interface.
+        coords (Coords): Relative coordinates of the interface.
         my_residues (list): Residues forming this interface.
         required_free_list (list): Other interface templates that must remain unbound 
             for this interface to bind.
@@ -381,7 +381,7 @@ class BindingInterfaceTemplate:
         self.energy = energy
 
     def __repr__(self):
-        return f"<InterfaceTemplate {self.name} @ {self.coords.tolist()}>"
+        return f"<BindingInterfaceTemplate {self.name} @ {self.coords}>"
 
     def __str__(self):
         residues = ", ".join(self.residues)
@@ -402,7 +402,7 @@ class BindingInterface:
 
     Attributes:
         name (str): Identifier of the binding interface.
-        coord (Coords): Position of the interface.
+        coords (Coords): Position of the interface.
         my_template (BindingInterfaceTemplate): Reference to the associated interface template.
         my_residues (list): Residues included in the interface.
         signature (dict): Stores interface geometry information.
@@ -416,7 +416,7 @@ class BindingInterface:
             name (str): Identifier for the binding interface.
         """
         self.name = name
-        self.coord = None
+        self.coords = None
         self.my_template = None
         self.my_residues = []
         self.signature = {}
@@ -425,7 +425,7 @@ class BindingInterface:
     def __str__(self):
         return (f"BindingInterface: {self.name}\n"
                 f"  Template: {self.my_template}\n"
-                f"  Coordinates: {self.coord}\n"
+                f"  Coordinates: {self.coords}\n"
                 f"  Residue Count: {len(self.my_residues)}\n"
                 f"  Residues: {self.my_residues}")
 
