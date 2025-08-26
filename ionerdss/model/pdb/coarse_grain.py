@@ -114,11 +114,12 @@ structure = parser.get_structure("TEST", "1abc.cif")
 result = coarse_grain_structure(structure)
 
 for i, com in enumerate(result['COMs']):
-    print(f"Chain {result['chains'][i].id} COM: {com}")
+    logger.debug(f"Chain {result['chains'][i].id} COM: {com}")
 ```
 
 
 """
+import logging
 import numpy as np
 from scipy.spatial import KDTree
 from Bio.PDB.Polypeptide import is_aa
@@ -130,6 +131,8 @@ from ionerdss.model.pdb.hyperparameters import PDBModelHyperparameters
 
 # Optimized pairwise computation: merge residue pair loop using vectorized dot product
 
+# set up logger
+logger = logging.getLogger("ionerdss.model.pdb")       # module-level logger
 
 def compute_interface(residues_i, residues_j,
                       params: PDBModelHyperparameters):
@@ -195,11 +198,42 @@ def compute_interface(residues_i, residues_j,
         total_energy = sum(residue_pairs.values())
         return com_i, com_j, iface_i_ids, iface_j_ids, total_energy
 
-    print("distance_cutoff : " + str(params.distance_cutoff))
-    print("residue_cutoff : " + str(params.residue_cutoff))
+    logger.debug("distance_cutoff : %s", params.distance_cutoff)
+    logger.debug("distance_cutoff : %s", params.distance_cutoff)
 
     return None
 
+def build_binding_partner_map(chains, interfaces):
+    """
+    Build binding partner interface map:
+    (chain_idx, iface_idx) -> (partner_chain_idx, partner_iface_idx)
+
+    Args:
+        chains (list[str]): list of chain IDs.
+        interfaces (list[list[str]]): partner chain IDs for each chain.
+
+    Returns:
+        dict: reciprocal map.
+    """
+    reciprocal = {}
+
+    # map chain name -> index for quick lookup
+    chain_index = {name: idx for idx, name in enumerate(chains)}
+
+    for i, partners in enumerate(interfaces):
+        for iface_idx, partner_name in enumerate(partners):
+            j = chain_index[partner_name]
+
+            # find where chain i appears in partner j's list
+            partner_ifaces = interfaces[j]
+            try:
+                k = partner_ifaces.index(chains[i])
+            except ValueError as exc:
+                raise ValueError(f'No reciprocal interface: {chains[i]}->{partner_name}') from exc
+
+            reciprocal[(i, iface_idx)] = (j, k)
+
+    return reciprocal
 
 def coarse_grain_structure(structure,
                            params: PDBModelHyperparameters):
@@ -263,20 +297,21 @@ def coarse_grain_structure(structure,
             min1, max1 = boxes[i]
             min2, max2 = boxes[j]
 
-            print(f"\n[DEBUG] Checking chain pair ({i}, {j})")
-            print(f"[DEBUG]   Box{i}: min={min1}, max={max1}")
-            print(f"[DEBUG]   Box{j}: min={min2}, max={max2}")
+            logger.debug("\nChecking chain pair (%s, %s)", i, j)
+            logger.debug("Box%s: min=%s, max=%s", i, min1, max1)
+            logger.debug("Box%s: min=%s, max=%s", j, min2, max2)
+
 
             if min1 is None or min2 is None:
-                print(
-                    f"[DEBUG]   Skipping pair ({i},{j}) due to missing bounding box")
+                logger.debug(
+                    "Skipping pair (%d, %d) due to missing bounding box", i, j)
                 continue
 
             # skip if they are more than distance_cutoff*10 apart
             if np.any(min2 > max1 + params.distance_cutoff * 10) or\
                     np.any(max2 < min1 - params.distance_cutoff * 10):
-                print(
-                    f"[DEBUG]   Skipping pair ({i},{j}) - boxes too far apart")
+                logger.debug(
+                    "Skipping pair (%d, %d) - boxes too far apart", i, j)
                 continue
 
             chain_i = chains[i]
@@ -286,25 +321,20 @@ def coarse_grain_structure(structure,
             residues_j = [(res.id[1], res.get_resname().upper(), res['CA'].coord)
                           for res in chain_j if is_aa(res) and 'CA' in res]
 
-            print(
-                f"[DEBUG]   Chain {chain_i.id} residues found: {len(residues_i)}")
-            print(
-                f"[DEBUG]   Chain {chain_j.id} residues found: {len(residues_j)}")
-
-            if not residues_i or not residues_j:
-                print(f"[DEBUG]   Skipping pair ({i},{j}) - missing residues")
-                continue
+            logger.debug(
+                "Chain %s residues found: %d", chain_i.id, len(residues_i))
+            logger.debug(
+                "Chain %s residues found: %d", chain_j.id, len(residues_j))
 
             # compute interface using KDTree
             result = compute_interface(residues_i, residues_j, params)
             if result:
                 com_i, com_j, ids_i, ids_j, total_energy = result
-                print(
-                    f"[DEBUG]   Interface detected between chain {chain_i.id} and {chain_j.id}")
-                print(f"[DEBUG]     COM_i={com_i}, COM_j={com_j}")
-                print(f"[DEBUG]     Residues_i={sorted(ids_i)}")
-                print(f"[DEBUG]     Residues_j={sorted(ids_j)}")
-                print(f"[DEBUG]     Total energy={total_energy}")
+                logger.debug("Interface detected between chain %s and %s", chain_i.id, chain_j.id)
+                logger.debug("COM_i=%s, COM_j=%s", com_i, com_j)
+                logger.debug("Residues_i=%s", sorted(ids_i))
+                logger.debug("Residues_j=%s", sorted(ids_j))
+                logger.debug("Total energy=%s", total_energy)
 
                 # Record interface data for both chains
                 interfaces[i].append(chain_j.id)
@@ -317,8 +347,15 @@ def coarse_grain_structure(structure,
                 interface_residues[j].append(sorted(ids_j))
                 interface_energies[j].append(total_energy)
             else:
-                print(
-                    f"[DEBUG]   No interface found between chain {chain_i.id} and {chain_j.id}")
+                logger.debug(
+                    "No interface found between chain %s and %s", chain_i.id, chain_j.id)
+
+    # build binding partner map
+    binding_partner_map = build_binding_partner_map(
+        chains=[chain.id for chain in chains],
+        interfaces=interfaces)
+    logger.debug(
+        "Binding partner map: \n%s", binding_partner_map)
 
     # Package all results into output dictionary
     return {
@@ -329,4 +366,5 @@ def coarse_grain_structure(structure,
         'interface_coords': interface_coords,
         'interface_residues': interface_residues,
         'interface_energies': interface_energies,
+        'binding_partner_map': binding_partner_map
     }
