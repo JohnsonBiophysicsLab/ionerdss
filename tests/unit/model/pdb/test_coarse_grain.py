@@ -8,12 +8,19 @@ This test suite validates:
 - The correctness of `coarse_grain_structure` in identifying chains, computing
   center-of-mass (COM), estimating radius, and finding valid binding interfaces
   between chains in a Biopython `Structure`.
+- The correctness of `build_binding_partner_map`
+    o Happy path on a 4-chain example (A, B, E, F), including a global
+      symmetry invariant: if m[(i, a)] == (j, b) then m[(j, b)] == (i, a).
+    o Self-binding interface maps to itself (A→A yields (0,0)↔(0,0)).
+    o Missing reciprocal mapping raises `ValueError` with a helpful message.
+    o Multiple disjoint pairs (A↔B, E↔F) are mapped independently.
 
 Test cases include:
 - Synthetic PDB-like structure with two interacting chains containing alpha-carbon (CA) atoms.
 - Verification of returned COMs, interface partners, interacting residue lists,
   and calculated interaction energies.
 - Use of a default energy table from `ionerdss.model.pdb.energy_table`.
+
 
 The setup avoids I/O and constructs test structures entirely in memory using Biopython objects.
 """
@@ -26,7 +33,7 @@ from Bio.PDB.Residue import Residue
 from Bio.PDB.Model import Model
 from Bio.PDB.Structure import Structure
 
-from ionerdss.model.pdb.coarse_grain import coarse_grain_structure, compute_interface
+from ionerdss.model.pdb.coarse_grain import coarse_grain_structure, compute_interface, build_binding_partner_map
 from ionerdss.model.pdb.energy_table import get_default_energy_table
 from ionerdss.model.pdb.hyperparameters import PDBModelHyperparameters
 from ionerdss.utils.coords import Coords
@@ -98,6 +105,67 @@ class TestCoarseGrainStructure(unittest.TestCase):
         self.assertAlmostEqual(result['interface_energies'][0][0], -1.2)
         self.assertIsInstance(result['interface_coords'][0][0], Coords)
         self.assertIsInstance(result['interface_residues'][0][0], list)
+        
+    def test_simple_reciprocal_map(self):
+        """
+        A, B, E, F with:
+          A -> [B, E]
+          B -> [A, F]
+          E -> [A, F]
+          F -> [B, E]
+        """
+        chains = ['A', 'B', 'E', 'F']
+        interfaces = [['B', 'E'], ['A', 'F'], ['A', 'F'], ['B', 'E']]
+
+        m = build_binding_partner_map(chains, interfaces)
+
+        # Spot checks
+        self.assertEqual(m[(0, 0)], (1, 0))  # A's 0th iface (to B) maps to B's 0th iface (to A)
+        self.assertEqual(m[(0, 1)], (2, 0))  # A's 1st iface (to E) maps to E's 0th iface (to A)
+        self.assertEqual(m[(1, 1)], (3, 0))  # B's 1st iface (to F) maps to F's 0th iface (to B)
+        self.assertEqual(m[(3, 1)], (2, 1))  # F's 1st iface (to E) maps to E's 1st iface (to F)
+
+        # Global reciprocity check: mapping is symmetric
+        for (i, a), (j, b) in m.items():
+            self.assertIn((j, b), m, msg=f"Missing reciprocal for {(i, a)} -> {(j, b)}")
+            self.assertEqual(m[(j, b)], (i, a))
+
+    def test_self_interface(self):
+        """Single chain with a self-binding interface maps to itself."""
+        chains = ['A']
+        interfaces = [['A']]
+        m = build_binding_partner_map(chains, interfaces)
+        self.assertEqual(m[(0, 0)], (0, 0))
+
+    def test_missing_reciprocal_raises(self):
+        """
+        If B doesn't list A while A lists B, the function should raise.
+        """
+        chains = ['A', 'B']
+        interfaces = [['B'],  # A -> B
+                      []]     # B does NOT have A
+        with self.assertRaises(ValueError):
+            build_binding_partner_map(chains, interfaces)
+
+    def test_multiple_pairs_across_groups(self):
+        """
+        Two independent pairs (A<->B, E<->F) should both be mapped correctly.
+        """
+        chains = ['A', 'B', 'E', 'F']
+        interfaces = [['B'],  # A -> B
+                      ['A'],  # B -> A
+                      ['F'],  # E -> F
+                      ['E']]  # F -> E
+
+        m = build_binding_partner_map(chains, interfaces)
+
+        # A<->B
+        self.assertEqual(m[(0, 0)], (1, 0))
+        self.assertEqual(m[(1, 0)], (0, 0))
+
+        # E<->F
+        self.assertEqual(m[(2, 0)], (3, 0))
+        self.assertEqual(m[(3, 0)], (2, 0))
 
 if __name__ == "__main__":
     unittest.main()
