@@ -5,10 +5,20 @@ import re
 import colorsys
 import numpy as np
 
+import sys
+import os
+
+# Define the relative path to simulariumio repo
+relative_path = os.path.join(os.path.abspath(os.path.dirname(__file__)), '../../..', 'simulariumio/')
+# Convert the relative path to an absolute path
+absolute_path_to_add = os.path.abspath(relative_path)
+# Add the absolute path to sys.path
+sys.path.append(absolute_path_to_add)
+
 from simulariumio.nerdss import NerdssConverter, NerdssData
 from simulariumio import MetaData, DisplayData, DISPLAY_TYPE, CameraData, UnitData
 from simulariumio.filters import TranslateFilter
-from simulariumio.writers import BinaryWriter
+from simulariumio.writers import BinaryWriter, JsonWriter
 
 def parse_parms(filename):
     """
@@ -185,7 +195,7 @@ def build_display_data(input_dir):
     return display_dict
 
 
-def convert_simularium(input_dir: str, output_name: str, pdb_folder: str = '') -> None:
+def convert_simularium(input_dir: str, output_name: str, pdb_folder: str = '', output_format = 'binary') -> None:
     """
     Given a directory `input_dir` containing:
       - parms.inp
@@ -239,5 +249,12 @@ def convert_simularium(input_dir: str, output_name: str, pdb_folder: str = '') -
     filtered_data = converter.filter_data([translate_filter])
 
     # 7) Write a binary .simularium file
-    BinaryWriter.save(filtered_data, output_name, False)
+    if output_format.lower() == 'binary':
+        BinaryWriter.save(filtered_data, output_name, False)
+    elif output_format.lower() == 'json':
+        JsonWriter.save(filtered_data, output_name, False)
     # After this, a file named f"{output_name}.simularium" appears in cwd.
+
+if __name__ == "__main__":
+    convert_simularium('./clathrin/', './clathrin/clathrin', output_format='binary')
+    convert_simularium('./clathrin/', './clathrin/clathrin.json', output_format='Json')
