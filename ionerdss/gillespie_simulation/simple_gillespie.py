@@ -184,7 +184,7 @@ def run_Gillespie(
         if excluded_species_id is None:
             raise ValueError('Must give a species that excludes others.')
         def reduced_volume(y_curr, excluded_volume, volume): 
-            new_vol = volume - (y_curr[excluded_species_id]+2)*excluded_volume
+            new_vol = volume - (y_init[excluded_species_id]+1)*excluded_volume
             if new_vol == 0:
                 # when there is no place to move, consider the available 
                 # space is infinitesmal to the excluded volume
@@ -432,7 +432,7 @@ def update_rates(
     Returns:
         volume_corrected_rates
     """
-    new_macro_rates = rate_update_rules(rate_constants, y_curr, reactant_matrix)
+    new_macro_rates = rate_update_rules(rate_constants, y_curr, reactant_matrix, volume)
     return rate_constants_volume_correction(new_macro_rates, reactant_matrix, volume, avogadro)
 
 def gillespie_simulation(max_time, y_init,reactant_matrix, product_matrix, microscopic_rate_constants,record_interval = 1,full_update_scheme = False):
