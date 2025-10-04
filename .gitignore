@@ -120,3 +120,12 @@ proaffinity-gnn/pdbfiles
 *.log
 *.png
 *.pml
+*.json
+/sim_params_6bno
+/sim_params_8erq
+*.zip
+/workspace_1Q5R
+/workspace_6BNO
+/workspace_8ERQ
+test.py
+test_simularium.ipynb
