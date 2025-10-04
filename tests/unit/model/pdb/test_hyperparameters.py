@@ -1,107 +1,520 @@
 """
-tests/test_hyperparameters.py
+Unit tests for ionerdss.model.pdb.hyperparameters
 
-Unit tests for `PDBModelHyperparameters`.
+Tests the PDBModelHyperparameters class and its configuration management.
 
-This test suite verifies that:
-  1) Default values are correctly assigned when no options are provided.
-  2) User-supplied options override the defaults as expected.
-
-The tests are self-contained and do not require external data files.
-They serve as a guard against regressions when adding new hyperparameters
-or changing default values in `model/pdb/hyperparameters.py`.
-
-How to run:
-    - With unittest:
-        python -m unittest -v tests/test_hyperparameters.py
-    - With pytest (also works):
-        pytest -q tests/test_hyperparameters.py
 """
 
 import unittest
+from unittest.mock import Mock
+from Bio.Align import PairwiseAligner
+
 from ionerdss.model.pdb.hyperparameters import PDBModelHyperparameters
 
+
 class TestPDBModelHyperparameters(unittest.TestCase):
-    
-    def setUp(self):
-        self.options = {
-            "distance_cutoff": 1.1,
-            "residue_cutoff": 7,
-            "energy_table": "etable",
-            "rmsd_threshold": 3.3,
-            "seq_threshold": 0.8,
-            "custom_aligner": "aligner_fn",
-            "matching_mode": "sequence",
-            "dist_threshold_intra": 2.5,
-            "dist_threshold_inter": 4.5,
-            "angle_threshold": 15.0,
-            "standard_output": True,
-            "logger_level": "INFO",
+    """Test cases for PDBModelHyperparameters class."""
+
+    def test_default_initialization(self):
+        """Test default hyperparameter initialization."""
+        params = PDBModelHyperparameters()
+
+        # Check default values
+        self.assertEqual(params.distance_cutoff, 0.6)
+        self.assertEqual(params.residue_cutoff, 3)
+        self.assertEqual(params.rmsd_threshold, 2.0)
+        self.assertEqual(params.seq_threshold, 0.5)
+        self.assertEqual(params.matching_mode, "default")
+        self.assertEqual(params.steric_clash_mode, "off")
+        self.assertEqual(params.signature_precision, 6)
+        self.assertEqual(params.homodimer_distance_threshold, 0.1)
+        self.assertEqual(params.homodimer_angle_threshold, 0.1)
+        self.assertEqual(params.ring_regularization_mode, "uniform")
+        self.assertEqual(params.ring_geometry, "cylinder")
+        self.assertEqual(params.min_ring_size, 3)
+
+        # Check that custom_aligner is created
+        self.assertIsInstance(params.custom_aligner, PairwiseAligner)
+
+    def test_custom_initialization(self):
+        """Test hyperparameter initialization with custom values."""
+        custom_aligner = PairwiseAligner()
+        custom_aligner.mode = "local"
+
+        params = PDBModelHyperparameters(
+            distance_cutoff=0.8,
+            residue_cutoff=5,
+            rmsd_threshold=1.5,
+            seq_threshold=0.8,
+            custom_aligner=custom_aligner,
+            matching_mode="sequence",
+            steric_clash_mode="auto",
+            signature_precision=4,
+            homodimer_distance_threshold=0.2,
+            homodimer_angle_threshold=0.15,
+            ring_regularization_mode="separate",
+            ring_geometry="sphere",
+            min_ring_size=4
+        )
+
+        # Check custom values
+        self.assertEqual(params.distance_cutoff, 0.8)
+        self.assertEqual(params.residue_cutoff, 5)
+        self.assertEqual(params.rmsd_threshold, 1.5)
+        self.assertEqual(params.seq_threshold, 0.8)
+        self.assertEqual(params.custom_aligner, custom_aligner)
+        self.assertEqual(params.matching_mode, "sequence")
+        self.assertEqual(params.steric_clash_mode, "auto")
+        self.assertEqual(params.signature_precision, 4)
+        self.assertEqual(params.homodimer_distance_threshold, 0.2)
+        self.assertEqual(params.homodimer_angle_threshold, 0.15)
+        self.assertEqual(params.ring_regularization_mode, "separate")
+        self.assertEqual(params.ring_geometry, "sphere")
+        self.assertEqual(params.min_ring_size, 4)
+
+    def test_post_init_default_aligner_creation(self):
+        """Test that __post_init__ creates default aligner when None provided."""
+        params = PDBModelHyperparameters(custom_aligner=None)
+
+        # Should create default aligner
+        self.assertIsInstance(params.custom_aligner, PairwiseAligner)
+        self.assertEqual(params.custom_aligner.mode, "global")
+        self.assertEqual(params.custom_aligner.match_score, 1.0)
+        self.assertEqual(params.custom_aligner.mismatch_score, 0.0)
+        self.assertEqual(params.custom_aligner.open_gap_score, -0.5)
+        self.assertEqual(params.custom_aligner.extend_gap_score, -0.5)
+
+    def test_create_default_aligner(self):
+        """Test _create_default_aligner method."""
+        params = PDBModelHyperparameters()
+        aligner = params._create_default_aligner()
+
+        # Check aligner configuration
+        self.assertIsInstance(aligner, PairwiseAligner)
+        self.assertEqual(aligner.mode, "global")
+        self.assertEqual(aligner.match_score, 1.0)
+        self.assertEqual(aligner.mismatch_score, 0.0)
+        self.assertEqual(aligner.open_gap_score, -0.5)
+        self.assertEqual(aligner.extend_gap_score, -0.5)
+
+    def test_to_dict_with_default_aligner(self):
+        """Test to_dict method with default aligner."""
+        params = PDBModelHyperparameters()
+        result = params.to_dict()
+
+        # Check basic fields
+        self.assertEqual(result['distance_cutoff'], 0.6)
+        self.assertEqual(result['residue_cutoff'], 3)
+        self.assertEqual(result['rmsd_threshold'], 2.0)
+        self.assertEqual(result['seq_threshold'], 0.5)
+        self.assertEqual(result['matching_mode'], "default")
+        self.assertEqual(result['steric_clash_mode'], "off")
+
+        # Check aligner serialization
+        self.assertIn('custom_aligner', result)
+        aligner_dict = result['custom_aligner']
+        self.assertEqual(aligner_dict['mode'], 'global')
+        self.assertEqual(aligner_dict['match_score'], 1.0)
+        self.assertEqual(aligner_dict['mismatch_score'], 0.0)
+        self.assertEqual(aligner_dict['open_gap_score'], -0.5)
+        self.assertEqual(aligner_dict['extend_gap_score'], -0.5)
+
+    def test_to_dict_with_none_aligner(self):
+        """Test to_dict method with None aligner."""
+        # Create params and manually set aligner to None (bypassing __post_init__)
+        params = PDBModelHyperparameters.__new__(PDBModelHyperparameters)
+        params.distance_cutoff = 0.6
+        params.residue_cutoff = 3
+        params.rmsd_threshold = 2.0
+        params.seq_threshold = 0.5
+        params.custom_aligner = None
+        params.matching_mode = "default"
+        params.steric_clash_mode = "off"
+        params.signature_precision = 6
+        params.homodimer_distance_threshold = 0.1
+        params.homodimer_angle_threshold = 0.1
+        params.ring_regularization_mode = "uniform"
+        params.ring_geometry = "cylinder"
+        params.min_ring_size = 3
+
+        result = params.to_dict()
+        self.assertIsNone(result['custom_aligner'])
+
+    def test_to_dict_with_custom_aligner(self):
+        """Test to_dict method with custom aligner."""
+        custom_aligner = PairwiseAligner()
+        custom_aligner.mode = "local"
+        custom_aligner.match_score = 2.0
+        custom_aligner.mismatch_score = -1.0
+
+        params = PDBModelHyperparameters(custom_aligner=custom_aligner)
+        result = params.to_dict()
+
+        # Check custom aligner serialization
+        aligner_dict = result['custom_aligner']
+        self.assertEqual(aligner_dict['mode'], 'local')
+        self.assertEqual(aligner_dict['match_score'], 2.0)
+        self.assertEqual(aligner_dict['mismatch_score'], -1.0)
+
+    def test_from_dict_empty(self):
+        """Test from_dict with empty dictionary."""
+        params = PDBModelHyperparameters.from_dict({})
+
+        # Should create default instance
+        self.assertEqual(params.distance_cutoff, 0.6)
+        self.assertEqual(params.residue_cutoff, 3)
+        self.assertIsInstance(params.custom_aligner, PairwiseAligner)
+
+    def test_from_dict_none(self):
+        """Test from_dict with None input."""
+        params = PDBModelHyperparameters.from_dict(None)
+
+        # Should create default instance
+        self.assertEqual(params.distance_cutoff, 0.6)
+        self.assertEqual(params.residue_cutoff, 3)
+
+    def test_from_dict_basic_fields(self):
+        """Test from_dict with basic field values."""
+        data = {
+            'distance_cutoff': 0.8,
+            'residue_cutoff': 5,
+            'rmsd_threshold': 1.5,
+            'seq_threshold': 0.8,
+            'matching_mode': 'sequence',
+            'steric_clash_mode': 'auto',
+            'signature_precision': 4
         }
-        self.hp = PDBModelHyperparameters(self.options)
 
-    def test_repr_contains_all_fields(self):
-        """__repr__ should include all hyperparameters in a single-line string."""
-        rep = repr(self.hp)
-        # Must start with class name
-        self.assertTrue(rep.startswith("PDBModelHyperparameters("))
-        # Each field=value pair should appear
-        for key, value in self.options.items():
-            self.assertIn(f"{key}=", rep)
+        params = PDBModelHyperparameters.from_dict(data)
 
-    def test_repr_roundtrip_safe(self):
-        """__repr__ should be evaluable if class is in scope (sanity check)."""
-        rep = repr(self.hp)
-        # Don't actually eval here (would need globals), but check it's a valid Python-ish form
-        self.assertIn("PDBModelHyperparameters(", rep)
-        self.assertIn("distance_cutoff=", rep)
+        self.assertEqual(params.distance_cutoff, 0.8)
+        self.assertEqual(params.residue_cutoff, 5)
+        self.assertEqual(params.rmsd_threshold, 1.5)
+        self.assertEqual(params.seq_threshold, 0.8)
+        self.assertEqual(params.matching_mode, 'sequence')
+        self.assertEqual(params.steric_clash_mode, 'auto')
+        self.assertEqual(params.signature_precision, 4)
 
-    def test_str_human_readable(self):
-        """__str__ should produce multi-line output with aligned fields."""
-        s = str(self.hp)
-        # Header line
-        self.assertIn("PDBModelHyperparameters:", s)
-        # Check a few specific lines
-        self.assertIn("distance_cutoff      = 1.1", s)
-        self.assertIn("residue_cutoff       = 7", s)
-        self.assertIn("matching_mode        = sequence", s)
-        self.assertIn("logger_level         = INFO", s)
-
-    def test_defaults(self):
-        """Test that default hyperparameters are correctly assigned."""
-        hp = PDBModelHyperparameters()
-        self.assertEqual(hp.distance_cutoff, 0.6)
-        self.assertEqual(hp.residue_cutoff, 3)
-        # skip energy table, we are not using it any more
-        # the code is there for backwards compatibility
-        self.assertEqual(hp.rmsd_threshold, 2.0)
-        self.assertEqual(hp.seq_threshold, 0.5)
-        self.assertIsNone(hp.custom_aligner)
-        self.assertEqual(hp.matching_mode, "default")
-        self.assertEqual(hp.dist_threshold_intra, 3.5)
-        self.assertEqual(hp.dist_threshold_inter, 3.5)
-        self.assertEqual(hp.angle_threshold, 25.0)
-        self.assertFalse(hp.standard_output)
-        self.assertEqual(hp.logger_level, "INFO")
-
-    def test_overrides(self):
-        """Test that options dictionary overrides defaults."""
-        options = {
-            "distance_cutoff": 1.2,
-            "residue_cutoff": 10,
-            "rmsd_threshold": 3.0,
-            "seq_threshold": 0.9,
-            "custom_aligner": "aligner",
-            "matching_mode": "sequence",
-            "dist_threshold_intra": 2.0,
-            "dist_threshold_inter": 4.0,
-            "angle_threshold": 30.0,
-            "standard_output": True,
-            "logger_level": "INFO"
+    def test_from_dict_with_aligner_dict(self):
+        """Test from_dict with aligner dictionary."""
+        data = {
+            'distance_cutoff': 0.7,
+            'custom_aligner': {
+                'mode': 'local',
+                'match_score': 2.0,
+                'mismatch_score': -1.0,
+                'open_gap_score': -1.0,
+                'extend_gap_score': -0.1
+            }
         }
-        hp = PDBModelHyperparameters(options)
-        for key, value in options.items():
-            self.assertEqual(getattr(hp, key), value)
 
-if __name__ == "__main__":
-    unittest.main()
+        params = PDBModelHyperparameters.from_dict(data)
+
+        self.assertEqual(params.distance_cutoff, 0.7)
+        self.assertIsInstance(params.custom_aligner, PairwiseAligner)
+        self.assertEqual(params.custom_aligner.mode, 'local')
+        self.assertEqual(params.custom_aligner.match_score, 2.0)
+        self.assertEqual(params.custom_aligner.mismatch_score, -1.0)
+        self.assertEqual(params.custom_aligner.open_gap_score, -1.0)
+        self.assertEqual(params.custom_aligner.extend_gap_score, -0.1)
+
+    def test_from_dict_with_none_aligner(self):
+        """Test from_dict with None aligner."""
+        data = {
+            'distance_cutoff': 0.7,
+            'custom_aligner': None
+        }
+
+        params = PDBModelHyperparameters.from_dict(data)
+
+        self.assertEqual(params.distance_cutoff, 0.7)
+        # Should still create default aligner due to __post_init__
+        self.assertIsInstance(params.custom_aligner, PairwiseAligner)
+
+    def test_from_dict_unknown_fields(self):
+        """Test from_dict ignores unknown fields."""
+        data = {
+            'distance_cutoff': 0.8,
+            'unknown_field': 'should_be_ignored',
+            'another_unknown': 123
+        }
+
+        params = PDBModelHyperparameters.from_dict(data)
+
+        self.assertEqual(params.distance_cutoff, 0.8)
+        self.assertFalse(hasattr(params, 'unknown_field'))
+        self.assertFalse(hasattr(params, 'another_unknown'))
+
+    def test_validate_valid_parameters(self):
+        """Test validate method with valid parameters."""
+        params = PDBModelHyperparameters()
+        errors = params.validate()
+
+        self.assertEqual(len(errors), 0)
+
+    def test_validate_invalid_distance_cutoff(self):
+        """Test validate method with invalid distance_cutoff."""
+        params = PDBModelHyperparameters(distance_cutoff=0.0)
+        errors = params.validate()
+
+        self.assertIn("distance_cutoff must be positive", errors)
+
+        params = PDBModelHyperparameters(distance_cutoff=-0.5)
+        errors = params.validate()
+
+        self.assertIn("distance_cutoff must be positive", errors)
+
+    def test_validate_invalid_residue_cutoff(self):
+        """Test validate method with invalid residue_cutoff."""
+        params = PDBModelHyperparameters(residue_cutoff=0)
+        errors = params.validate()
+
+        self.assertIn("residue_cutoff must be at least 1", errors)
+
+    def test_validate_invalid_rmsd_threshold(self):
+        """Test validate method with invalid rmsd_threshold."""
+        params = PDBModelHyperparameters(rmsd_threshold=-1.0)
+        errors = params.validate()
+
+        self.assertIn("rmsd_threshold must be non-negative", errors)
+
+    def test_validate_invalid_seq_threshold(self):
+        """Test validate method with invalid seq_threshold."""
+        params = PDBModelHyperparameters(seq_threshold=-0.1)
+        errors = params.validate()
+
+        self.assertIn("seq_threshold must be between 0 and 1", errors)
+
+        params = PDBModelHyperparameters(seq_threshold=1.5)
+        errors = params.validate()
+
+        self.assertIn("seq_threshold must be between 0 and 1", errors)
+
+    def test_validate_invalid_signature_precision(self):
+        """Test validate method with invalid signature_precision."""
+        params = PDBModelHyperparameters(signature_precision=-1)
+        errors = params.validate()
+
+        self.assertIn("signature_precision must be non-negative", errors)
+
+    def test_validate_invalid_homodimer_thresholds(self):
+        """Test validate method with invalid homodimer thresholds."""
+        params = PDBModelHyperparameters(homodimer_distance_threshold=-0.1)
+        errors = params.validate()
+
+        self.assertIn(
+            "homodimer_distance_threshold must be non-negative", errors)
+
+        params = PDBModelHyperparameters(homodimer_angle_threshold=-0.1)
+        errors = params.validate()
+
+        self.assertIn("homodimer_angle_threshold must be non-negative", errors)
+
+    def test_validate_multiple_errors(self):
+        """Test validate method with multiple invalid parameters."""
+        params = PDBModelHyperparameters(
+            distance_cutoff=-0.5,
+            residue_cutoff=0,
+            seq_threshold=2.0,
+            signature_precision=-1
+        )
+        errors = params.validate()
+
+        # Should have multiple error messages
+        self.assertGreaterEqual(len(errors), 4)
+        self.assertIn("distance_cutoff must be positive", errors)
+        self.assertIn("residue_cutoff must be at least 1", errors)
+        self.assertIn("seq_threshold must be between 0 and 1", errors)
+        self.assertIn("signature_precision must be non-negative", errors)
+
+    def test_str_representation(self):
+        """Test string representation."""
+        params = PDBModelHyperparameters()
+        str_repr = str(params)
+
+        self.assertIn("PDBModelHyperparameters", str_repr)
+        self.assertIn("distance_cutoff=0.6", str_repr)
+        self.assertIn("residue_cutoff=3", str_repr)
+        self.assertIn("matching_mode='default'", str_repr)
+        self.assertIn("steric_clash_mode='off'", str_repr)
+
+    def test_repr_representation(self):
+        """Test repr representation."""
+        params = PDBModelHyperparameters()
+        repr_str = repr(params)
+
+        # Should be same as __str__
+        self.assertEqual(repr_str, str(params))
+
+    def test_round_trip_serialization(self):
+        """Test round-trip serialization (to_dict -> from_dict)."""
+        # Create params with custom values
+        original_params = PDBModelHyperparameters(
+            distance_cutoff=0.8,
+            residue_cutoff=5,
+            rmsd_threshold=1.5,
+            seq_threshold=0.8,
+            matching_mode="sequence",
+            steric_clash_mode="auto",
+            signature_precision=4,
+            homodimer_distance_threshold=0.2,
+            homodimer_angle_threshold=0.15
+        )
+
+        # Serialize to dict
+        params_dict = original_params.to_dict()
+
+        # Deserialize from dict
+        restored_params = PDBModelHyperparameters.from_dict(params_dict)
+
+        # Check that all values are preserved
+        self.assertEqual(restored_params.distance_cutoff, 0.8)
+        self.assertEqual(restored_params.residue_cutoff, 5)
+        self.assertEqual(restored_params.rmsd_threshold, 1.5)
+        self.assertEqual(restored_params.seq_threshold, 0.8)
+        self.assertEqual(restored_params.matching_mode, "sequence")
+        self.assertEqual(restored_params.steric_clash_mode, "auto")
+        self.assertEqual(restored_params.signature_precision, 4)
+        self.assertEqual(restored_params.homodimer_distance_threshold, 0.2)
+        self.assertEqual(restored_params.homodimer_angle_threshold, 0.15)
+
+        # Check aligner parameters
+        self.assertEqual(restored_params.custom_aligner.mode,
+                         original_params.custom_aligner.mode)
+        self.assertEqual(restored_params.custom_aligner.match_score,
+                         original_params.custom_aligner.match_score)
+
+    def test_literal_type_constraints(self):
+        """Test that literal type constraints are properly defined."""
+        # Test valid matching_mode values
+        for mode in ["default", "sequence", "structure"]:
+            params = PDBModelHyperparameters(matching_mode=mode)
+            self.assertEqual(params.matching_mode, mode)
+
+        # Test valid steric_clash_mode values
+        for mode in ["off", "auto", "custom"]:
+            params = PDBModelHyperparameters(steric_clash_mode=mode)
+            self.assertEqual(params.steric_clash_mode, mode)
+
+    def test_ring_regularization_parameters(self):
+        """Test ring regularization parameters."""
+        params = PDBModelHyperparameters(
+            ring_regularization_mode="separate",
+            ring_geometry="sphere",
+            min_ring_size=5
+        )
+
+        self.assertEqual(params.ring_regularization_mode, "separate")
+        self.assertEqual(params.ring_geometry, "sphere")
+        self.assertEqual(params.min_ring_size, 5)
+
+    def test_aligner_parameter_robustness(self):
+        """Test robustness of aligner parameter handling."""
+        # Test with aligner missing some attributes
+        mock_aligner = Mock(spec=PairwiseAligner)
+        mock_aligner.mode = "local"
+        # Deliberately don't set other attributes to test getattr defaults
+
+        # Remove the automatic Mock creation for missing attributes
+        del mock_aligner.match_score
+        del mock_aligner.mismatch_score
+        del mock_aligner.open_gap_score
+        del mock_aligner.extend_gap_score
+
+        params = PDBModelHyperparameters(custom_aligner=mock_aligner)
+        params_dict = params.to_dict()
+
+        # Should handle missing attributes gracefully
+        aligner_dict = params_dict['custom_aligner']
+        self.assertEqual(aligner_dict['mode'], 'local')
+        # Missing attributes should get default values from getattr
+        # Default from getattr
+        self.assertEqual(aligner_dict['match_score'], 1.0)
+        # Default from getattr
+        self.assertEqual(aligner_dict['mismatch_score'], 0.0)
+        # Default from getattr
+        self.assertEqual(aligner_dict['open_gap_score'], -0.5)
+        # Default from getattr
+        self.assertEqual(aligner_dict['extend_gap_score'], -0.5)
+
+    def test_from_dict_invalid_aligner_params(self):
+        """Test from_dict with invalid aligner parameters."""
+        data = {
+            'custom_aligner': {
+                'mode': 'local',
+                'invalid_param': 'should_be_ignored',
+                'match_score': 2.0
+            }
+        }
+
+        params = PDBModelHyperparameters.from_dict(data)
+
+        # Should create aligner and set valid parameters
+        self.assertEqual(params.custom_aligner.mode, 'local')
+        self.assertEqual(params.custom_aligner.match_score, 2.0)
+        # Invalid parameter should be ignored (no error)
+        self.assertFalse(hasattr(params.custom_aligner, 'invalid_param'))
+
+
+class TestPDBModelHyperparametersIntegration(unittest.TestCase):
+    """Integration tests for PDBModelHyperparameters."""
+
+    def test_realistic_configuration(self):
+        """Test with realistic configuration values."""
+        # High-resolution structure parameters
+        high_res_params = PDBModelHyperparameters(
+            distance_cutoff=0.5,  # Tight contacts
+            residue_cutoff=5,     # Substantial interfaces
+            rmsd_threshold=1.0,   # Strict structural similarity
+            seq_threshold=0.9,    # High sequence identity
+            matching_mode="structure",
+            steric_clash_mode="auto",
+            signature_precision=8  # High precision
+        )
+
+        errors = high_res_params.validate()
+        self.assertEqual(len(errors), 0)
+
+        # Low-resolution structure parameters
+        low_res_params = PDBModelHyperparameters(
+            distance_cutoff=1.2,  # Loose contacts
+            residue_cutoff=3,     # Minimal interfaces
+            rmsd_threshold=5.0,   # Permissive structural similarity
+            seq_threshold=0.3,    # Low sequence identity
+            matching_mode="default"
+        )
+
+        errors = low_res_params.validate()
+        self.assertEqual(len(errors), 0)
+
+    def test_configuration_serialization_workflow(self):
+        """Test complete configuration save/load workflow."""
+        # Create configuration
+        config = PDBModelHyperparameters(
+            distance_cutoff=0.7,
+            residue_cutoff=4,
+            matching_mode="sequence",
+            steric_clash_mode="auto"
+        )
+
+        # Serialize
+        config_dict = config.to_dict()
+
+        # Simulate saving/loading (e.g., JSON)
+        import json
+        json_str = json.dumps(config_dict)
+        loaded_dict = json.loads(json_str)
+
+        # Deserialize
+        restored_config = PDBModelHyperparameters.from_dict(loaded_dict)
+
+        # Verify configuration is preserved
+        self.assertEqual(restored_config.distance_cutoff, 0.7)
+        self.assertEqual(restored_config.residue_cutoff, 4)
+        self.assertEqual(restored_config.matching_mode, "sequence")
+        self.assertEqual(restored_config.steric_clash_mode, "auto")
+
+
+if __name__ == '__main__':
+    # Run with verbose output
+    unittest.main(verbosity=2)
