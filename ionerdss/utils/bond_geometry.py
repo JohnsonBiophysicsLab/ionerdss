@@ -256,3 +256,24 @@ def compute_bond_angles_and_length_auto(com1, com2,
         normal_point2=normal_point2,
         tol=tol
     )
+
+if __name__ == "__main__":
+    # confirmed by Dr. Foley!
+    print("slimer!")
+    com2 = np.array([3.3587652772, -3.358754019, 5.00000079])
+    bind_site2 = np.array([0.707106781, -0.707106781, 1.9999999732051])
+    com1 = np.array([0.0, 0.0, 0.0])
+    bind_site1 = np.array([0.0, 0.0, 2.0])
+    normal_point2 = com2 + np.array([0,0,1])
+    normal_point1 = com1 + np.array([1,1,0])
+    
+    print(compute_bond_angles_and_length(
+        com1=com1,
+        com2=com2,
+        bind_site1=bind_site1,
+        bind_site2=bind_site2,
+        normal_point1=normal_point1,
+        normal_point2=normal_point2
+    ))
+    
+    

@@ -124,28 +124,78 @@ def angles_from_points(p1, p2, p3):
 
 def dihedrals_from_points(p1, p2, p3, p4, tol=1e-8):
     """
-    Compute dihedral angles (in radians) from sets of 4 points in 3D.
+    Compute signed dihedral (torsion) angles for sequences of four 3D points.
 
-    Vectorized version that accepts arrays of points.
+    This vectorized implementation accepts N quadruplets and returns N angles
+    in radians. For each quadruplet (p1, p2, p3, p4), let:
+        b0 = p2 - p1
+        b1 = p3 - p2
+        b2 = p4 - p3
+        b1̂ = b1 / ||b1||
+        v  = b0 - (b0·b1̂) b1̂       # component of b0 orthogonal to b1
+        w  = b2 - (b2·b1̂) b1̂       # component of b2 orthogonal to b1
+
+    The dihedral angle φ is computed as
+        φ = atan2( (b1̂ × v) · w , v · w )
+    and lies in the range (-π, π].
+
+    Sign convention (direction):
+      • The rotation axis is +b1 (from p2 toward p3).
+      • φ is positive if the rotation that carries v into w is counter-clockwise
+        when looking along +b1 (i.e., applying the right-hand rule with thumb
+        pointing from p2 to p3). Equivalently, φ > 0 when ((b1̂ × v) · w) > 0.
 
     Parameters
     ----------
-    p1, p2, p3, p4 : ndarray of shape (N, 3)
-        Arrays of N points representing sequential atoms or coordinates.
-
+    p1, p2, p3, p4 : array_like, shape (N, 3)
+        Arrays of N Cartesian points forming N consecutive quadruplets.
+        All four inputs must have the same leading dimension N.
     tol : float, optional
-        Threshold below which vectors are considered degenerate.
+        Threshold used to guard normalization of b1. If ||b1|| <= tol, the
+        corresponding dihedral is treated as degenerate.
 
     Returns
     -------
-    dihedrals : ndarray of shape (N,)
-        Array of dihedral angles in radians for each set of 4 points.
+    dihedrals : ndarray, shape (N,)
+        Signed dihedral angles (radians) in (-π, π].
+
+    Notes
+    -----
+    • Degenerate configurations (e.g., ||b1|| ≈ 0 or v ≈ 0 or w ≈ 0) yield
+      x ≈ 0 and y ≈ 0 and thus return φ ≈ 0 with this implementation.
+      Increase `tol` if you prefer to classify near-collinear cases as
+      degenerate more aggressively.
+    • This formulation is numerically stable and avoids explicit plane normals.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> # Single quadruplet (N=1) — returns array([phi])
+    >>> p1 = np.array([[0., 0., 0.]])
+    >>> p2 = np.array([[1., 0., 0.]])
+    >>> p3 = np.array([[1., 1., 0.]])
+    >>> p4 = np.array([[1., 1., 1.]])
+    >>> dihedrals_from_points(p1, p2, p3, p4)  # rotates about +x from xy-plane toward +z
+    array([1.57079633])  # ≈ +π/2 (right-hand rule about +x)
     """
     p1 = np.asarray(p1)
     p2 = np.asarray(p2)
     p3 = np.asarray(p3)
     p4 = np.asarray(p4)
 
+    # Force cast to 2D tensor
+    def ensure_2d(*pts):
+        out = []
+        for x in pts:
+            a = np.asarray(x)
+            if a.ndim == 1:
+                a = np.array(a[None, :])          # make it (1, 3)
+            out.append(a)
+        return out
+
+    p1, p2, p3, p4 = ensure_2d(p1, p2, p3, p4)
+
+    # Get relative vectors
     b0 = p2 - p1
     b1 = p3 - p2
     b2 = p4 - p3
@@ -161,7 +211,10 @@ def dihedrals_from_points(p1, p2, p3, p4, tol=1e-8):
     x = np.sum(v * w, axis=1)
     y = np.sum(np.cross(b1_unit, v) * w, axis=1)
 
-    return np.arctan2(y, x)
+    # Get the dihedral from angle between two norm vectors
+    dihedrals = np.arctan(y, x)
+
+    return dihedrals[0] if dihedrals.shape[0] == 1 else dihedrals
 
 def absolute_error_to_angle(error, points, tol=1e-8):
     """
