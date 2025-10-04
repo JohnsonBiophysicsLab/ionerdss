@@ -1,97 +1,291 @@
 """
-Hyperparameters for PDB Models.
+ionerdss.model.pdb.hyperparameters
 
-This module defines the `PDBModelHyperparameters` class, which centralizes 
-all tunable hyperparameters used in PDB model processing. The class 
-provides default values for parameters but allows overriding them 
-through an options dictionary. 
+Simulation hyperparameters for PDB to NERDSS conversion pipeline.
 
-Hyperparameter groups include:
-    - **Structure coarse-graining**: distance and residue cutoffs, energy tables.
-    - **Chain identification**: thresholds for RMSD and sequence similarity, 
-      with optional custom aligners and matching modes.
-    - **Chain regularization**: intra- and inter-chain distance thresholds 
-      and angular thresholds for detecting repeated or symmetric interfaces.
-    - **Output control**: toggling standard vs. verbose output.
+This module defines the PDBModelHyperparameters class that contains all
+configurable parameters for the molecular model building process, including
+distance cutoffs, thresholds, and algorithmic choices.
 
-Example:
-    >>> from model.pdb.hyperparameters import PDBModelHyperparameters
-    >>> hp = PDBModelHyperparameters({"distance_cutoff": 0.8, "verbose_mode": True})
-    >>> hp.distance_cutoff
-    0.8
-    >>> hp.verbose_mode
-    True
-    >>> hp.seq_threshold  # uses default if not overridden
-    0.5
+## Hyperparameters Reference
+
+| Hyperparameter | Definition | Default Value |
+|----------------|------------|---------------|
+| **Core Detection Parameters** |
+| `distance_cutoff` | Contact search radius per atom pair for interface detection | 0.6 nm |
+| `residue_cutoff` | Minimum number of contacting residues (on each chain) to accept an interface | 3 residues |
+| **Chain Grouping Parameters** |
+| `rmsd_threshold` | RMSD threshold for structure superposition to determine repeated chains | 2.0 nm |
+| `seq_threshold` | Sequence identity threshold for sequence alignment to determine repeated chains | 0.5 (50%) |
+| `custom_aligner` | Custom Bio.Align.PairwiseAligner for sequence alignment (None uses default settings) | None |
+| `matching_mode` | Mode for determining repeated chains: "default" (mmCIF header with sequence fallback), "sequence" (sequence-based), "structure" (structure-based) | "default" |
+| **Steric Clash Detection** |
+| `steric_clash_mode` | Mode for detecting steric clashes: "off" (disabled), "auto" (automatic Cα clash detection), "custom" (user-provided lists) | "off" |
+| **Template Building Parameters** |
+| `signature_precision` | Number of decimal places for geometric signature normalization to avoid floating-point errors | 6 decimal places |
+| `homodimer_distance_threshold` | Distance threshold for homodimer detection | 0.1 Å |
+| `homodimer_angle_threshold` | Angle threshold for homodimer detection | 0.1 radians |
+| **Ring Regularization Parameters** |
+| `ring_regularization_mode` | Ring structure regularization mode: "off" (disabled), "separate" (individual ring fitting), "uniform" (single fit for all rings) | "uniform" |
+| `ring_geometry` | Target geometry for ring regularization: "cylinder" or "sphere" | "cylinder" |
+| `min_ring_size` | Minimum number of subunits required to form a ring | 3 subunits |
+
+## Usage Examples
+
+### Basic Usage
+```python
+from ionerdss.model.pdb.hyperparameters import PDBModelHyperparameters
+
+# Use default parameters
+params = PDBModelHyperparameters()
+
+# Customize specific parameters
+params = PDBModelHyperparameters(
+    distance_cutoff=0.8,      # Looser contact detection
+    residue_cutoff=5,         # Require more contacts
+    matching_mode="sequence"  # Force sequence-based grouping
+)
+```
+
+### Configuration Management
+```python
+# Save configuration
+config_dict = params.to_dict()
+
+# Load configuration
+params = PDBModelHyperparameters.from_dict(config_dict)
+
+# Validate parameters
+errors = params.validate()
+if errors:
+    print("Configuration errors:", errors)
+```
+
+### Common Parameter Sets
+
+**High-Resolution Structures:**
+```python
+high_res_params = PDBModelHyperparameters(
+    distance_cutoff=0.5,      # Tight contacts
+    residue_cutoff=5,         # Substantial interfaces
+    rmsd_threshold=1.0,       # Strict structural similarity
+    seq_threshold=0.9         # High sequence identity
+)
+```
+
+**Low-Resolution Structures:**
+```python
+low_res_params = PDBModelHyperparameters(
+    distance_cutoff=1.2,      # Loose contacts
+    residue_cutoff=3,         # Minimal interfaces
+    rmsd_threshold=5.0,       # Permissive structural similarity
+    seq_threshold=0.3         # Low sequence identity
+)
+```
+
+**Ring Structure Processing:**
+```python
+ring_params = PDBModelHyperparameters(
+    ring_regularization_mode="separate",  # Individual ring fitting
+    ring_geometry="sphere",               # Spherical geometry
+    min_ring_size=4                       # Require 4+ subunits
+)
+```
+
 """
 
-from ionerdss.model.pdb.energy_table import get_default_energy_table
+from dataclasses import dataclass, field, fields
+from typing import Optional, Literal
+from Bio.Align import PairwiseAligner
 
-class PDBModelHyperparameters():
+
+@dataclass
+class PDBModelHyperparameters:
+    """Hyperparameters for PDB to NERDSS parameter pipeline.
+
+    Contains all configurable parameters that control the molecular model
+    building process, from interface detection to template generation.
+
+    Attributes:
+        distance_cutoff: Contact search radius per atom pair in nm. Default 0.6.
+        residue_cutoff: Minimum number of contacting residues (on each chain) 
+            to accept an interface. Default 3.
+        rmsd_threshold: RMSD threshold for structure superimposing to determine
+            repeated chains in Angstroms. Default 2.0.
+        seq_threshold: Sequence threshold for sequence alignment to determine
+            repeated chains. Default 0.5.
+        custom_aligner: Custom Bio.Align.PairwiseAligner for sequence alignment.
+            If None, uses default settings.
+        matching_mode: Mode for determining repeated chains. Options:
+            - "default": Use mmCIF header, fallback to sequence
+            - "sequence": Sequence alignment based
+            - "structure": Structure superposition based
+        steric_clash_mode: Mode for detecting steric clashes. Options:
+            - "off": No steric clash detection
+            - "auto": Automatic detection via Cα clash checks
+            - "custom": User-provided required_free lists
+        signature_precision: Number of decimal places for geometric signature
+            normalization to avoid floating-point errors. Default 6.
+        homodimer_distance_threshold: Distance threshold for homodimer detection
+            in Angstroms. Default 0.1.
+        homodimer_angle_threshold: Angle threshold for homodimer detection
+            in radians. Default 0.1.
     """
-    Store hyperparameters and default values for PDB Model
-    """
 
-    def __init__(self, options=None):
-        # Override default with emtpy dictionary
-        if options is None:
-            options = {}
-        # Coarse-grain the structure
-        self.distance_cutoff = options.get("distance_cutoff", 0.6)
-        self.residue_cutoff = options.get("residue_cutoff", 3)
-        self.energy_table = options.get("energy_table", None)
-        # get default energy table if is set to None
-        if self.energy_table is None:
-            self.energy_table = get_default_energy_table()
-        # Identify repeated chains
-        self.rmsd_threshold = options.get("rmsd_threshold", 2.0)
-        self.seq_threshold = options.get("seq_threshold", 0.5)
-        self.custom_aligner = options.get("custom_aligner", None)
-        self.matching_mode = options.get("matching_mode", "default")
-        # Regularize repeated chains
-        self.dist_threshold_intra = options.get("dist_threshold_intra", 3.5)
-        self.dist_threshold_inter = options.get("dist_threshold_inter", 3.5)
-        self.angle_threshold = options.get("angle_threshold", 25.0)
-        # Output control
-        self.standard_output = options.get("standard_output", False)
-        self.logger_level = options.get("logger_level", "INFO")
+    # Core detection parameters
+    distance_cutoff: float = 0.6  # nm
+    residue_cutoff: int = 3
 
-    def __repr__(self):
-        """
-        Developer-oriented representation. Should be unambiguous and ideally valid Python.
-        """
-        attrs = (
-            f"distance_cutoff={self.distance_cutoff}, "
-            f"residue_cutoff={self.residue_cutoff}, "
-            f"energy_table={self.energy_table!r}, "
-            f"rmsd_threshold={self.rmsd_threshold}, "
-            f"seq_threshold={self.seq_threshold}, "
-            f"custom_aligner={self.custom_aligner!r}, "
-            f"matching_mode={self.matching_mode!r}, "
-            f"dist_threshold_intra={self.dist_threshold_intra}, "
-            f"dist_threshold_inter={self.dist_threshold_inter}, "
-            f"angle_threshold={self.angle_threshold}, "
-            f"standard_output={self.standard_output}, "
-            f"logger_level={self.logger_level}"
-        )
-        return f"{self.__class__.__name__}({attrs})"
+    # Chain grouping parameters
+    rmsd_threshold: float = 2.0  # Angstroms
+    seq_threshold: float = 0.5
+    custom_aligner: Optional[PairwiseAligner] = field(default=None)
+    matching_mode: Literal["default", "sequence", "structure"] = "default"
 
-    def __str__(self):
+    # Steric clash detection
+    steric_clash_mode: Literal["off", "auto", "custom"] = "off"
+
+    # Template building parameters
+    signature_precision: int = 6
+    homodimer_distance_threshold: float = 0.1  # Angstroms
+    homodimer_angle_threshold: float = 0.1  # radians
+
+    # Ring regularizer parameters
+    ring_regularization_mode: str = "uniform"  # "off", "separate", "uniform"
+    ring_geometry: str = "cylinder"  # "cylinder", "sphere"
+    min_ring_size: int = 3
+
+    def __post_init__(self):
+        """Initialize default aligner if not provided."""
+        if self.custom_aligner is None:
+            self.custom_aligner = self._create_default_aligner()
+
+    def _create_default_aligner(self) -> PairwiseAligner:
+        """Create default PairwiseAligner with standard parameters.
+
+        Returns:
+            Configured PairwiseAligner with global alignment mode and
+            standard scoring parameters.
         """
-        User-friendly string for pretty printing (multi-line).
+        aligner = PairwiseAligner()
+        aligner.mode = "global"
+        aligner.match_score = 1.0
+        aligner.mismatch_score = 0.0
+        aligner.open_gap_score = -0.5
+        aligner.extend_gap_score = -0.5
+        return aligner
+
+    def to_dict(self) -> dict:
+        """Convert hyperparameters to dictionary representation.
+
+        Returns:
+            Dictionary containing all hyperparameter values.
+            Custom aligner is serialized as its parameter dictionary.
         """
-        return (
-            f"PDBModelHyperparameters:\n"
-            f"  distance_cutoff      = {self.distance_cutoff}\n"
-            f"  residue_cutoff       = {self.residue_cutoff}\n"
-            f"  energy_table         = {self.energy_table}\n"
-            f"  rmsd_threshold       = {self.rmsd_threshold}\n"
-            f"  seq_threshold        = {self.seq_threshold}\n"
-            f"  custom_aligner       = {self.custom_aligner}\n"
-            f"  matching_mode        = {self.matching_mode}\n"
-            f"  dist_threshold_intra = {self.dist_threshold_intra}\n"
-            f"  dist_threshold_inter = {self.dist_threshold_inter}\n"
-            f"  angle_threshold      = {self.angle_threshold}\n"
-            f"  standard_output      = {self.standard_output}\n"
-            f"  logger_level         = {self.logger_level}"
-        )
+        result = {}
+
+        # Get all dataclass fields
+        for field_info in fields(self):
+            field_name = field_info.name
+            field_value = getattr(self, field_name)
+
+            # Handle special cases
+            if field_name == 'custom_aligner':
+                if field_value is not None:
+                    # Serialize aligner parameters
+                    result[field_name] = {
+                        'mode': getattr(field_value, 'mode', 'global'),
+                        'match_score': getattr(field_value, 'match_score', 1.0),
+                        'mismatch_score': getattr(field_value, 'mismatch_score', 0.0),
+                        'open_gap_score': getattr(field_value, 'open_gap_score', -0.5),
+                        'extend_gap_score': getattr(field_value, 'extend_gap_score', -0.5),
+                    }
+                else:
+                    result[field_name] = None
+            else:
+                # Regular field - just copy the value
+                result[field_name] = field_value
+
+        return result
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "PDBModelHyperparameters":
+        """Create hyperparameters from dictionary.
+
+        Args:
+            data: Dictionary containing hyperparameter values.
+
+        Returns:
+            New PDBModelHyperparameters instance.
+        """
+        if not data:
+            return cls()
+
+        # Get all valid field names from the dataclass
+        valid_fields = {f.name for f in fields(cls)}
+
+        # Filter out unknown keys and prepare data
+        filtered_data = {}
+        for key, value in data.items():
+            if key in valid_fields:
+                if key == 'custom_aligner' and value is not None:
+                    # Reconstruct aligner from parameters
+                    aligner = PairwiseAligner()
+                    if isinstance(value, dict):
+                        for param, param_value in value.items():
+                            if hasattr(aligner, param):
+                                setattr(aligner, param, param_value)
+                    filtered_data[key] = aligner
+                else:
+                    filtered_data[key] = value
+
+        return cls(**filtered_data)
+
+    def validate(self) -> list:
+        """Validate hyperparameter values.
+
+        Returns:
+            List of validation error messages. Empty list if all valid.
+        """
+        errors = []
+
+        # Validate distance_cutoff
+        if self.distance_cutoff <= 0:
+            errors.append("distance_cutoff must be positive")
+
+        # Validate residue_cutoff
+        if self.residue_cutoff < 1:
+            errors.append("residue_cutoff must be at least 1")
+
+        # Validate rmsd_threshold
+        if self.rmsd_threshold < 0:
+            errors.append("rmsd_threshold must be non-negative")
+
+        # Validate seq_threshold
+        if not (0 <= self.seq_threshold <= 1):
+            errors.append("seq_threshold must be between 0 and 1")
+
+        # Validate signature_precision
+        if self.signature_precision < 0:
+            errors.append("signature_precision must be non-negative")
+
+        # Validate homodimer thresholds
+        if self.homodimer_distance_threshold < 0:
+            errors.append("homodimer_distance_threshold must be non-negative")
+
+        if self.homodimer_angle_threshold < 0:
+            errors.append("homodimer_angle_threshold must be non-negative")
+
+        return errors
+
+    def __str__(self) -> str:
+        """Return string representation of hyperparameters."""
+        return (f"PDBModelHyperparameters("
+                f"distance_cutoff={self.distance_cutoff}, "
+                f"residue_cutoff={self.residue_cutoff}, "
+                f"matching_mode='{self.matching_mode}', "
+                f"steric_clash_mode='{self.steric_clash_mode}')")
+
+    def __repr__(self) -> str:
+        """Return detailed representation of hyperparameters."""
+        return self.__str__()
