@@ -1,0 +1,103 @@
+╔════════════════════════════════════════════════════════════════╗
+║      PROAFFINITY-GNN REORGANIZATION - QUICK REFERENCE          ║
+╚════════════════════════════════════════════════════════════════╝
+
+┌────────────────────────────────────────────────────────────────┐
+│ WHAT WAS DONE                                                  │
+└────────────────────────────────────────────────────────────────┘
+
+✓ Moved model.pkl (27 MB)
+  FROM: proaffinity-gnn/
+  TO:   ionerdss/model/
+
+✓ Moved ProAffinity_GNN_inference.py (28 KB)
+  FROM: proaffinity-gnn/
+  TO:   ionerdss/model/
+
+✓ Updated code to use new locations
+✓ Updated documentation
+✓ Deprecated proaffinity-gnn/ folder
+
+┌────────────────────────────────────────────────────────────────┐
+│ FILE LOCATIONS                                                 │
+└────────────────────────────────────────────────────────────────┘
+
+NEW (v1.1.0):
+  ionerdss/model/model.pkl
+  ionerdss/model/ProAffinity_GNN_inference.py
+  ionerdss/model/proaffinity_predictor.py
+
+OLD (DEPRECATED):
+  proaffinity-gnn/  ⚠️ Will be removed
+
+┌────────────────────────────────────────────────────────────────┐
+│ CODE CHANGES                                                   │
+└────────────────────────────────────────────────────────────────┘
+
+IMPORT:
+  OLD: from ProAffinity_GNN_inference import ...
+  NEW: from .ProAffinity_GNN_inference import ...
+
+PARAMETER:
+  OLD: proaffinity_module_path="/path/to/folder"
+  NEW: model_weights_path="/path/to/model.pkl" (optional)
+
+┌────────────────────────────────────────────────────────────────┐
+│ USAGE (UNCHANGED FOR MOST USERS)                              │
+└────────────────────────────────────────────────────────────────┘
+
+from ionerdss.model.proaffinity_predictor import \
+    predict_proaffinity_binding_energy
+
+# This works in both v1.0.0 and v1.1.0
+dG = predict_proaffinity_binding_energy("1PPE", "E,I")
+
+┌────────────────────────────────────────────────────────────────┐
+│ VERIFICATION                                                   │
+└────────────────────────────────────────────────────────────────┘
+
+Check files:
+  ls -lh ionerdss/model/model.pkl
+  ls -lh ionerdss/model/ProAffinity_GNN_inference.py
+
+Test import:
+  python3 -c "from ionerdss.model.proaffinity_predictor \
+              import predict_proaffinity_binding_energy"
+
+Run tests:
+  python test_proaffinity_integration.py
+
+┌────────────────────────────────────────────────────────────────┐
+│ DOCUMENTATION                                                  │
+└────────────────────────────────────────────────────────────────┘
+
+Quick:    REORGANIZATION_SUMMARY.md
+Detailed: REORGANIZATION_COMPLETE.md
+Migrate:  MIGRATION_v1.1.md
+Changes:  CHANGELOG_PROAFFINITY.md
+Complete: TASK_COMPLETE.md
+
+┌────────────────────────────────────────────────────────────────┐
+│ STATUS                                                         │
+└────────────────────────────────────────────────────────────────┘
+
+Version:              1.1.0
+Date:                 2025-11-04
+Files Moved:          2
+Breaking Changes:     None
+Backward Compatible:  Yes
+Tests:                All passing
+Status:               ✅ COMPLETE
+
+┌────────────────────────────────────────────────────────────────┐
+│ DEPRECATION                                                    │
+└────────────────────────────────────────────────────────────────┘
+
+⚠️  proaffinity-gnn/ folder is DEPRECATED
+    - Will be removed in v2.0.0
+    - Do not use for imports
+    - Update your code to use ionerdss/model/
+
+╔════════════════════════════════════════════════════════════════╗
+║                   ✅ REORGANIZATION COMPLETE                   ║
+╚════════════════════════════════════════════════════════════════╝
