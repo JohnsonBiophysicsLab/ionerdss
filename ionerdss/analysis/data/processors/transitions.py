@@ -2,16 +2,21 @@
 Transition matrix and lifetime data processor.
 """
 
+import os
+import re
 import numpy as np
 from typing import List, Dict, Any, Tuple, Optional
 from collections import defaultdict
+import logging
 
+# Configure logging
+logger = logging.getLogger(__name__)
 
 class TransitionProcessor:
     """
     Specialized processor for transition matrix and lifetime data.
     
-    Handles matrix operations, probability calculations,
+    Handles reading, parsing, matrix operations, probability calculations,
     and lifetime statistics for cluster dynamics analysis.
     """
     
@@ -21,6 +26,226 @@ class TransitionProcessor:
 
     def configure(self, selected_dirs: List[str]):
         self._selected_dirs = selected_dirs
+
+    def read(self, selected_dirs: Optional[List[str]] = None, config: Dict[str, Any] = None) -> Tuple[List[Tuple[np.ndarray, Dict[int, List[float]]]], str]:
+        """
+        Read transition matrix and lifetime data from simulation directories.
+        
+        Parameters:
+            selected_dirs (Optional[List[str]]): List of simulation directories.
+            config (Dict[str, Any]): Configuration dictionary, e.g. {'time_frame': (start, end)}.
+            
+        Returns:
+            Tuple[List[Tuple[np.ndarray, Dict[int, List[float]]]], str]:
+                A tuple containing the list of (matrix, lifetime) tuples and the mode ('Single' or 'Multiple').
+        """
+        config = config or {"time_frame": None}
+        
+        # parse selected directories
+        if not selected_dirs:
+            if not self._selected_dirs:
+                raise FileNotFoundError("No directory selected for reading.")
+            selected_dirs = self._selected_dirs
+
+        if isinstance(selected_dirs, list):
+            return self.read_multiple(selected_dirs, config), 'Multiple'
+        elif isinstance(selected_dirs, str):
+            return self.read_single(selected_dirs, config), 'Single'
+        else:
+            raise TypeError(f"selected_dirs must be list or str, got {type(selected_dirs)}")
+
+    def read_single(self, sim_dir: str, config: Dict[str, Any] = None) -> Tuple[np.ndarray, Dict[int, List[float]]]:
+        """
+        Read transition matrix and lifetime data from a single simulation directory.
+        
+        Parameters:
+            sim_dir (str): Path to the simulation directory.
+            config (Dict[str, Any]): Configuration dictionary.
+            
+        Returns:
+            Tuple[np.ndarray, Dict[int, List[float]]]: Transition matrix and lifetimes.
+        """
+        config = config or {}
+        time_frame = config.get('time_frame')
+        
+        file_path = os.path.join(sim_dir, "DATA", "transition_matrix_time.dat")
+        
+        if not os.path.exists(file_path):
+            logger.warning(f"Transition matrix file not found: {file_path}")
+            return np.array([]), {}
+        
+        try:
+            matrix, lifetime = self._parse_transition_lifetime_data(file_path, time_frame)
+            logger.debug(f"Successfully read transition matrix from {file_path}")
+            return matrix, lifetime
+        except Exception as e:
+            logger.error(f"Error processing transition matrix from {file_path}: {e}")
+            return np.array([]), {}
+
+    def read_multiple(self, selected_dirs: List[str], config: Dict[str, Any] = None) -> List[Tuple[np.ndarray, Dict[int, List[float]]]]:
+        """
+        Read transition matrices from multiple simulations.
+        
+        Parameters:
+            selected_dirs (List[str]): List of simulation directories.
+            config (Dict[str, Any]): Configuration dictionary.
+            
+        Returns:
+            List[Tuple[np.ndarray, Dict[int, List[float]]]]: List of (matrix, lifetime) tuples.
+        """
+        cache_key = f"transitions_{hash(tuple(sorted(selected_dirs)))}"
+        if cache_key in self._cache:
+             return self._cache[cache_key]
+
+        results = []
+        for sim_dir in selected_dirs:
+            result = self.read_single(sim_dir, config)
+            results.append(result)
+        
+        self._cache[cache_key] = results
+        return results
+
+    def _parse_transition_lifetime_data(self, file_path: str, time_frame: Optional[Tuple[float, float]] = None) -> Tuple[np.ndarray, Dict[int, List[float]]]:
+        """
+        Parse transition matrix and lifetime data from a file.
+        
+        Parameters:
+            file_path (str): Path to the transition matrix file.
+            time_frame (Optional[Tuple[float, float]]): Time range (start, end) to consider.
+            
+        Returns:
+            Tuple[np.ndarray, Dict[int, List[float]]]: 
+                A tuple containing the transition matrix and a dictionary of lifetimes per cluster size.
+        """
+        try:
+            with open(file_path, "r") as f:
+                content = f.read()
+        except Exception as e:
+            logger.error(f"Error reading transition matrix file {file_path}: {e}")
+            return np.array([]), {}
+
+        time_blocks = re.split(r"time:\s*", content)[1:]
+        if not time_blocks:
+            logger.warning(f"No time blocks found in {file_path}")
+            return np.array([]), {}
+
+        time_data = []
+
+        for block in time_blocks:
+            try:
+                lines = block.strip().splitlines()
+                if not lines:
+                    continue
+                    
+                try:
+                    time_val = float(lines[0])
+                except ValueError:
+                    continue
+                
+                # Parse transition matrix
+                tm_lines = []
+                tm_start = None
+                
+                for i, line in enumerate(lines):
+                    if "transion matrix for each mol type:" in line:
+                        tm_start = i + 2
+                        break
+                
+                if tm_start is None:
+                    continue
+                    
+                for i in range(tm_start, len(lines)):
+                    if lines[i].startswith("lifetime for each mol type:"):
+                        break
+                    if lines[i].strip() and not lines[i].startswith(('A', 'B', 'C')):
+                        try:
+                            row = [int(x) for x in lines[i].split()]
+                            if row:
+                                tm_lines.append(row)
+                        except ValueError:
+                            continue
+                
+                if not tm_lines:
+                    continue
+                    
+                transition_matrix = np.array(tm_lines)
+
+                # Parse lifetimes
+                lifetime = defaultdict(list)
+                lt_start = None
+                
+                for i, line in enumerate(lines):
+                    if "lifetime for each mol type:" in line:
+                        lt_start = i + 2
+                        break
+                
+                if lt_start is not None:
+                    cluster_size = None
+                    for line in lines[lt_start:]:
+                        if line.startswith("size of the cluster:"):
+                            try:
+                                cluster_size = int(line.split(":")[1])
+                            except (ValueError, IndexError):
+                                continue
+                        elif cluster_size is not None and line.strip():
+                            try:
+                                lifetimes = [float(x) for x in line.strip().split()]
+                                lifetime[cluster_size].extend(lifetimes)
+                            except ValueError:
+                                continue
+
+                time_data.append((time_val, transition_matrix, lifetime))
+                
+            except Exception as e:
+                logger.warning(f"Error parsing time block in {file_path}: {e}")
+                continue
+
+        if not time_data:
+            logger.warning(f"No valid time data found in {file_path}")
+            return np.array([]), {}
+
+        # Sort by time
+        time_data.sort(key=lambda x: x[0])
+
+        if time_frame:
+            start, end = time_frame
+            # Find the nearest time points within the frame
+            valid_data = [(t, tm, lt) for t, tm, lt in time_data if start <= t <= end]
+            
+            if len(valid_data) >= 2:
+                t_start, tm_start, lt_start = valid_data[0]
+                t_end, tm_end, lt_end = valid_data[-1]
+                
+                # Calculate the difference in transition counts
+                if tm_end.shape != tm_start.shape:
+                    # Pad smaller matrix to match larger one
+                    max_rows = max(tm_end.shape[0], tm_start.shape[0])
+                    max_cols = max(tm_end.shape[1], tm_start.shape[1])
+                    
+                    tm_end_padded = np.zeros((max_rows, max_cols))
+                    tm_end_padded[:tm_end.shape[0], :tm_end.shape[1]] = tm_end
+                    
+                    tm_start_padded = np.zeros((max_rows, max_cols))
+                    tm_start_padded[:tm_start.shape[0], :tm_start.shape[1]] = tm_start
+                    
+                    matrix_delta = tm_end_padded - tm_start_padded
+                else:
+                    matrix_delta = tm_end - tm_start
+                
+                lifetime_delta = defaultdict(list)
+                for k in lt_end:
+                    lt1_len = len(lt_start.get(k, []))
+                    lt2 = lt_end.get(k, [])
+                    lifetime_delta[k] = lt2[lt1_len:]
+            else:
+                # Not enough data points in range
+                return np.array([]), {}
+        else:
+            # If no time frame, use the last available data point (assuming cumulative)
+            matrix_delta = time_data[-1][1]
+            lifetime_delta = time_data[-1][2]
+
+        return matrix_delta, dict(lifetime_delta)
     
     def aggregate_matrices(self, transition_data: Dict[str, Any]) -> np.ndarray:
         """Aggregate transition matrices across simulations."""
@@ -283,3 +508,4 @@ class TransitionProcessor:
     def clear_cache(self):
         """Clear processor cache."""
         self._cache.clear()
+

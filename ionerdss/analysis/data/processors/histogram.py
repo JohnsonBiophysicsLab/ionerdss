@@ -8,7 +8,7 @@ import pandas as pd
 from typing import List, Dict, Any, Tuple, Optional
 
 # Helper functions
-from .utils import parse_histogram_complex, parse_histogram_line, filter_by_time_frame, align_time_series
+from .utils import parse_histogram_complex, parse_histogram_line, filter_by_time_frame, determine_target_time_points
 
 
 # Configure logging, 
@@ -238,7 +238,7 @@ class HistogramProcessor:
 
         logger.debug('Dictionary of legends: ' + str(legend_dicts))
         
-        common_time_points = align_time_series(all_data)
+        common_time_points = determine_target_time_points(all_data)
         min_length = len(common_time_points)
         
         # Initialize result dictionary
@@ -341,4 +341,5 @@ class HistogramProcessor:
     def clear_cache(self):
         """Clear processor cache."""
         self._cache.clear()
+
 

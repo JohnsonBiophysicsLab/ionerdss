@@ -1,3 +1,8 @@
+"""
+Probability plot functions for the ionerdss package.
+These functions create probability visualizations for cluster dynamics analysis.
+"""
+
 import os
 import pandas as pd
 import numpy as np
@@ -5,14 +10,10 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from typing import List, Optional, Tuple, Dict, Any
 
-# Import the data reading utilities
-from ..data_readers import (
-    DataIO,
-)
-
-data_io = DataIO()
+from ..data.core import Data
 
 def plot_line_free_energy(
+    data: Data,
     save_dir: str,
     simulations_index: list,
     time_frame: tuple = None,
@@ -24,38 +25,29 @@ def plot_line_free_energy(
     Plot the change in free energy over a selected time frame for different sizes of complexes.
 
     The x-axis represents the size of the complex, and the y-axis represents the free energy in units of KbT.
-
-    Parameters:
-        save_dir (str): The base directory where simulation results are stored.
-        simulations_index (list): Indices of the simulations to include.
-        time_frame (tuple, optional): Time range (start, end) to consider for statistic.
-        show_type (str): Display mode - "both", "individuals", or "average".
-        simulations_dir (list): List of directories for each simulation.
-        figure_size (tuple): Size of the figure. 
     """
     plot_data_dir = os.path.join(save_dir, "figure_plot_data")
     os.makedirs(plot_data_dir, exist_ok=True)
 
-    # Get the simulation directories to process
-    selected_dirs = [simulations_dir[idx] for idx in simulations_index]
+    # Get transition data
+    transition_data = data.get_transition_data(time_frame=time_frame)
+    matrices = transition_data['matrices']
     
-    # Read transition matrix data for each simulation
     all_free_energies = []
     
-    for sim_dir in selected_dirs:
-        matrix, _ = data_io.get_transition_matrix(sim_dir, time_frame)
+    for matrix in matrices:
         if matrix is None:
             continue
             
         counts_per_size = matrix.sum(axis=1)
         total = counts_per_size.sum()
-        probabilities = counts_per_size / total
-
-        with np.errstate(divide='ignore'):
-            free_energy = -np.log(probabilities)
-            free_energy[np.isinf(free_energy)] = np.nan
-
-        all_free_energies.append(free_energy)
+        
+        if total > 0:
+            probabilities = counts_per_size / total
+            with np.errstate(divide='ignore'):
+                free_energy = -np.log(probabilities)
+                free_energy[np.isinf(free_energy)] = np.nan
+            all_free_energies.append(free_energy)
 
     if not all_free_energies:
         print("No valid simulation data found.")
@@ -104,6 +96,7 @@ def plot_line_free_energy(
     print(f"Plot saved to {plot_path}")
 
 def plot_line_symmetric_association_probability(
+    data: Data,
     save_dir: str,
     simulations_index: list,
     legend: list = None,
@@ -115,17 +108,6 @@ def plot_line_symmetric_association_probability(
     """
     This line plot represents the probability of association between complexes of different sizes.
     Each event is counted symmetrically from both participating sizes.
-    
-    legend examples: ["associate size > n", "associate size = n", "associate size < n"]
-
-    Parameters:
-        save_dir (str): The base directory where simulation results are stored.
-        simulations_index (list): Indices of the simulations to include.
-        legend (list, optional): Custom legend labels for the plot.
-        time_frame (tuple, optional): Time range (start, end) to consider for statistic.
-        show_type (str): Display mode - "both", "individuals", or "average".
-        simulations_dir (list): List of directories for each simulation.
-        figure_size (tuple): Size of the figure.
     """
     plot_data_dir = os.path.join(save_dir, "figure_plot_data")
     os.makedirs(plot_data_dir, exist_ok=True)
@@ -144,14 +126,13 @@ def plot_line_symmetric_association_probability(
             cond = cond.replace("=", "==") if "=" in cond and "==" not in cond else cond
             conds.append(cond)
 
+    # Get transition data
+    transition_data = data.get_transition_data(time_frame=time_frame)
+    matrices = transition_data['matrices']
+    
     all_assoc_probs = []
 
-    # Get the simulation directories to process
-    selected_dirs = [simulations_dir[idx] for idx in simulations_index]
-    
-    # Read transition matrix data for each simulation
-    for sim_dir in selected_dirs:
-        matrix, _ = data_io.get_transition_matrix(sim_dir, time_frame)
+    for matrix in matrices:
         if matrix is None:
             continue
             
@@ -223,6 +204,7 @@ def plot_line_symmetric_association_probability(
 
 
 def plot_line_asymmetric_association_probability(
+    data: Data,
     save_dir: str,
     simulations_index: list,
     legend: list = None,
@@ -234,17 +216,6 @@ def plot_line_asymmetric_association_probability(
     """
     This line plot represents the probability of association between complexes of different sizes.
     Each event is counted asymmetrically from the larger participating size.
-    
-    legend examples: ["associate size > n", "associate size = n", "associate size < n"]
-
-    Parameters:
-        save_dir (str): The base directory where simulation results are stored.
-        simulations_index (list): Indices of the simulations to include.
-        legend (list, optional): Custom legend labels for the plot.
-        time_frame (tuple, optional): Time range (start, end) to consider for statistic.
-        show_type (str): Display mode - "both", "individuals", or "average".
-        simulations_dir (list): List of directories for each simulation.
-        figure_size (tuple): Size of the figure.
     """
     plot_data_dir = os.path.join(save_dir, "figure_plot_data")
     os.makedirs(plot_data_dir, exist_ok=True)
@@ -263,14 +234,13 @@ def plot_line_asymmetric_association_probability(
             cond = cond.replace("=", "==") if "=" in cond and "==" not in cond else cond
             conds.append(cond)
 
+    # Get transition data
+    transition_data = data.get_transition_data(time_frame=time_frame)
+    matrices = transition_data['matrices']
+    
     all_assoc_probs = []
 
-    # Get the simulation directories to process
-    selected_dirs = [simulations_dir[idx] for idx in simulations_index]
-    
-    # Read transition matrix data for each simulation
-    for sim_dir in selected_dirs:
-        matrix, _ = data_io.get_transition_matrix(sim_dir, time_frame)
+    for matrix in matrices:
         if matrix is None:
             continue
             
@@ -344,6 +314,7 @@ def plot_line_asymmetric_association_probability(
 
 
 def plot_line_symmetric_dissociation_probability(
+    data: Data,
     save_dir: str,
     simulations_index: list,
     legend: list = None,
@@ -355,17 +326,6 @@ def plot_line_symmetric_dissociation_probability(
     """
     This line plot represents the probability of dissociation between complexes of different sizes.
     Each event is counted symmetrically for both generated sizes.
-    
-    legend examples: ["dissociate size > n", "dissociate size = n", "dissociate size < n"]
-
-    Parameters:
-        save_dir (str): The base directory where simulation results are stored.
-        simulations_index (list): Indices of the simulations to include.
-        legend (list, optional): Custom legend labels for the plot.
-        time_frame (tuple, optional): Time range (start, end) to consider for statistic.
-        show_type (str): Display mode - "both", "individuals", or "average".
-        simulations_dir (list): List of directories for each simulation.
-        figure_size (tuple): Size of the figure.
     """
     plot_data_dir = os.path.join(save_dir, "figure_plot_data")
     os.makedirs(plot_data_dir, exist_ok=True)
@@ -384,14 +344,13 @@ def plot_line_symmetric_dissociation_probability(
             cond = cond.replace("=", "==") if "=" in cond and "==" not in cond else cond
             conds.append(cond)
 
+    # Get transition data
+    transition_data = data.get_transition_data(time_frame=time_frame)
+    matrices = transition_data['matrices']
+
     all_dissoc_probs = []
 
-    # Get the simulation directories to process
-    selected_dirs = [simulations_dir[idx] for idx in simulations_index]
-    
-    # Read transition matrix data for each simulation
-    for sim_dir in selected_dirs:
-        matrix, _ = data_io.get_transition_matrix(sim_dir, time_frame)
+    for matrix in matrices:
         if matrix is None:
             continue
             
@@ -464,6 +423,7 @@ def plot_line_symmetric_dissociation_probability(
 
 
 def plot_line_asymmetric_dissociation_probability(
+    data: Data,
     save_dir: str,
     simulations_index: list,
     legend: list = None,
@@ -475,17 +435,6 @@ def plot_line_asymmetric_dissociation_probability(
     """
     This line plot represents the probability of dissociation between complexes of different sizes.
     Each dissociation event is counted once.
-    
-    legend examples: ["dissociate size > n", "dissociate size = n", "dissociate size < n"]
-
-    Parameters:
-        save_dir (str): The base directory where simulation results are stored.
-        simulations_index (list): Indices of the simulations to include.
-        legend (list, optional): Custom legend labels for the plot.
-        time_frame (tuple, optional): Time range (start, end) to consider for statistic.
-        show_type (str): Display mode - "both", "individuals", or "average".
-        simulations_dir (list): List of directories for each simulation.
-        figure_size (tuple): Size of the figure.
     """
     plot_data_dir = os.path.join(save_dir, "figure_plot_data")
     os.makedirs(plot_data_dir, exist_ok=True)
@@ -504,14 +453,13 @@ def plot_line_asymmetric_dissociation_probability(
             cond = cond.replace("=", "==") if "=" in cond and "==" not in cond else cond
             conds.append(cond)
 
+    # Get transition data
+    transition_data = data.get_transition_data(time_frame=time_frame)
+    matrices = transition_data['matrices']
+
     all_dissoc_probs = []
 
-    # Get the simulation directories to process
-    selected_dirs = [simulations_dir[idx] for idx in simulations_index]
-    
-    # Read transition matrix data for each simulation
-    for sim_dir in selected_dirs:
-        matrix, _ = data_io.get_transition_matrix(sim_dir, time_frame)
+    for matrix in matrices:
         if matrix is None:
             continue
             
@@ -586,6 +534,7 @@ def plot_line_asymmetric_dissociation_probability(
 
 
 def plot_line_growth_probability(
+    data: Data,
     save_dir: str,
     simulations_index: list,
     legend: list = None,
@@ -596,27 +545,17 @@ def plot_line_growth_probability(
 ):
     """
     This line plot represents the probability of growth between complexes of different sizes.
-
-    Parameters:
-        save_dir (str): The base directory where simulation results are stored.
-        simulations_index (list): Indices of the simulations to include.
-        legend (list, optional): Custom legend labels for the plot.
-        time_frame (tuple, optional): Time range (start, end) to consider for statistic.
-        show_type (str): Display mode - "both", "individuals", or "average".
-        simulations_dir (list): List of directories for each simulation.
-        figure_size (tuple): Size of the figure.
     """
     plot_data_dir = os.path.join(save_dir, "figure_plot_data")
     os.makedirs(plot_data_dir, exist_ok=True)
 
+    # Get transition data
+    transition_data = data.get_transition_data(time_frame=time_frame)
+    matrices = transition_data['matrices']
+    
     all_growth_probs = []
 
-    # Get the simulation directories to process
-    selected_dirs = [simulations_dir[idx] for idx in simulations_index]
-    
-    # Read transition matrix data for each simulation
-    for sim_dir in selected_dirs:
-        matrix, _ = data_io.get_transition_matrix(sim_dir, time_frame)
+    for matrix in matrices:
         if matrix is None:
             continue
             
@@ -697,6 +636,7 @@ def plot_line_growth_probability(
 
 
 def plot_line_liftime(
+    data: Data,
     save_dir: str,
     simulations_index: list,
     legend: list = None,
@@ -707,28 +647,18 @@ def plot_line_liftime(
 ):
     """
     This line plot represents the average lifetime between complexes of different sizes.
-
-    Parameters:
-        save_dir (str): The base directory where simulation results are stored.
-        simulations_index (list): Indices of the simulations to include.
-        legend (list, optional): Custom legend labels for the plot.
-        time_frame (tuple, optional): Time range (start, end) to consider for statistic.
-        show_type (str): Display mode - "both", "individuals", or "average".
-        simulations_dir (list): List of directories for each simulation.
-        figure_size (tuple): Size of the figure.
     """
     plot_data_dir = os.path.join(save_dir, "figure_plot_data")
     os.makedirs(plot_data_dir, exist_ok=True)
 
+    # Get transition data
+    transition_data = data.get_transition_data(time_frame=time_frame)
+    lifetimes_list = transition_data['lifetimes']
+
     all_lifetime_arrays = []
     max_cluster_size = 0
 
-    # Get the simulation directories to process
-    selected_dirs = [simulations_dir[idx] for idx in simulations_index]
-
-    # Read transition matrix and lifetime data for each simulation
-    for sim_dir in selected_dirs:
-        _, lifetime = data_io.get_transition_matrix(sim_dir, time_frame)
+    for lifetime in lifetimes_list:
         if not lifetime:
             continue
             
@@ -790,3 +720,4 @@ def plot_line_liftime(
     plt.savefig(plot_path, format="svg")
     plt.show()
     print(f"Plot saved to {plot_path}")
+

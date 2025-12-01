@@ -5,7 +5,7 @@ Copy numbers data processor for time series analysis.
 import numpy as np
 import pandas as pd
 from typing import List, Dict, Any, Tuple, Optional
-from .utils import align_time_series
+from .utils import determine_target_time_points, align_NERDSS
 import os
 
 # Configure logging, 
@@ -104,25 +104,43 @@ class CopyNumberProcessor:
     def calculate_species_groups(self, 
                                copy_data: Dict[str, Any], 
                                species_groups: List[List[str]]) -> Dict[str, np.ndarray]:
-        """Calculate combined copy numbers for species groups."""
+        """Calculate combined copy numbers for species groups, aligned to common time points."""
 
-        dataframes = copy_data['aligned_dataframes']
+        dataframes = copy_data['dataframes']
         
+        # Get target time points from copy_data (assumed to be present as 'common_time_points')
+        # If not present, re-calculate
+        if 'common_time_points' in copy_data:
+             target_time = copy_data['common_time_points']
+        elif 'aligned_data' in copy_data: # Backward compatibility if core wasn't updated yet
+             target_time = copy_data['aligned_data']
+        else:
+             target_time = determine_target_time_points(dataframes)
+
         group_data = {}
         for i, group in enumerate(species_groups):
             group_name = f"group_{i}" if len(species_groups) > 1 else "combined"
             
-            # Sum species in each group for each simulation
-            group_values = []
+            # Sum species in each group for each simulation AND align
+            aligned_group_values = []
             for df in dataframes:
                 available_species = [s for s in group if s in df.columns]
                 if available_species:
                     group_sum = df[available_species].sum(axis=1).values
                 else:
                     group_sum = np.zeros(len(df))
-                group_values.append(group_sum)
+                
+                # Align to target time points
+                if 'Time (s)' in df.columns:
+                    t_points = df['Time (s)'].values
+                else:
+                    # Fallback or error
+                    t_points = np.arange(len(group_sum)) # Should not happen if read correctly
+                
+                aligned_sum, _ = align_NERDSS(t_points, group_sum, None, target_time)
+                aligned_group_values.append(aligned_sum)
             
-            group_data[group_name] = np.array(group_values)
+            group_data[group_name] = np.array(aligned_group_values)
         
         return group_data
     
@@ -151,8 +169,13 @@ class CopyNumberProcessor:
                        window_size: int = 10) -> Dict[str, Dict[str, np.ndarray]]:
         """Calculate trends and derivatives for species groups."""
         group_data = self.calculate_species_groups(copy_data, species_groups)
-        aligned_data = self.align_time_series(copy_data)
-        time_points = aligned_data['time_points']
+        
+        if 'common_time_points' in copy_data:
+             time_points = copy_data['common_time_points']
+        elif 'aligned_data' in copy_data:
+             time_points = copy_data['aligned_data']
+        else:
+             time_points = determine_target_time_points(copy_data['dataframes'])
         
         trends = {}
         for group_name, values in group_data.items():
@@ -229,8 +252,13 @@ class CopyNumberProcessor:
                                     target_fraction: float = 0.95) -> Dict[str, float]:
         """Calculate time to reach target fraction of final value."""
         stats = self.compute_statistics(copy_data, species_groups)
-        aligned_data = self.align_time_series(copy_data)
-        time_points = aligned_data['time_points']
+        
+        if 'common_time_points' in copy_data:
+             time_points = copy_data['common_time_points']
+        elif 'aligned_data' in copy_data:
+             time_points = copy_data['aligned_data']
+        else:
+             time_points = determine_target_time_points(copy_data['dataframes'])
         
         equilibrium_times = {}
         for group_name, group_stats in stats.items():
@@ -253,8 +281,13 @@ class CopyNumberProcessor:
                             output_path: str):
         """Export processed data to CSV files."""
         stats = self.compute_statistics(copy_data, species_groups)
-        aligned_data = self.align_time_series(copy_data)
-        time_points = aligned_data['time_points']
+        
+        if 'common_time_points' in copy_data:
+             time_points = copy_data['common_time_points']
+        elif 'aligned_data' in copy_data:
+             time_points = copy_data['aligned_data']
+        else:
+             time_points = determine_target_time_points(copy_data['dataframes'])
         
         for group_name, group_stats in stats.items():
             df = pd.DataFrame({

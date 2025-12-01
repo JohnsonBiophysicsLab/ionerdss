@@ -13,12 +13,7 @@ from typing import List, Optional, Tuple, Dict, Any
 
 from ..data.core import Data
 
-# Import the data reading utilities
-from ..data_readers import (
-    DataIO,
-)
 
-data_io = DataIO()
 
 def format_sig(x, sig=3):
     """Format a number with specified significant digits."""

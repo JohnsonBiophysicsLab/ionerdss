@@ -13,12 +13,7 @@ from typing import List, Optional, Tuple, Dict, Any
 
 from ..data.core import Data
 
-# Import the data reading utilities
-from ..data_readers import (
-    DataIO,
-)
 
-data_io = DataIO()
 
 def plot_hist_complex_species_size_3d(
     data:Data,

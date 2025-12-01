@@ -34,7 +34,7 @@ class Analyzer:
         self._legacy = LegacyPlotInterface(self)
         
         # Configure data reading by default with all possibile directories
-        self.get_data()
+        self.load_simulations()
     
     def _discover_simulations(self, verbose:bool=True):
         """Discover simulation directories containing DATA folders."""
@@ -58,7 +58,7 @@ class Analyzer:
         self.plot_data_dir = os.path.join(self.save_dir, "figure_plot_data")
         os.makedirs(self.plot_data_dir, exist_ok=True)
     
-    def get_data(self, 
+    def load_simulations(self, 
                  simulations: Optional[List[int]] = None,
                  species: Optional[List[str]] = None,
                  time_frame: Optional[Tuple[float, float]] = None) -> Data:
@@ -114,7 +114,7 @@ class Analyzer:
         """
         Quick plotting method that handles data processing and plotting in one call.
         
-        Combines get_data() and plotting for simple use cases.
+        Combines load_simulations() and plotting for simple use cases.
         """
         # Extract data parameters
         data_params = {
@@ -128,7 +128,7 @@ class Analyzer:
                       if k in ['figure_size', 'style', 'font_size', 'save_format']}
         
         # Get configured objects
-        data = self.get_data(**data_params)
+        data = self.load_simulations(**data_params)
         plot_config = self.set_plot(**plot_params)
         
         # Dispatch to appropriate plotting method

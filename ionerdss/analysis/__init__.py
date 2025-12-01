@@ -14,7 +14,7 @@ Usage:
 # New modular API (recommended)
 import ionerdss as ion
 analysis = ion.Analyzer("/path/to/simulations")
-data = analysis.get_data(simulations=[0,1,2], species=["A","B"])
+data = analysis.load_simulations(simulations=[0,1,2], species=["A","B"])
 plot = analysis.set_plot(figure_size=(12,8))
 plot.line_speciescopy_vs_time(data=data, legend=[["A"], ["B"]])
 

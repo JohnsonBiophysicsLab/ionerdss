@@ -9,8 +9,8 @@ import hashlib
 from typing import List, Optional, Dict, Any, Tuple
 from .processors import HistogramProcessor, CopyNumberProcessor, TransitionProcessor
 
-from .processors.utils import align_time_series
-from ..data_readers import DataIO
+from .processors.utils import determine_target_time_points
+
 
 
 class Data:
@@ -25,8 +25,7 @@ class Data:
         self._config = {}
         self._cache = {}
 
-        self._data_io = DataIO
-        
+
         # Initialize specialized processors
         self.histogram = HistogramProcessor()
         self.copy_numbers = CopyNumberProcessor()
@@ -51,12 +50,12 @@ class Data:
         self.copy_numbers.configure(self._selected_dirs)
         self.transitions.configure(self._selected_dirs)
     
-    def get_histogram_data(self, sim_dirs) -> Dict[str, Any]:
+    def get_histogram_data(self, sim_dirs: Optional[List[str]] = None) -> Dict[str, Any]:
         """
         Get histogram complex data from multiple simulation directories.
         
         Parameters:
-            sim_dirs (List[str]): List of simulation directories
+            sim_dirs (List[str]): List of simulation directories. If None, use configured dirs.
             
         Returns:
             Dict[str, Any]:
@@ -71,6 +70,9 @@ class Data:
                 }
         }
         """
+        if sim_dirs is None:
+            sim_dirs = self._selected_dirs
+
         cache_key = self._generate_cache_key(f"histograms_{hash(tuple(sorted(sim_dirs)))}")
         
         if cache_key in self._cache:
@@ -83,7 +85,7 @@ class Data:
         if num_dirs == 'Multiple':
             result = {
                 'raw_data': all_data,
-                'time_series': align_time_series(all_data),
+                'time_series': determine_target_time_points(all_data),
                 'species_filter': self._config['species'],
                 'metadata': {
                     'num_simulations': len(all_data),
@@ -97,8 +99,16 @@ class Data:
         self._cache[cache_key] = result
         return result
     
-    def get_copy_numbers_data(self, sim_dirs) -> Dict[str, Any]:
-        """Get processed copy numbers data with enhanced processing."""
+    def get_copy_numbers_data(self, sim_dirs: Optional[List[str]] = None) -> Dict[str, Any]:
+        """
+        Get processed copy numbers data with enhanced processing.
+        
+        Parameters:
+            sim_dirs (List[str]): List of simulation directories. If None, use configured dirs.
+        """
+        if sim_dirs is None:
+            sim_dirs = self._selected_dirs
+
         cache_key = self._generate_cache_key(f"copy_numbers_{hash(tuple(sorted(sim_dirs)))}")
         
         if cache_key in self._cache:
@@ -111,7 +121,7 @@ class Data:
         if num_dirs == 'Multiple':
             result = {
                 'dataframes': all_data,
-                'aligned_data': align_time_series(all_data),
+                'common_time_points': determine_target_time_points(all_data),
                 'species_filter': self._config['species'],
                 'metadata': {
                     'num_simulations': len(all_data),
@@ -136,11 +146,21 @@ class Data:
         # Load raw data
         matrices = []
         lifetimes = []
-        for sim_dir in self._selected_dirs:
-            matrix, lifetime = self._data_io.get_transition_matrix(sim_dir, self._config['time_frame'])
-            if matrix is not None:
-                matrices.append(matrix)
-                lifetimes.append(lifetime)
+        
+        # Use processor to read data
+        # Returns (data, mode) where data is list of (matrix, lifetime) for Multiple mode
+        read_result, mode = self.transitions.read(self._selected_dirs, self._config)
+        
+        if mode == 'Multiple':
+            for matrix, lifetime in read_result:
+                if matrix is not None and matrix.size > 0:
+                    matrices.append(matrix)
+                    lifetimes.append(lifetime)
+        elif mode == 'Single':
+             matrix, lifetime = read_result
+             if matrix is not None and matrix.size > 0:
+                 matrices.append(matrix)
+                 lifetimes.append(lifetime)
         
         result = {
             'matrices': matrices,
@@ -228,3 +248,5 @@ class Data:
             'memory_usage_mb': sum(len(pickle.dumps(v)) for v in self._cache.values()) / (1024*1024),
             'processors_available': ['histogram', 'copy_numbers', 'transitions']
         }
+
+

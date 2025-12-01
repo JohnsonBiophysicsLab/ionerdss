@@ -12,14 +12,12 @@ from typing import List, Optional, Tuple, Dict, Any
 
 from ..data.core import Data
 
-# Import the data reading utilities
-from ..data_readers import (
-    DataIO,
+# Import utils from processors
+from ..data.processors.utils import (
     compute_average_assembly_size,
     eval_condition
 )
 
-data_io = DataIO()
 
 def plot_line_speciescopy_vs_time(
     data: Data,
@@ -556,94 +554,3 @@ def format_complex_dict(complex_dict):
         parts = [f"{species}: {count}" for species, count in sorted_items]
         return ", ".join(parts) + "."
 
-
-def plot_line_free_energy(
-    save_dir: str,
-    simulations_index: list,
-    time_frame: tuple = None,
-    show_type: str = "both",
-    simulations_dir: list = None,
-    figure_size: tuple = (10, 6),
-):
-    """
-    Plot the change in free energy over a selected time frame for different sizes of complexes.
-
-    The x-axis represents the size of the complex, and the y-axis represents the free energy in units of KbT.
-
-    Parameters:
-        save_dir (str): The base directory where simulation results are stored.
-        simulations_index (list): Indices of the simulations to include.
-        time_frame (tuple, optional): Time range (start, end) to consider for statistic.
-        show_type (str): Display mode - "both", "individuals", or "average".
-        simulations_dir (list): List of directories for each simulation.
-        figure_size (tuple): Size of the figure. 
-    """
-    plot_data_dir = os.path.join(save_dir, "figure_plot_data")
-    os.makedirs(plot_data_dir, exist_ok=True)
-
-    # Get the simulation directories to process
-    selected_dirs = [simulations_dir[idx] for idx in simulations_index]
-    
-    # Read transition matrix data for each simulation
-    all_free_energies = []
-    
-    for sim_dir in selected_dirs:
-        matrix, _ = data_io.get_transition_matrix(sim_dir, time_frame)
-        if matrix is None:
-            continue
-            
-        counts_per_size = matrix.sum(axis=1)
-        total = counts_per_size.sum()
-        probabilities = counts_per_size / total
-
-        with np.errstate(divide='ignore'):
-            free_energy = -np.log(probabilities)
-            free_energy[np.isinf(free_energy)] = np.nan
-
-        all_free_energies.append(free_energy)
-
-    if not all_free_energies:
-        print("No valid simulation data found.")
-        return
-
-    # Align data to the shortest array
-    min_length = min(len(arr) for arr in all_free_energies)
-    all_free_energies = [arr[:min_length] for arr in all_free_energies]
-
-    sizes = np.arange(1, min_length + 1)
-    free_energy_array = np.array(all_free_energies)
-    avg_free_energy = np.nanmean(free_energy_array, axis=0)
-    std_free_energy = np.nanstd(free_energy_array, axis=0)
-
-    # Save processed data
-    df_to_save = pd.DataFrame({
-        "Cluster Size": sizes,
-        "Mean Free Energy (kBT)": avg_free_energy,
-        "Std Free Energy": std_free_energy
-    })
-    save_path = os.path.join(plot_data_dir, "free_energy_vs_size.csv")
-    df_to_save.to_csv(save_path, index=False)
-    print(f"Processed data saved to {save_path}")
-
-    # Plot the data
-    plt.figure(figsize=figure_size)
-
-    if show_type in {"individuals", "both"}:
-        for i, fe in enumerate(free_energy_array):
-            plt.plot(sizes, fe, alpha=0.3, linestyle="dashed", 
-                    label=f"Individual run {i}" if show_type == "both" else None)
-
-    if show_type in {"average", "both"}:
-        plt.plot(sizes, avg_free_energy, label="Average", linewidth=2)
-        plt.fill_between(sizes, avg_free_energy - std_free_energy, 
-                        avg_free_energy + std_free_energy, alpha=0.2)
-
-    plt.xlabel("Cluster Size (n)")
-    plt.ylabel(r"$\mathrm{Free\ Energy}\ (k_\mathrm{B}T)$")
-    plt.legend()
-    plt.tight_layout()
-
-    plot_path = os.path.join(plot_data_dir, "free_energy_vs_size.svg")
-    plt.savefig(plot_path, format="svg")
-    plt.show()
-    print(f"Plot saved to {plot_path}")

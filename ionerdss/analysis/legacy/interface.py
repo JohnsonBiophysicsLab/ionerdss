@@ -64,7 +64,7 @@ class LegacyPlotInterface:
             raise ValueError("Legend must be provided.")
         
         # Get configured data and plot objects
-        data = self.analysis.get_data(
+        data = self.analysis.load_simulations(
             simulations=simulations,
             time_frame=time_frame
         )
@@ -464,7 +464,7 @@ For new code, consider using the modular API:
 analysis.plot_figure(figure_type="line", x="time", y="species", legend=[["A"]])
 
 # New modular style (recommended):
-data = analysis.get_data(simulations=[0,1,2])
+data = analysis.load_simulations(simulations=[0,1,2])
 plot = analysis.set_plot(figure_size=(12,8))
 plot.line_speciescopy_vs_time(data=data, legend=[["A"]])
 
