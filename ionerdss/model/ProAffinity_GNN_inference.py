@@ -808,7 +808,6 @@ def run_proaffinity_inference(
     K = 10**(all_predictions[0])
     R = 8.314 / 1000 # kJ/(mol*K)
     dG = -R * temperature * np.log(K)
-    if verbose: print('dG:', int(dG), 'kJ/mol')
     return dG
 
 # Example usage

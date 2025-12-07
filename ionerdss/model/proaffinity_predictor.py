@@ -93,13 +93,34 @@ def filter_pdb_file(input_pdb_path, output_pdb_path):
     try:
         with open(input_pdb_path, 'r') as infile, \
              open(output_pdb_path, 'w') as outfile:
+            # only keep the first model if multiple models exist
+            # write ATOM lines with conventional residues and ignore all other lines
+            in_first_model = True
+            model_count = 0
+
             for line in infile:
-                if line.startswith("ATOM"):
-                    residue_name = line[17:20].strip()
-                    if residue_name in conventional_residues:
+                # Track MODEL records
+                if line.startswith("MODEL"):
+                    model_count += 1
+                    if model_count == 1:
+                        in_first_model = True
+                    continue  # Don't write MODEL lines
+                
+                # Stop processing after first model ends
+                if line.startswith("ENDMDL"):
+                    if model_count == 1:
+                        in_first_model = False
+                        break  # Exit after first model
+                    continue
+
+                # Only process lines if we haven't seen any models, or we're in the first model
+                if model_count == 0 or in_first_model:
+                    if line.startswith("ATOM"):
+                        residue_name = line[17:20].strip()
+                        if residue_name in conventional_residues:
+                            outfile.write(line)
+                    elif line.startswith("TER"):
                         outfile.write(line)
-                elif line.startswith("TER"):
-                    outfile.write(line)
                     
     except FileNotFoundError:
         print(f"Error: Input file not found at {input_pdb_path}")
@@ -127,6 +148,15 @@ def pdb_to_pdbqt(pdbfile: str, adfr_path: str = None, ph: float = 7.4, verbose=F
     if not os.path.exists(pdbfile):
         raise FileNotFoundError(f"Input PDB file not found: {pdbfile}")
     
+    base_name, ext = os.path.splitext(pdbfile)
+    pdbqtfile = f"{base_name}.pdbqt"
+    
+    # Check if PDBQT file already exists
+    if os.path.exists(pdbqtfile):
+        if verbose:
+            print(f"PDBQT file already exists: {pdbqtfile}")
+        return pdbqtfile
+    
     # Locate prepare_receptor
     if adfr_path is None:
         # Search common locations
@@ -145,8 +175,6 @@ def pdb_to_pdbqt(pdbfile: str, adfr_path: str = None, ph: float = 7.4, verbose=F
             "prepare_receptor not found. Please install ADFR or specify adfr_path"
         )
     
-    base_name, ext = os.path.splitext(pdbfile)
-    pdbqtfile = f"{base_name}.pdbqt"
     tmp_pdb_file = f"{base_name}_tmp.pdb"
 
     try:
