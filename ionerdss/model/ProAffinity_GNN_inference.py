@@ -43,9 +43,18 @@ import numpy as np
 np.random.seed(0)
 torch.manual_seed(0)
 
+# Module-level cache for ESM2 model and tokenizer to avoid reloading
+_ESM2_MODEL_CACHE = None
+_ESM2_TOKENIZER_CACHE = None
 
 # For parsing PDB files
-aminoacid_abbr = {'GLY': 'G', 'ALA': 'A', 'VAL': 'V', 'LEU': 'L', 'ILE': 'I', 'PHE': 'F', 'TRP': 'W', 'TYR': 'Y', 'ASP': 'D', 'ASN': 'N', 'GLU': 'E', 'LYS': 'K', 'GLN': 'Q', 'MET': 'M', 'SER': 'S', 'THR': 'T', 'CYS': 'C', 'PRO': 'P', 'HIS': 'H', 'ARG': 'R', 'UNK': 'X'}
+aminoacid_abbr: dict[str, str] = {
+    'GLY': 'G', 'ALA': 'A', 'VAL': 'V', 'LEU': 'L', 'ILE': 'I',
+    'PHE': 'F', 'TRP': 'W', 'TYR': 'Y', 'ASP': 'D', 'ASN': 'N',
+    'GLU': 'E', 'LYS': 'K', 'GLN': 'Q', 'MET': 'M', 'SER': 'S',
+    'THR': 'T', 'CYS': 'C', 'PRO': 'P', 'HIS': 'H', 'ARG': 'R',
+    'UNK': 'X',
+}
 
 def infer_atom_type(atom_name):
     """Infer atom type based on atom name for PDB files."""
@@ -365,9 +374,58 @@ class GraphNetwork(torch.nn.Module):
         x = F.relu(self.fc1(x))
         x = self.fc2(x)
         return x
+
+def load_esm2_model(use_cache=True):
+    """
+    Load ESM2 model and tokenizer, with optional caching to avoid reloading.
+    
+    Args:
+        use_cache (bool): Whether to use cached model if available (default: True)
+        
+    Returns:
+        tuple: (tokenizer, model) - ESM2 tokenizer and model
+    """
+    global _ESM2_MODEL_CACHE, _ESM2_TOKENIZER_CACHE
+    
+    # Return cached models if available and caching is enabled
+    if use_cache and _ESM2_MODEL_CACHE is not None and _ESM2_TOKENIZER_CACHE is not None:
+        return _ESM2_TOKENIZER_CACHE, _ESM2_MODEL_CACHE
+    
+    # Load model and tokenizer
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        from transformers import AutoTokenizer, EsmModel
+        
+        tokenizer = AutoTokenizer.from_pretrained("facebook/esm2_t33_650M_UR50D")
+        model = EsmModel.from_pretrained("facebook/esm2_t33_650M_UR50D")
+    
+    model.eval()
+    torch.set_grad_enabled(False)
+    
+    # Cache the models if caching is enabled
+    if use_cache:
+        _ESM2_MODEL_CACHE = model
+        _ESM2_TOKENIZER_CACHE = tokenizer
+    
+    return tokenizer, model
+
+def clear_esm2_cache():
+    """
+    Clear the cached ESM2 model and tokenizer to free up memory.
+    """
+    global _ESM2_MODEL_CACHE, _ESM2_TOKENIZER_CACHE
+    _ESM2_MODEL_CACHE = None
+    _ESM2_TOKENIZER_CACHE = None
+    
+    # Force garbage collection
+    import gc
+    gc.collect()
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
         
 def run_proaffinity_inference(
-        pdbfile, chainindex, weights_path='./model.pkl', temperature=298.15, verbose=False
+        pdbfile, chainindex, weights_path='./model.pkl', temperature=298.15, verbose=False,
+        esm_model=None, esm_tokenizer=None
     ):
     """
     Run ProAffinity inference on a given PDB file and chain index.
@@ -377,6 +435,9 @@ def run_proaffinity_inference(
         chainindex (str): List of chains (e.g. "AB,C").
         weights_path (str): Path to the model weights.
         temperature (float): Temperature in Kelvin (default is 298.15) to convert K from.
+        verbose (bool): Whether to print verbose output.
+        esm_model: Pre-loaded ESM2 model (optional). If None, will load from cache or disk.
+        esm_tokenizer: Pre-loaded ESM2 tokenizer (optional). If None, will load from cache or disk.
         
     Returns:
         float: Predicted dG (kJ/mol) value.
@@ -485,16 +546,12 @@ def run_proaffinity_inference(
     info_save2 = (intra_pairsB, edge_index2, seqB)
                     
     # Get ESM embedding from the sequences
-    # Suppress all warnings during transformers model loading
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore")
-        from transformers import AutoTokenizer, EsmModel
-        import torch
-
-        tokenizer = AutoTokenizer.from_pretrained("facebook/esm2_t33_650M_UR50D")
-        model = EsmModel.from_pretrained("facebook/esm2_t33_650M_UR50D")
-    model.eval()
-    torch.set_grad_enabled(False)  
+    # Use pre-loaded model if provided, otherwise load from cache
+    if esm_model is None or esm_tokenizer is None:
+        tokenizer, model = load_esm2_model(use_cache=True)
+    else:
+        tokenizer = esm_tokenizer
+        model = esm_model
 
     from torch_geometric.data import Data
     
@@ -762,7 +819,7 @@ def run_proaffinity_inference(
     device = torch.device(devicename)
     model = GraphNetwork(in_channels, hidden_channels, out_channels, edge_dim, num_layers, num_timesteps, dropout, linear_out1, linear_out2).to(device)
 
-    state_dict = torch.load(weights_path, map_location=devicename)
+    state_dict = torch.load(weights_path, map_location=devicename, weights_only=True)
 
     new_state_dict = {}
     for key, value in state_dict.items():

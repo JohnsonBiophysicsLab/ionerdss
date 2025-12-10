@@ -71,7 +71,6 @@ def extract_aligned_ca_coords(chain1, chain2):
     
     return coords1[:min_len], coords2[:min_len]
 
-
 class PDBModel(Model):
     """Handles the generation of NERDSS molecule types and reactions from a PDB structure.
 
@@ -119,16 +118,16 @@ class PDBModel(Model):
         self.all_interfaces_residues = []
 
         self.chains_map = {}  # Records the mapping of original chain IDs to molecular types used in NERDSS
-        self.chains_group = []  # Groups chains with the same MOL_ID or entity_id or similar stucture as repeated
+        self.chains_group = []  # Groups chains with the same MOL_ID or entity_id or similar stucture as homologous
 
         # used to store the information of the molecules and interfaces for NERDSS model
-        self.molecule_list = []
+        self.molecule_list: list[CoarseGrainedMolecule] = []
         self.molecules_template_list = []
-        self.interfaces = []
+        self.interface_list: list[BindingInterface] = []
         self.interface_template_list = []
         self.binding_chains_pairs = []
         self.binding_energies = []
-        self.reaction_list = []
+        self.reaction_list: list[ReactionType] = []
         self.reaction_template_list = []
 
     def download_pdb(self) -> str:
@@ -194,28 +193,37 @@ class PDBModel(Model):
         structure = parser.get_structure(structure_id, self.pdb_file)
         return structure
 
-    def coarse_grain(self, distance_cutoff=0.35, residue_cutoff=3, show_coarse_grained_structure=False, save_pymol_script=False, standard_output=False):
+    def coarse_grain(
+        self,
+        distance_cutoff=0.35,
+        residue_cutoff=3,
+        predict_affinity=False,
+        adfr_path=None,
+        show_coarse_grained_structure=False,
+        save_pymol_script=False,
+        standard_output=False
+    ) -> None:
         """Coarse grains the PDB structure by detecting binding interfaces between chains based on atomic distances.
 
         Args:
             distance_cutoff (float, optional): Max distance (nm) for atoms to be considered in contact. Defaults to 0.35.
             residue_cutoff (int, optional): Minimum residue pair count to be considered a valid interface. Defaults to 3.
+            predict_affinity (bool, optional): Whether to predict binding affinity using ProAffinity-GNN. Defaults to False.
+            adfr_path (str, optional): Path to ADFR prepare_receptor tool. Required if predict_affinity is True. Defaults to None.
             show_coarse_grained_structure (bool, optional): Whether to visualize the coarse-grained structure. Defaults to False.
             save_pymol_script (bool, optional): Whether to save a PyMOL script for visualization. Defaults to False.
             standard_output (bool, optional): Whether to print detected interfaces. Defaults to False.
         """
-        self.all_chains = sorted([chain for chain in self.all_atoms_structure.get_chains() 
-            if any(is_aa(residue) for residue in chain.get_residues())], 
-            key=lambda chain: chain.id)
+        # self.all_chains = list(self.all_atoms_structure.get_chains())
+        self.all_chains = sorted(self.all_atoms_structure.get_chains(), key=lambda chain: chain.id)
         self.all_COM_chains_coords = []
         self.all_interfaces = []
         self.all_interfaces_coords = []
         self.all_interfaces_residues = []
         self.all_chains_radius = []
 
-        energy_table = self._get_default_energy_table()
-        self.interface_energies = []
-        self.all_interface_energies = []
+        self.interface_energies: list[float] = []
+        self.all_interface_energies: list[list[float]] = []
 
         # Initialize interface lists
         num_chains = len(self.all_chains)
@@ -256,6 +264,10 @@ class PDBModel(Model):
         # Precompute bounding boxes for all chains
         bounding_boxes = [compute_bounding_box(chain) for chain in self.all_chains]
 
+        # Store chain pairs that need affinity prediction
+        affinity_prediction_pairs = []
+        pair_to_indices = {}  # Maps (i,j) to index in affinity_prediction_pairs
+        
         # Helper function to process a pair of chains
         def process_chain_pair(i, j):
             if self.all_COM_chains_coords[i] is None or self.all_COM_chains_coords[j] is None:
@@ -314,8 +326,6 @@ class PDBModel(Model):
             interface2_coords = []
             interface2_types = []
 
-            residue_pairs = {}
-
             # Collect interface residues based on KDTree results
             for idx1, neighbors in enumerate(indices):
                 if neighbors:
@@ -329,33 +339,102 @@ class PDBModel(Model):
                             interface2.append(residue_ids_chain2[idx2])
                             interface2_coords.append(ca_coords_chain2[idx2])
                             interface2_types.append(residue_types_chain2[idx2])
-                    
-                        pair_key = (residue_ids_chain1[idx1], residue_ids_chain2[idx2])
-                        energy_key = (residue_types_chain1[idx1], residue_types_chain2[idx2])
-
-                        if pair_key not in residue_pairs:
-                            residue_pairs[pair_key] = energy_table.get(energy_key, 0.0)
-
-            total_energy = sum(residue_pairs.values())
-
+            
             # Store results if any interfaces were found
             if len(interface1) >= residue_cutoff and len(interface2) >= residue_cutoff:
+                # Store interface information for later processing
                 avg_coords1 = np.mean(interface1_coords, axis=0)
-                self.all_interfaces[i].append(self.all_chains[j].id)
-                self.all_interfaces_coords[i].append(Coords(*avg_coords1))
-                self.all_interfaces_residues[i].append(sorted(interface1))
-                self.all_interface_energies[i].append(total_energy)
                 avg_coords2 = np.mean(interface2_coords, axis=0)
-                self.all_interfaces[j].append(self.all_chains[i].id)
-                self.all_interfaces_coords[j].append(Coords(*avg_coords2))
-                self.all_interfaces_residues[j].append(sorted(interface2))
-                self.all_interface_energies[j].append(total_energy)
+                
+                # Store interface data temporarily (energy will be added later)
+                result_data = {
+                    'i': i,
+                    'j': j,
+                    'interface1': sorted(interface1),
+                    'interface2': sorted(interface2),
+                    'avg_coords1': avg_coords1,
+                    'avg_coords2': avg_coords2,
+                }
+                
+                # If affinity prediction is enabled, store chain pair info for batch processing
+                if predict_affinity:
+                    chain1_id = self.all_chains[i].id
+                    chain2_id = self.all_chains[j].id
+                    pair_idx = len(affinity_prediction_pairs)
+                    affinity_prediction_pairs.append({
+                        'pdb_file': self.pdb_file,
+                        'chains': f"{chain1_id},{chain2_id}",
+                        'result_data': result_data
+                    })
+                    pair_to_indices[(i, j)] = pair_idx
+                else:
+                    # Use default energy immediately
+                    result_data['total_energy'] = -16 * 8.314/1000 * 298  # -16RT in kJ/mol
+                    
+                return result_data
+            return None
 
-        # Parallelize chain pair processing
+        # Parallelize chain pair processing to detect interfaces
         with ThreadPoolExecutor() as executor:
             futures = [executor.submit(process_chain_pair, i, j) for i in range(num_chains - 1) for j in range(i + 1, num_chains)]
+            interface_results = []
             for future in futures:
-                future.result()  # Wait for all tasks to complete
+                result = future.result()
+                if result is not None:
+                    interface_results.append(result)
+        
+        # Batch predict affinities if needed
+        if predict_affinity and affinity_prediction_pairs:
+            if standard_output:
+                print(f"Running batch affinity prediction for {len(affinity_prediction_pairs)} chain pairs...")
+                print("Loading ESM2 model once for all predictions...")
+            
+            try:
+                from .proaffinity_predictor import predict_proaffinity_binding_energy_batch
+                
+                # Run batch predictions
+                binding_energies = predict_proaffinity_binding_energy_batch(
+                    predictions_list=affinity_prediction_pairs,
+                    adfr_path=adfr_path,
+                    verbose=standard_output
+                )
+                
+                # Assign predicted energies back to results
+                for pair_info, binding_energy in zip(affinity_prediction_pairs, binding_energies):
+                    result_data = pair_info['result_data']
+                    if np.isnan(binding_energy):
+                        # Fall back to default if prediction fails
+                        result_data['total_energy'] = -16 * 8.314/1000 * 298  # -16RT in kJ/mol
+                        if standard_output:
+                            print(f"Warning: ProAffinity prediction failed for chains {pair_info['chains']}, using default energy")
+                    else:
+                        result_data['total_energy'] = binding_energy
+                        if standard_output:
+                            print(f"Predicted binding energy for chains {pair_info['chains']}: {binding_energy:.2f} kJ/mol")
+                            
+            except Exception as e:
+                # Fall back to default energies if batch prediction fails
+                if standard_output:
+                    print(f"Warning: Batch affinity prediction failed: {e}")
+                    print("Using default energies for all chain pairs")
+                for pair_info in affinity_prediction_pairs:
+                    pair_info['result_data']['total_energy'] = -16 * 8.314/1000 * 298
+        
+        # Now populate the interface lists with the results
+        for result_data in interface_results:
+            i = result_data['i']
+            j = result_data['j']
+            total_energy = result_data['total_energy']
+            
+            self.all_interfaces[i].append(self.all_chains[j].id)
+            self.all_interfaces_coords[i].append(Coords(*result_data['avg_coords1']))
+            self.all_interfaces_residues[i].append(result_data['interface1'])
+            self.all_interface_energies[i].append(total_energy)
+            
+            self.all_interfaces[j].append(self.all_chains[i].id)
+            self.all_interfaces_coords[j].append(Coords(*result_data['avg_coords2']))
+            self.all_interfaces_residues[j].append(result_data['interface2'])
+            self.all_interface_energies[j].append(total_energy)
 
         for i in range(num_chains):
             sorted_indices = sorted(range(len(self.all_interfaces[i])), key=lambda k: self.all_interfaces[i][k])
@@ -374,7 +453,7 @@ class PDBModel(Model):
                 print("  Interface Coordinates: ")
                 for j, interface_coord in enumerate(self.all_interfaces_coords[i]):
                     print(f"    {interface_coord}")
-                    print(f"    Interface Energy: {self.all_interface_energies[i][j]:.2f}")
+                    print(f"    Interface Energy: {self.all_interface_energies[i][j]:.2f} kJ/mol")
 
         # Save PyMOL script
         if save_pymol_script:
@@ -407,8 +486,6 @@ class PDBModel(Model):
             points (list): A list of arrays, each of shape (N, 3), representing a chain’s COM + interface sites.
             chain_ids (list, optional): A list of labels for each chain. Defaults to None.
         """
-
-        import matplotlib.pyplot as plt
 
         # Prepare a 3D figure
         fig = plt.figure(figsize=(8, 6))
@@ -558,9 +635,9 @@ class PDBModel(Model):
 
         print(f"PyMOL script saved to {pymol_script}. Run 'pymol {pymol_script}' to visualize the coarse-grained structure.")
 
-    def regularize_repeated_chains(self, dist_threshold_intra=3.5, dist_threshold_inter=3.5, angle_threshold=25.0, show_coarse_grained_structure=False, save_pymol_script=False, standard_output=False):
+    def regularize_homologous_chains(self, dist_threshold_intra=3.5, dist_threshold_inter=3.5, angle_threshold=25.0, show_coarse_grained_structure=False, save_pymol_script=False, standard_output=False):
         """
-        Aligns and regularizes all molecular chains so that repeated chains share 
+        Aligns and regularizes all molecular chains so that homologous chains share 
         the same relative geometry. This method organizes molecule and interface objects 
         accordingly and sets up reaction objects.
 
@@ -572,26 +649,18 @@ class PDBModel(Model):
             save_pymol_script (bool): Whether to save a PyMOL script for visualization. Defaults to False.
             standard_output (bool): Whether to print detected interfaces. Defaults to False.
         """
-        self.identify_repeated_chains()
+        self.identify_homologous_chains()
         if not self.chains_group:
             self._assign_original_chain_ids()
         for group in self.chains_group:
             group.sort()
         self.chains_group.sort()
-        print(f"{len(self.chains_group)} repeated chain groups identified:")
+        print("Homologous chain groups identified:")
         print(self.chains_group)
 
-        # check if the structure has repeated chains
-        # if any element in self.chains_group has more than one chain, then it has repeated chains
-        has_repeated_chains = any(len(group) > 1 for group in self.chains_group)
-        if not has_repeated_chains:
-            dist_threshold_intra = 0.0
-            dist_threshold_inter = 0.0
-            angle_threshold = 0.0
-
-        self.molecule_list = []
+        self.molecule_list: list[CoarseGrainedMolecule] = []
         self.molecules_template_list = []
-        self.interfaces = []
+        self.interface_list: list[BindingInterface] = []
         self.interface_template_list = []
         self.interface_signatures = []
 
@@ -613,7 +682,7 @@ class PDBModel(Model):
                 is_existing_mol, mol_index = self._is_existing_mol(mol_name)
                 if is_existing_mol:
                     # print(f"This is an existing molecule {mol_name}")
-                    molecule = self.molecule_list[mol_index]
+                    molecule: CoarseGrainedMolecule = self.molecule_list[mol_index]
                     molecule.radius = self.all_chains_radius[self.all_chains.index([chain for chain in self.all_chains if chain.id == mol_name][0])]
                     molecule.diffusion_translation, molecule.diffusion_rotation = self._compute_diffusion_constants_nm_us(molecule.radius / 10.0)
                     molecule.my_template.diffusion_translation, molecule.my_template.diffusion_rotation = molecule.diffusion_translation, molecule.diffusion_rotation
@@ -726,8 +795,7 @@ class PDBModel(Model):
                                 # align the current chain to the first chain in the group, then get the relative position of interface to COM
                                 chain1 = self.all_chains[self.all_chains.index([chain for chain in self.all_chains if chain.id == group[0]][0])]
                                 chain2 = self.all_chains[self.all_chains.index([chain for chain in self.all_chains if chain.id == chain_id][0])]
-                                chain1_coords, chain2_coords = extract_aligned_ca_coords(chain1, chain2)
-                                R, t = rigid_transform_chains(chain2_coords, chain1_coords)
+                                R, t = rigid_transform_chains(chain2, chain1)
                                 Q = []
                                 Q_COM_coord = self.all_COM_chains_coords[self.all_chains.index([chain for chain in self.all_chains if chain.id == chain_id][0])]
                                 Q.append([Q_COM_coord.x, Q_COM_coord.y, Q_COM_coord.z])
@@ -763,8 +831,7 @@ class PDBModel(Model):
                                 # align the current chain to the first chain in the group, then get the relative position of interface to COM
                                 chain1 = self.all_chains[self.all_chains.index([chain for chain in self.all_chains if chain.id == group[0]][0])]
                                 chain2 = self.all_chains[self.all_chains.index([chain for chain in self.all_chains if chain.id == chain_id][0])]
-                                chain1_coords, chain2_coords = extract_aligned_ca_coords(chain1, chain2)
-                                R, t = rigid_transform_chains(chain2_coords, chain1_coords)
+                                R, t = rigid_transform_chains(chain2, chain1)
                                 Q = []
                                 Q_COM_coord = self.all_COM_chains_coords[self.all_chains.index([chain for chain in self.all_chains if chain.id == chain_id][0])]
                                 Q.append([Q_COM_coord.x, Q_COM_coord.y, Q_COM_coord.z])
@@ -803,8 +870,7 @@ class PDBModel(Model):
                                 # align the current chain to the first chain in the group, then get the relative position of interface to COM
                                 chain1 = self.all_chains[self.all_chains.index([chain for chain in self.all_chains if chain.id == B_group[0]][0])]
                                 chain2 = self.all_chains[self.all_chains.index([chain for chain in self.all_chains if chain.id == B][0])]
-                                chain1_coords, chain2_coords = extract_aligned_ca_coords(chain1, chain2)
-                                R, t = rigid_transform_chains(chain2_coords, chain1_coords)
+                                R, t = rigid_transform_chains(chain2, chain1)
                                 Q = []
                                 Q_COM_coord = self.all_COM_chains_coords[self.all_chains.index([chain for chain in self.all_chains if chain.id == B][0])]
                                 Q.append([Q_COM_coord.x, Q_COM_coord.y, Q_COM_coord.z])
@@ -830,78 +896,20 @@ class PDBModel(Model):
                             "thetaA": signature["thetaB"],
                             "thetaB": signature["thetaA"]
                         }
-                        
-                        # Find all matching templates for signature
-                        matching_templates = []
                         for mol_temp in self.molecules_template_list:
                             for interface_temp in mol_temp.interface_template_list:
                                 if self._sig_are_similar(signature, interface_temp.signature, dist_threshold_intra, dist_threshold_inter, angle_threshold):
-                                    matching_templates.append((interface_temp, mol_temp))
-
-                        # Check for errors in template matching
-                        if len(matching_templates) == 0:
-                            # Print all available signatures for debugging
-                            available_sigs = []
-                            for mol_temp in self.molecules_template_list:
-                                for interface_temp in mol_temp.interface_template_list:
-                                    available_sigs.append({
-                                        'template': f"{interface_temp.name} ({mol_temp.name})",
-                                        'signature': interface_temp.signature
-                                    })
-                            
-                            print(f"Target signature: {signature}")
-                            print("Available signatures:")
-                            for sig_info in available_sigs:
-                                print(f"  {sig_info['template']}: {sig_info['signature']}")
-                            
-                            raise ValueError(
-                                f"No matching interface template found for signature: {signature}\n"
-                                f"Available templates: {[(mt.name, len(mt.interface_template_list)) for mt in self.molecules_template_list]}\n"
-                                f"Current thresholds: dist_intra={dist_threshold_intra}, dist_inter={dist_threshold_inter}, angle={angle_threshold}\n"
-                                f"Please increase the thresholds to find a match."
-                            )
-                        elif len(matching_templates) > 1:
-                            matching_templates.sort(key=lambda pair: self._sig_difference(signature, pair[0].signature))
-                            interface_template, molecule_template = matching_templates[0]
-                            print(f"Multiple matches found. Using closest match: {interface_template.name} ({molecule_template.name})")
-                        else:
-                            interface_template, molecule_template = matching_templates[0]
-
-                        # Find all matching templates for conjugated signature
-                        matching_partner_templates = []
+                                    interface_template = interface_temp
+                                    molecule_template = mol_temp
+                                    # print(f"using {mol_temp.name} - {interface_temp.name}")
+                                    break
                         for mol_temp in self.molecules_template_list:
                             for interface_temp in mol_temp.interface_template_list:
                                 if self._sig_are_similar(signature_conjugated, interface_temp.signature, dist_threshold_intra, dist_threshold_inter, angle_threshold):
-                                    matching_partner_templates.append((interface_temp, mol_temp))
-
-                        # Check for errors in partner template matching
-                        if len(matching_partner_templates) == 0:
-                            # Print all available signatures for debugging
-                            available_sigs = []
-                            for mol_temp in self.molecules_template_list:
-                                for interface_temp in mol_temp.interface_template_list:
-                                    available_sigs.append({
-                                        'template': f"{interface_temp.name} ({mol_temp.name})",
-                                        'signature': interface_temp.signature
-                                    })
-                            
-                            print(f"Target conjugated signature: {signature_conjugated}")
-                            print("Available signatures:")
-                            for sig_info in available_sigs:
-                                print(f"  {sig_info['template']}: {sig_info['signature']}")
-                            
-                            raise ValueError(
-                                f"No matching partner interface template found for conjugated signature: {signature_conjugated}\n"
-                                f"Available templates: {[(mt.name, len(mt.interface_template_list)) for mt in self.molecules_template_list]}\n"
-                                f"Current thresholds: dist_intra={dist_threshold_intra}, dist_inter={dist_threshold_inter}, angle={angle_threshold}\n"
-                                f"Please adjust the thresholds to find a match."
-                            )
-                        elif len(matching_partner_templates) > 1:
-                            matching_partner_templates.sort(key=lambda pair: self._sig_difference(signature_conjugated, pair[0].signature))
-                            partner_interface_template, partner_molecule_template = matching_partner_templates[0]
-                            print(f"Multiple conjugated matches found. Using closest match: {partner_interface_template.name} ({partner_molecule_template.name})")
-                        else:
-                            partner_interface_template, partner_molecule_template = matching_partner_templates[0]
+                                    partner_interface_template = interface_temp
+                                    partner_molecule_template = mol_temp
+                                    # print(f"using {mol_temp.name} - {interface_temp.name}")
+                                    break
 
                     # build the interfaces for molecules, link the interface template to interface
 
@@ -916,8 +924,8 @@ class PDBModel(Model):
                         interface.my_residues = self.all_interfaces_residues[self.all_chains.index([chain for chain in self.all_chains if chain.id == A][0])][i]
                         interface.energy = self.all_interface_energies[self.all_chains.index([chain for chain in self.all_chains if chain.id == A][0])][i]
                         interface.my_template.energy = interface.energy
-                        self.interfaces.append(interface)
-                        molecule.interfaces.append(interface)
+                        self.interface_list.append(interface)
+                        molecule.interface_list.append(interface)
 
                         # print(f"Creating new interface {A} for partner molecule {B}")
                         # create the interface for the partner molecule
@@ -927,8 +935,8 @@ class PDBModel(Model):
                         partner_interface.my_residues = R_B
                         partner_interface.energy = E_B
                         partner_interface.my_template.energy = E_B
-                        self.interfaces.append(partner_interface)
-                        partner_molecule.interfaces.append(partner_interface)
+                        self.interface_list.append(partner_interface)
+                        partner_molecule.interface_list.append(partner_interface)
 
                         # add the chains pair to self.binding_chains_pairs
                         if chain_id < interface_id:
@@ -962,8 +970,7 @@ class PDBModel(Model):
                 else:
                     chain1 = self.all_chains[self.all_chains.index([chain for chain in self.all_chains if chain.id == group[0]][0])]
                     chain2 = self.all_chains[self.all_chains.index([chain for chain in self.all_chains if chain.id == chain_id][0])]
-                    chain1_coords, chain2_coords = extract_aligned_ca_coords(chain1, chain2)
-                    R, t = rigid_transform_chains(chain1_coords, chain2_coords)
+                    R, t = rigid_transform_chains(chain1, chain2)
                     com_coord_transformed = apply_rigid_transform(R, t, np.array([com_coord.x, com_coord.y, com_coord.z]))
                     interface_coords_transformed = []
                     for interface_coord in interface_coords:
@@ -973,7 +980,7 @@ class PDBModel(Model):
                     # update the COM and interfaces of the molecule
                     molecule = [mol for mol in self.molecule_list if mol.name == chain_id][0]
                     molecule.coord = Coords(com_coord_transformed[0], com_coord_transformed[1], com_coord_transformed[2])
-                    for j, interface in enumerate(molecule.interfaces):
+                    for j, interface in enumerate(molecule.interface_list):
                         # find the corresponding interface template
                         interface_template_id = interface.my_template.name
                         for k, intf_template in enumerate(interface_template_ids):
@@ -987,7 +994,7 @@ class PDBModel(Model):
         self.binding_chains_pairs.sort()
         self.molecule_list.sort(key=lambda m: m.name)
         self.molecules_template_list.sort(key=lambda mt: mt.name)
-        self.interfaces.sort(key=lambda i: i.name)
+        self.interface_list.sort(key=lambda i: i.name)
         self.interface_template_list.sort(key=lambda it: it.name)
 
         # print("binding chains pairs:")
@@ -1000,15 +1007,13 @@ class PDBModel(Model):
         # for molecule_template in self.molecules_template_list:
         #     print(molecule_template)
         # print("interface list:")
-        # for interface in self.interfaces:
+        # for interface in self.interface_list:
         #     print(interface)
         # print("interface template list:")
         # for interface_template in self.interface_template_list:
         #     print(interface_template)
 
         self._build_reactions()
-
-        self._rescale_energies()
 
         if standard_output:
             print("Molecules Template and Reactions Template After Regularization:")
@@ -1031,22 +1036,6 @@ class PDBModel(Model):
 
         self._generate_model_data()
 
-    def _rescale_energies(self):
-        """
-        Rescales the energies of all reactions in the model by setting the most stable interaction KD=10nM.
-        """
-        most_stable_energy = 1E15
-        for reaction in self.reaction_template_list:
-            if reaction.energy < most_stable_energy:
-                most_stable_energy = reaction.energy
-        kd = 10E-3  # unit uM; 10 nM
-        c0 = kd / (np.exp(most_stable_energy)) # unit uM
-
-        for reaction in self.reaction_template_list:
-            reaction.kd = c0 * np.exp(reaction.energy)
-            reaction.ka = 10.0 # nm^3/us
-            reaction.kb = reaction.kd * reaction.ka * 0.6022 # /s
-
     def _generate_model_data(self) -> None:
         """Generates molecule types and reactions and saves the model."""
         
@@ -1058,7 +1047,7 @@ class PDBModel(Model):
             for intf_template in mol_template.interface_template_list:
                 iface = MoleculeInterface(name=intf_template.name, coord=intf_template.coord)
                 mol_interfaces.append(iface)
-            molecule = MoleculeType(name=mol_name, interfaces=mol_interfaces, translational_diffusion_constant=mol_template.diffusion_translation, rotational_diffusion_constant=mol_template.diffusion_rotation)
+            molecule = MoleculeType(name=mol_name, interfaces=mol_interfaces, diffusion_translation=mol_template.diffusion_translation, diffusion_rotation=mol_template.diffusion_rotation)
             molecule_types.append(molecule)
 
         # Step 2: Generate reactions
@@ -1073,11 +1062,9 @@ class PDBModel(Model):
             norm2 = getattr(reaction_template, 'norm2', [])
             norm1 = tuple(n for n in norm1)
             norm2 = tuple(n for n in norm2)
-            ka = getattr(reaction_template, 'ka', 0.0)
-            kb = getattr(reaction_template, 'kb', 0.0)
-            reaction = Reaction(name=reaction_template.expression, binding_radius=brad, binding_angles=bind_anlges, norm1=norm1, norm2=norm2, ka=ka, kb=kb)
-            reaction.ka = ka
-            reaction.kb = kb
+            ka: float = getattr(reaction_template, 'ka', 0.0)
+            kb: float = getattr(reaction_template, 'kb', 0.0)
+            reaction = ReactionType(name=reaction_template.expression, binding_radius=brad, binding_angles=bind_anlges, norm1=norm1, norm2=norm2, ka=ka, kb=kb)
             reactions.append(reaction)
 
         # Step 3: Save model data
@@ -1101,7 +1088,7 @@ class PDBModel(Model):
         for _, mol in enumerate(self.molecule_list):
             chain_ids.append(mol.name)
             com_coord = mol.coord
-            interface_coords = [interface.coord for interface in mol.interfaces]
+            interface_coords = [interface.coord for interface in mol.interface_list]
             points = []
             points.append([com_coord.x, com_coord.y, com_coord.z])
             for interface_coord in interface_coords:
@@ -1127,49 +1114,6 @@ class PDBModel(Model):
         """
         output_cif = os.path.join(self.save_dir, output_cif)
         pymol_script = os.path.join(self.save_dir, pymol_script)
-
-        for group in self.chains_group:
-            for i, chain_id in enumerate(group):
-                # determin the COM and interfaces of the corresponding molecule template
-                molecule_template = [mol_template for mol_template in self.molecules_template_list if mol_template.name == self.chains_map[chain_id]][0]
-                molecule_0 = [mol for mol in self.molecule_list if mol.name == group[0]][0]
-                com_coord = molecule_0.coord
-                interface_coords = [interface_template.coord + com_coord for interface_template in molecule_template.interface_template_list]
-                interface_template_ids = [interface_template.name for interface_template in molecule_template.interface_template_list]
-
-                chain1 = self.all_chains[self.all_chains.index([chain for chain in self.all_chains if chain.id == group[0]][0])]
-                chain2 = self.all_chains[self.all_chains.index([chain for chain in self.all_chains if chain.id == chain_id][0])]
-                chain1_coords = extract_ca_coords(chain1)
-                chain2_coords = extract_ca_coords(chain2)
-                R, t = rigid_transform_chains(chain1_coords, chain2_coords)
-                com_coord_transformed = apply_rigid_transform(R, t, np.array([com_coord.x, com_coord.y, com_coord.z]))
-                interface_coords_transformed = []
-                for interface_coord in interface_coords:
-                    interface_coord_transformed = apply_rigid_transform(R, t, np.array([interface_coord.x, interface_coord.y, interface_coord.z]))
-                    interface_coords_transformed.append(interface_coord_transformed)
-
-                # add the interfaces in template but not in the molecule to the molecule
-                molecule = [mol for mol in self.molecule_list if mol.name == chain_id][0]
-                molecule.coord = Coords(com_coord_transformed[0], com_coord_transformed[1], com_coord_transformed[2])
-
-                # Track existing interface template names in the molecule
-                existing_interface_names = {interface.my_template.name for interface in molecule.interfaces}
-
-                for k, interface_template_id in enumerate(interface_template_ids):
-                    if interface_template_id in existing_interface_names:
-                        continue
-                    else:
-                        # Create and add the missing interface
-                        # Find the corresponding interface template
-                        template = [intf for intf in molecule_template.interface_template_list if intf.name == interface_template_id][0]
-                        new_interface = BindingInterface(template.name)
-                        new_interface.my_template = template
-                        new_interface.coord = Coords(*interface_coords_transformed[k])
-                        molecule.interfaces.append(new_interface)
-
-                # Reorder molecule.interfaces to match the template order
-                template_order = [intf.name for intf in molecule_template.interface_template_list]
-                molecule.interfaces.sort(key=lambda intf: template_order.index(intf.my_template.name))
 
         with open(output_cif, 'w') as cif_file:
             atom_id = 1
@@ -1203,7 +1147,7 @@ class PDBModel(Model):
                 atom_id += 1
 
                 # Write each interface atom
-                for intf in mol.interfaces:
+                for intf in mol.interface_list:
                     cif_file.write(
                         f"ATOM  {atom_id:5d}  INT  MOL {mol.name}  "
                         f"{intf.coord.x:8.3f} {intf.coord.y:8.3f} {intf.coord.z:8.3f}  1.00  0.00  O\n"
@@ -1233,7 +1177,7 @@ class PDBModel(Model):
                 )
 
                 # For each interface, create a pseudoatom and connect it to COM
-                for j, intf in enumerate(mol.interfaces, start=1):
+                for j, intf in enumerate(mol.interface_list, start=1):
                     pml_file.write(
                         f"pseudoatom int_{mol.name}_{j}, pos=[{intf.coord.x:.3f}, {intf.coord.y:.3f}, {intf.coord.z:.3f}], color=blue\n"
                     )
@@ -1283,7 +1227,7 @@ class PDBModel(Model):
                 # find the molecule in the list
                 molecule = [mol for mol in self.molecule_list if mol.name == chain_id][0]
                 # loop the interfaces list of the molecule
-                for interface in molecule.interfaces:
+                for interface in molecule.interface_list:
                     # determine if this interface appears first time
                     interface_id = interface.name
                     interface_template_id = interface.my_template.name
@@ -1291,7 +1235,7 @@ class PDBModel(Model):
                     for j in range(i):
                         chain_id_2 = group[j]
                         molecule_2 = [mol for mol in self.molecule_list if mol.name == chain_id_2][0]
-                        for interface_2 in molecule_2.interfaces:
+                        for interface_2 in molecule_2.interface_list:
                             interface_id_2 = interface_2.name
                             interface_template_id_2 = interface_2.my_template.name
                             if interface_template_id == interface_template_id_2:
@@ -1305,15 +1249,14 @@ class PDBModel(Model):
                         for j in range(i):
                             chain_id_2 = group[j]
                             molecule_2 = [mol for mol in self.molecule_list if mol.name == chain_id_2][0]
-                            for interface_2 in molecule_2.interfaces:
+                            for interface_2 in molecule_2.interface_list:
                                 interface_id_2 = interface_2.name
                                 interface_template_id_2 = interface_2.my_template.name
                                 if interface_template_id != interface_template_id_2:
                                     another_partner_chain_id = interface_id_2
                                     another_partner_chain = self.all_chains[self.all_chains.index([chain for chain in self.all_chains if chain.id == another_partner_chain_id][0])]
                                     another_chain = self.all_chains[self.all_chains.index([chain for chain in self.all_chains if chain.id == chain_id_2][0])]
-                                    my_chain_coords, another_chain_coords = extract_aligned_ca_coords(my_chain, another_chain)
-                                    R, t = rigid_transform_chains(my_chain_coords, another_chain_coords)
+                                    R, t = rigid_transform_chains(my_chain, another_chain)
                                     # rotate the CA atoms of my_partner_chain and check the steric clashes with CA atoms of another_partner_chain
                                     my_partner_chain_CA_coords = []
                                     for residue in my_partner_chain:
@@ -1351,12 +1294,21 @@ class PDBModel(Model):
         5. Ensures `ReactionTemplate` objects exist, creating them if necessary.
         """
         for binding_pair in self.binding_chains_pairs:
-            molecule_1 = [mol for mol in self.molecule_list if mol.name == binding_pair[0]][0]
-            molecule_2 = [mol for mol in self.molecule_list if mol.name == binding_pair[1]][0]
-            interface_1 = [interface for interface in molecule_1.interfaces if interface.name == binding_pair[1]][0]
-            interface_2 = [interface for interface in molecule_2.interfaces if interface.name == binding_pair[0]][0]
+            molecule_1: CoarseGrainedMolecule = [mol for mol in self.molecule_list if mol.name == binding_pair[0]][0]
+            molecule_2: CoarseGrainedMolecule = [mol for mol in self.molecule_list if mol.name == binding_pair[1]][0]
+            interface_1: BindingInterface = [interface for interface in molecule_1.interface_list if interface.name == binding_pair[1]][0]
+            interface_2: BindingInterface = [interface for interface in molecule_2.interface_list if interface.name == binding_pair[0]][0]
 
-            # build the reaction - compute required values first
+            # build the reaction
+            reaction = Reaction()
+            reaction.reactants = []
+            reaction.products = []
+            reaction.binding_angles = []
+            reaction.expression = ""
+            reaction.reactants.append((molecule_1, interface_1))
+            reaction.reactants.append((molecule_2, interface_2))
+            reaction.products.append(f"{molecule_1.name}({interface_1.name}!1).{molecule_2.name}({interface_2.name}!1)")
+            reaction.expression = f"{molecule_1.name}({interface_1.name}) + {molecule_2.name}({interface_2.name}) <-> {molecule_1.name}({interface_1.name}!1).{molecule_2.name}({interface_2.name}!1)"
             c1 = np.array([molecule_1.coord.x, molecule_1.coord.y, molecule_1.coord.z])
             c2 = np.array([molecule_2.coord.x, molecule_2.coord.y, molecule_2.coord.z])
             i1 = np.array([interface_1.coord.x, interface_1.coord.y, interface_1.coord.z])
@@ -1368,29 +1320,19 @@ class PDBModel(Model):
                 phi1 = 'nan'
             if len(molecule_2.my_template.interface_template_list) == 1:
                 phi2 = 'nan'
-            
-            # Create reaction with required constructor arguments
-            reaction_name = f"{molecule_1.name}({interface_1.name}) + {molecule_2.name}({interface_2.name}) <-> {molecule_1.name}({interface_1.name}!1).{molecule_2.name}({interface_2.name}!1)"
-            binding_angles = [theta1, theta2, phi1, phi2, omega]
-            norm1 = [0, 0, 1]
-            norm2 = [0, 0, 1]
-            
-            reaction = Reaction(reaction_name, sigma_magnitude, binding_angles, norm1, norm2)
-            
-            # Set additional attributes
-            reaction.reactants = []
-            reaction.products = []
-            reaction.reactants.append((molecule_1, interface_1))
-            reaction.reactants.append((molecule_2, interface_2))
-            reaction.products.append(f"{molecule_1.name}({interface_1.name}!1).{molecule_2.name}({interface_2.name}!1)")
-            reaction.expression = reaction_name
+            reaction.binding_angles = [theta1, theta2, phi1, phi2, omega]
+            reaction.norm1 = [0,0,1]
+            reaction.norm2 = [0,0,1]
+            reaction.binding_radius = sigma_magnitude
 
             # calculate the rates
-            energy = interface_1.energy
+            RT: float = 8.314 * 298 / 1000 # kJ/mol at 298 K
+            energy: float = interface_1.energy   # kJ/mol
+            C0: float = 0.6022 # unit nm^-3 / M
 
-            reaction.kd = np.exp(energy) * 1e6 # unit uM
-            reaction.ka = 10 # unit nm^3/us
-            reaction.kb = reaction.kd * reaction.ka * 0.6022 # unit /s
+            reaction.kd = np.exp(energy / RT) # unit M
+            reaction.ka = 1200 # unit nm^3/us
+            reaction.kb = reaction.kd * reaction.ka * C0 * 1e6 # unit /s
             reaction.energy = energy
 
             self.reaction_list.append(reaction)
@@ -1527,16 +1469,6 @@ class PDBModel(Model):
                 return False
         return True
     
-    def _sig_difference(self, sig1, sig2):
-        """
-        Compute the sum of relative differences between two signatures.
-        """
-        total_diff = 0.0
-        for key in ("dA", "dB", "dAB", "thetaA", "thetaB"):
-            denom = abs(sig1[key]) if abs(sig1[key]) > 1e-6 else 1.0  # avoid divide-by-zero
-            total_diff += abs(sig1[key] - sig2[key]) / denom
-        return total_diff
-    
     def _is_existing_mol_temp(self, mol_temp_name):
         """
         Checks if a molecule template with the given name exists in the molecule template list.
@@ -1584,7 +1516,7 @@ class PDBModel(Model):
                 - True and index if the interface exists.
                 - False and None otherwise.
         """
-        for i, interface in enumerate(molecule.interfaces):
+        for i, interface in enumerate(molecule.interface_list):
             if interface.name == interface_name:
                 return True, i
         return False, None
@@ -1682,66 +1614,22 @@ class PDBModel(Model):
 
         return energy_table
 
-    def identify_repeated_chains(self):
+    def identify_homologous_chains(self):
         """
-        Identifies repeated chains in the molecular structure and populates `self.chain_map` 
-        and `self.chain_groups`. Attempts to parse the header from PDB/CIF files first;
-        if unsuccessful or results are invalid, falls back to sequence alignment.
+        Identifies homologous chains in the molecular structure and populates `self.chain_map` 
+        and `self.chain_groups`. Attempts to parse the header from PDB/CIF files first; 
+        if unsuccessful, falls back to sequence alignment.
         """
         if self.pdb_file.endswith('.pdb'):
             self._parse_pdb_header()
         elif self.pdb_file.endswith('.cif'):
             self._parse_cif_header()
-        
-        # Validate the results from header parsing
-        if not self._validate_chain_mapping():
-            print("Header parsing results appear invalid, falling back to sequence alignment...")
-            # Clear invalid results
-            self.chains_map = {}
-            self.chains_group = []
-            self._find_repeated_chains_by_alignment()
-
-    def _validate_chain_mapping(self):
-        """
-        Validates the chain mapping results to ensure they make sense.
-        Chain IDs must be letters (A, AB) or letters followed by -number (A-2).
-        
-        Returns:
-            bool: True if the mapping is valid, False otherwise
-        """
         if not self.chains_map:
-            return False
-        
-        # Pattern for valid chain IDs: letters only OR letters followed by -number
-        valid_chain_pattern = re.compile(r'^[A-Za-z]+(-\d+)?$')
-        
-        # Check for malformed chain identifiers
-        for chain_id in self.chains_map.keys():
-            if not valid_chain_pattern.match(chain_id):
-                print(f"Invalid chain identifier found: '{chain_id}' (must be letters or letters-number format)")
-                return False
-        
-        # Check if we have actual chains from the structure to compare against
-        if hasattr(self, 'all_atoms_structure') and self.all_atoms_structure:
-            try:
-                actual_chain_ids = set(chain.id for chain in self.all_atoms_structure.get_chains())
-                mapped_chain_ids = set(self.chains_map.keys())
-                
-                # Check if mapped chains actually exist in the structure
-                invalid_chains = mapped_chain_ids - actual_chain_ids
-                if invalid_chains:
-                    print(f"Mapped chains not found in structure: {invalid_chains}")
-                    return False
-                    
-            except Exception as e:
-                print(f"Could not validate against structure: {str(e)}")
-        
-        print(f"Chain mapping validation passed: {len(self.chains_map)} chains mapped")
-        return True
+            self._find_homologous_chains_by_alignment()
 
     def _parse_pdb_header(self):
         """
-        Parses the PDB file header to extract repeated chain information 
+        Parses the PDB file header to extract homologous chain information 
         (MOL_ID, CHAIN). Populates `self.chain_map` and `self.chain_groups` 
         based on the identified molecular groups.
         """
@@ -1758,7 +1646,7 @@ class PDBModel(Model):
                             chains = line.split(":")[1].strip().split(";")[0].split(",")
                             chains_group.append(chains)
 
-                # Group chains with the same MOL_ID as repeated
+                # Group chains with the same MOL_ID as homologous
                 available_NERDSS_mol_ids = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z']
                 for i, chains in enumerate(chains_group):
                     for chain in chains:
@@ -1766,17 +1654,17 @@ class PDBModel(Model):
                 self.chains_group = chains_group
 
                 if self.chains_map:
-                    print("Repeated chains identified using PDB header:")
+                    print("Homologous chains identified using PDB header:")
                     print(self.chains_map)
 
         except Exception as e:
-            print(f"Failed to parse PDB header for repeated chains: {str(e)}")
-            # Attempt to find repeated chains using sequence alignment
-            self._find_repeated_chains_by_alignment()
+            print(f"Failed to parse PDB header for homologous chains: {str(e)}")
+            # Attempt to find homologous chains using sequence alignment
+            self._find_homologous_chains_by_alignment()
 
     def _parse_cif_header(self):
         """
-        Parses the CIF file header to extract repeated chain information 
+        Parses the CIF file header to extract homologous chain information 
         (entity_id). Populates `self.chain_map` and `self.chain_groups`.
         """
         try:
@@ -1808,7 +1696,7 @@ class PDBModel(Model):
                     elif "," in line[0]:
                         chains_group.append(line[0].split(","))
 
-                # Group chains with the same entity_id as repeated
+                # Group chains with the same entity_id as homologous
                 available_NERDSS_mol_ids = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z']
                 for i, chains in enumerate(chains_group):
                     for chain in chains:
@@ -1816,28 +1704,27 @@ class PDBModel(Model):
                 self.chains_group = chains_group
 
                 if self.chains_map:
-                    print("Repeated chains identified using CIF header:")
+                    print("Homologous chains identified using CIF header:")
                     print(self.chains_map)
 
         except Exception as e:
-            print(f"Failed to parse CIF file for repeated chains: {str(e)}")
-            # Attempt to find repeated chains using sequence alignment
-            self._find_repeated_chains_by_alignment()
+            print(f"Failed to parse CIF file for homologous chains: {str(e)}")
+            # Attempt to find homologous chains using sequence alignment
+            self._find_homologous_chains_by_alignment()
 
-    def _find_repeated_chains_by_alignment(self, seq_identity_threshold: float = 90.0):
+    def _find_homologous_chains_by_alignment(self, seq_identity_threshold: float = 90.0):
         """
-        Identifies repeated chains by performing global sequence alignment on 
+        Identifies homologous chains by performing global sequence alignment on 
         amino acid sequences. Chains with identity above the specified threshold 
         are grouped together.
 
         Args:
             seq_identity_threshold (float, optional): Minimum sequence identity 
-                percentage to classify chains as repeated. Defaults to 90.0.
+                percentage to classify chains as homologous. Defaults to 90.0.
         """
         try:
             similar_chains = []
-            chains = [chain for chain in self.all_atoms_structure.get_chains() 
-                if any(is_aa(residue) for residue in chain.get_residues())]
+            chains = list(self.all_atoms_structure.get_chains())
             chain_sequences = {}
 
             for chain in chains:
@@ -1904,15 +1791,15 @@ class PDBModel(Model):
                     self.chains_map[chain] = available_NERDSS_mol_ids[i]
 
             if self.chains_map:
-                print("Repeated chains identified using sequence alignment:")
+                print("Homologous chains identified using sequence alignment:")
                 print(self.chains_map)
 
         except Exception as e:
-            print(f"Failed to find repeated chains using sequence alignment: {str(e)}")
+            print(f"Failed to find homologous chains using sequence alignment: {str(e)}")
 
     def _assign_original_chain_ids(self):
         """
-        Assigns original chain IDs as molecular types if no repeated chains are detected. 
+        Assigns original chain IDs as molecular types if no homologous chains are detected. 
         Each chain receives a unique letter from A-Z.
         """
         chains = list(self.all_atoms_structure.get_chains())
@@ -1923,6 +1810,413 @@ class PDBModel(Model):
         print("Using original chain IDs as molecular types:")
         print(self.chains_map)
 
+# -------------------------------------------------------------------------
+# helper Classes
+# -------------------------------------------------------------------------
+
+class MoleculeTemplate:
+    """
+    Represents a molecule type in NERDSS, including the molecule's center of mass (COM) 
+    and a list of binding interfaces.
+
+    Attributes:
+        name (str): Identifier for the molecule type.
+        interface_template_list (list): A list of BindingInterfaceTemplate objects that 
+            describe the molecule’s binding sites.
+        normal_point (list): Default normal vector direction.
+    """
+
+    def __init__(self, name: str):
+        """
+        Initializes a MoleculeTemplate.
+
+        Args:
+            name (str): Name/identifier of the molecule type.
+        """
+        self.name = name
+        self.interface_template_list = []
+        self.normal_point = [0,0,1]
+        self.diffusion_translation = None
+        self.diffusion_rotation = None
+        self.radius = None
+
+    def __str__(self):
+        interfaces = "\n  ".join(str(it) for it in self.interface_template_list)
+        return f"Molecule Template: {self.name}\n  Interfaces:\n  {interfaces}"
+    
+    def __eq__(self, other):
+        if not isinstance(other, MoleculeTemplate):
+            return False
+        return self.name == other.name
+
+class BindingInterfaceTemplate:
+    """
+    Represents a binding interface template between molecules.
+
+    Attributes:
+        name (str): Identifier of the interface template.
+        coord (Coords): Relative coordinates of the interface.
+        my_residues (list): Residues forming this interface.
+        required_free_list (list): Other interface templates that must remain unbound 
+            for this interface to bind.
+        signature (dict): Stores interface geometry information.
+    """
+
+    def __init__(self, name: str):
+        """
+        Initializes a BindingInterfaceTemplate.
+
+        Args:
+            name (str): Identifier for the interface template.
+        """
+        self.name = name
+        self.coord = None
+        self.my_residues = []
+        self.required_free_list = [] # The list of interface templates that need to be free to bind to this interface template
+        self.signature = {}
+        self.energy = None
+
+    def __str__(self):
+        residues = ", ".join(self.my_residues)
+        required_free = ", ".join(self.required_free_list)
+        return (f"Interface Template: {self.name}\n"
+                f"  Coordinates: {self.coord}\n"
+                f"  Residues: {residues}\n"
+                f"  Required Free: {required_free}")
+    
+    def __eq__(self, other):
+        if not isinstance(other, BindingInterfaceTemplate):
+            return False
+        # TODO: check this
+        return self.name == other.name
+
+class CoarseGrainedMolecule:
+    """
+    Represents a coarse-grained molecule in NERDSS, potentially derived from a PDB chain.
+
+    Attributes:
+        name (str): Identifier of the molecule.
+        my_template (MoleculeTemplate): Reference to the associated molecule template.
+        coord (Coords): Center-of-mass coordinates.
+        interface_list (list): List of binding interfaces.
+        normal_point (list): Normal vector direction.
+    """
+
+    def __init__(self, name: str):
+        """
+        Initializes a CoarseGrainedMolecule.
+
+        Args:
+            name (str): Name/identifier of the molecule.
+        """
+        self.name = name
+        self.my_template = None
+        self.coord = None
+        self.interface_list: list[BindingInterface] = []
+        self.normal_point = None
+        self.diffusion_translation = None
+        self.diffusion_rotation = None
+        self.radius = None
+
+    def __str__(self):
+        interfaces = "\n  ".join(str(interface) for interface in self.interface_list)
+        return (f"CoarseGrainedMolecule: {self.name}\n"
+                f"  Template: {self.my_template}\n"
+                f"  Coordinates: {self.coord}\n"
+                f"  Interfaces:\n  {interfaces}")
+    
+    def __repr__(self):
+        # Similar to __str__ but more formal for debugging
+        return self.name
+    
+    def __eq__(self, other):
+        if not isinstance(other, CoarseGrainedMolecule):
+            return False
+        return self.name == other.name
+    
+    def __hash__(self):
+        return hash(self.name)
+
+class BindingInterface:
+    """
+    Represents a binding interface between molecules.
+
+    Attributes:
+        name (str): Identifier of the binding interface.
+        coord (Coords): Position of the interface.
+        my_template (BindingInterfaceTemplate): Reference to the associated interface template.
+        my_residues (list): Residues included in the interface.
+        signature (dict): Stores interface geometry information.
+    """
+
+    def __init__(self, name: str):
+        """
+        Initializes a BindingInterface.
+
+        Args:
+            name (str): Identifier for the binding interface.
+        """
+        self.name = name
+        self.coord = None
+        self.my_template = None
+        self.my_residues = []
+        self.signature = {}
+        self.energy: float = None
+
+    def __str__(self):
+        return (f"BindingInterface: {self.name}\n"
+                f"  Template: {self.my_template}\n"
+                f"  Coordinates: {self.coord}\n"
+                f"  Residue Count: {len(self.my_residues)}\n"
+                f"  Residues: {self.my_residues}")
+    
+    def __eq__(self, other):
+        if not isinstance(other, BindingInterface):
+            return False
+        return self.my_template == other.my_template
+
+class ReactionTemplate:
+    """
+    Defines a reaction template between two MoleculeTemplates.
+
+    Attributes:
+        expression (str): Textual representation of the reaction.
+        reactants (list): List of reactant molecule/interface templates.
+        products (list): List of product molecule/interface templates.
+        binding_angles (tuple): Tuple describing binding angles (theta1, theta2, phi1, phi2, omega).
+        binding_radius (float): Distance between binding interfaces.
+        norm1 (list): Normal vector of the first reactant.
+        norm2 (list): Normal vector of the second reactant.
+    """
+
+    def __init__(self):
+        """
+        Initializes a ReactionTemplate with default values.
+        """
+        self.expression = None
+        self.reactants = None
+        self.products = None
+        self.binding_angles = None
+        self.binding_radius = None
+        self.norm1 = None
+        self.norm2 = None
+        self.kd = None
+        self.ka = None
+        self.kb = None
+        self.energy = None
+
+    def __str__(self):
+        return (f"Reaction Template: {self.expression}\n"
+                f"  Reactants: {self.reactants}\n"
+                f"  Products: {self.products}\n"
+                f"  Binding Angles: {self.binding_angles}\n"
+                f"  Binding Radius: {self.binding_radius / 10:.6f} nm\n"
+                f"  norm1: {self.norm1}\n"
+                f"  norm2: {self.norm2}")
+    
+    def __eq__(self, other):
+        if not isinstance(other, ReactionTemplate):
+            return False
+        return self.expression == other.expression
+
+class Reaction:
+    """
+    Represents an actual reaction between two Molecule objects.
+
+    Attributes:
+        expression (str): Textual representation of the reaction.
+        reactants (list): List of reactant molecules/interfaces.
+        products (list): List of product molecules/interfaces.
+        binding_angles (tuple): Tuple describing binding angles (theta1, theta2, phi1, phi2, omega).
+        binding_radius (float): Distance between binding interfaces.
+        norm1 (list): Normal vector of the first reactant.
+        norm2 (list): Normal vector of the second reactant.
+    """
+
+    def __init__(self):
+        """
+        Initializes a Reaction with default values.
+        """
+        self.expression = None
+        self.reactants = None
+        self.products = None
+        self.binding_angles = None
+        self.binding_radius = None
+        self.norm1 = None
+        self.norm2 = None
+        self.my_template = None
+        self.kd: float = None
+        self.ka: float = None
+        self.kb: float = None
+        self.energy: float = None
+
+    def __str__(self):
+        return (f"Reaction: {self.expression}\n"
+                f"  Reactants: {self.reactants}\n"
+                f"  Products: {self.products}\n"
+                f"  Binding Angles: {self.binding_angles}\n"
+                f"  Binding Radius: {self.binding_radius / 10:.6f} nm")
+
+    def __repr__(self):
+        return f"Reaction({self.expression})"
+
+    def __eq__(self, other):
+        if not isinstance(other, Reaction):
+            return False
+        return self.expression == other.expression
+    
+    def __hash__(self):
+        return hash(self.expression)
+
+# -------------------------------------------------------------------------
+# helper functions - geometry transformation
+# -------------------------------------------------------------------------
+
+def rigid_transform_3d(points_a: np.ndarray, points_b: np.ndarray):
+    """
+    Computes a rigid transformation (rotation + translation) that aligns 
+    `points_a` to `points_b` using Singular Value Decomposition (SVD).
+
+    Args:
+        points_a (np.ndarray): Shape (N, 3), first set of 3D points.
+        points_b (np.ndarray): Shape (N, 3), second set of 3D points.
+
+    Returns:
+        tuple:
+            - np.ndarray: 3x3 rotation matrix `R`
+            - np.ndarray: 3-element translation vector `t`
+    """
+    assert len(points_a) == len(points_b), "Point sets must be same length."
+    centroid_a = points_a[0]
+    centroid_b = points_b[0]
+    pa = points_a[1:] - centroid_a
+    pb = points_b[1:] - centroid_b
+    h = pa.T @ pb
+    u, s, vt = np.linalg.svd(h)
+    r = vt.T @ u.T
+    if np.linalg.det(r) < 0:
+        vt[-1, :] *= -1
+        r = vt.T @ u.T
+    t = centroid_b - r @ centroid_a
+    return r, t
+
+
+def apply_rigid_transform(r: np.ndarray, t: np.ndarray, point: np.ndarray):
+    """
+    Applies a rigid transformation (rotation + translation) to a point.
+
+    Args:
+        r (np.ndarray): A 3x3 rotation matrix.
+        t (np.ndarray): A 3-element translation vector.
+        point (np.ndarray): A shape (3,) array representing a point.
+
+    Returns:
+        np.ndarray: Transformed point.
+    """
+    return (r @ point.T).T + t
+
+
+def rigid_transform_chains(chain1, chain2):
+    """
+    Aligns chain1 to chain2 by:
+    1. Extracting amino acid sequences.
+    2. Performing sequence alignment.
+    3. Identifying matching residues.
+    4. Computing a coarse-grained set of representative points.
+    5. Computing a rigid transformation.
+
+    Args:
+        chain1 (Bio.PDB.Chain.Chain): First molecular chain.
+        chain2 (Bio.PDB.Chain.Chain): Second molecular chain.
+
+    Returns:
+        tuple:
+            - np.ndarray: 3x3 rotation matrix `R`
+            - np.ndarray: 3-element translation vector `t`
+    """
+
+    # Step 1: Extract sequences from both chains
+    def extract_sequence(chain):
+        """Extracts the amino acid sequence from a chain."""
+        return "".join(seq1(residue.resname) for residue in chain.get_residues() if is_aa(residue))
+
+    sequence1 = extract_sequence(chain1)
+    sequence2 = extract_sequence(chain2)
+
+    # Step 2: Find the best overlap between the two sequences using PairwiseAligner
+    aligner = PairwiseAligner()
+    aligner.mode = 'global'
+    aligner.match_score = 1.0
+    aligner.mismatch_score = 0.0
+    aligner.open_gap_score = -1.0
+    aligner.extend_gap_score = -0.5
+    
+    alignments = aligner.align(sequence1, sequence2)
+    alignment = alignments[0]  # Get the best alignment
+
+    aligned_seq1 = alignment[0]
+    aligned_seq2 = alignment[1]
+
+    # Step 3: Identify matching residue pairs in the aligned sequences
+    residue_pairs = []
+    idx1, idx2 = 0, 0
+    residues1 = [res for res in chain1 if is_aa(res)]
+    residues2 = [res for res in chain2 if is_aa(res)]
+
+    for a1, a2 in zip(aligned_seq1, aligned_seq2):
+        if a1 == '-' or a2 == '-':
+            if a1 != '-':
+                idx1 += 1
+            if a2 != '-':
+                idx2 += 1
+            continue
+        residue_pairs.append((residues1[idx1]['CA'].coord, residues2[idx2]['CA'].coord))
+        idx1 += 1
+        idx2 += 1
+
+    # Step 4: Group residues into four spatially groups
+    def group_residues(residues, n_groups=4):
+        """Groups residues into n_groups based on their spatial proximity."""
+        coords = np.array([res for res, _ in residues])
+        kmeans = KMeans(n_clusters=n_groups).fit(coords)
+        groups = [[] for _ in range(n_groups)]
+        for i, label in enumerate(kmeans.labels_):
+            groups[label].append(residues[i])
+        return groups
+
+    groups = group_residues(residue_pairs)
+
+    # Step 5: Compute the average position of each group and COM
+    P = [np.mean([res[0] for res in group], axis=0) for group in groups]
+    Q = [np.mean([res[1] for res in group], axis=0) for group in groups]
+    P.insert(0, np.mean([res[0] for res in residue_pairs], axis=0))
+    Q.insert(0, np.mean([res[1] for res in residue_pairs], axis=0))
+
+    P = np.array(P)
+    Q = np.array(Q)
+
+    # Step 6: Apply rigid transformation
+    R, t = rigid_transform_3d(P, Q)
+
+    return R, t
+
+
+def check_steric_clashes(points_1, points_2, cutoff: float = 3.5, number_threshold: int = 2):
+    """
+    Detects steric clashes between two sets of molecular points.
+
+    Args:
+        points_1 (np.ndarray): N x 3 coordinates for the first molecule.
+        points_2 (np.ndarray): M x 3 coordinates for the second molecule.
+        cutoff (float, optional): Distance threshold (default: 3.5 Å).
+        threshold (int, optional): Minimum number of close contacts to flag a clash (default: 2).
+
+    Returns:
+        bool: True if a steric clash is detected, False otherwise.
+    """
+    tree = KDTree(points_2)
+    clashes = tree.query_ball_point(points_1, r=cutoff)
+    return any(len(clash) >= number_threshold for clash in clashes)
 
 
 # -------------------------------------------------------------------------
