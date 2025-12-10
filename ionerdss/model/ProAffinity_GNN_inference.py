@@ -392,22 +392,41 @@ def load_esm2_model(use_cache=True):
         return _ESM2_TOKENIZER_CACHE, _ESM2_MODEL_CACHE
     
     # Load model and tokenizer
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore")
-        from transformers import AutoTokenizer, EsmModel
+    # Load model and tokenizer with error handling
+    try:
+        # Set torch to use single thread to avoid segmentation faults
+        torch.set_num_threads(1)
         
-        tokenizer = AutoTokenizer.from_pretrained("facebook/esm2_t33_650M_UR50D")
-        model = EsmModel.from_pretrained("facebook/esm2_t33_650M_UR50D")
-    
-    model.eval()
-    torch.set_grad_enabled(False)
-    
-    # Cache the models if caching is enabled
-    if use_cache:
-        _ESM2_MODEL_CACHE = model
-        _ESM2_TOKENIZER_CACHE = tokenizer
-    
-    return tokenizer, model
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            from transformers import AutoTokenizer, EsmModel
+            
+            # Load tokenizer
+            tokenizer = AutoTokenizer.from_pretrained("facebook/esm2_t33_650M_UR50D")
+            
+            # Load model with explicit CPU device and low memory usage
+            model = EsmModel.from_pretrained(
+                "facebook/esm2_t33_650M_UR50D",
+                torch_dtype=torch.float32,
+                low_cpu_mem_usage=True
+            )
+            
+            # Ensure model is on CPU
+            model = model.to('cpu')
+        
+        model.eval()
+        torch.set_grad_enabled(False)
+        
+        # Cache the models if caching is enabled
+        if use_cache:
+            _ESM2_MODEL_CACHE = model
+            _ESM2_TOKENIZER_CACHE = tokenizer
+        
+        return tokenizer, model
+        
+    except Exception as e:
+        print(f"Error loading ESM2 model: {str(e)}")
+        raise
 
 def clear_esm2_cache():
     """
