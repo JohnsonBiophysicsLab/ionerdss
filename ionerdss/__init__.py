@@ -60,8 +60,8 @@ _logging.basicConfig(level=_logging.WARNING)
 
 # >>>>>>>>>>>>>>>> Version information >>>>>>>>>>>>>>>>
 try:
-    import pkg_resources
-    __version__ = pkg_resources.get_distribution("ioNERDSS").version
+    from importlib.metadata import version
+    __version__ = version("ioNERDSS")
 except:
     __version__ = "unknown (This might be a local copy)"
 # <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
