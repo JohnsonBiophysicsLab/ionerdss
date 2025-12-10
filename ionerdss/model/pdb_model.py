@@ -385,6 +385,16 @@ class PDBModel(Model):
         
         # Batch predict affinities if needed
         if predict_affinity and affinity_prediction_pairs:
+            # Print informational message about ProAffinity-GNN usage
+            print("\n" + "="*80)
+            print("NOTE: Using simplified ProAffinity-GNN predictor")
+            print("="*80)
+            print("This is an easy-to-use version that skips sequence alignment with")
+            print("canonical FASTA sequences. For better accuracy and advanced options,")
+            print("please visit: https://github.com/legendzzy/ProAffinity-GNN")
+            print("="*80 + "\n")
+            
+
             if standard_output:
                 print(f"Running batch affinity prediction for {len(affinity_prediction_pairs)} chain pairs...")
                 print("Loading ESM2 model once for all predictions...")

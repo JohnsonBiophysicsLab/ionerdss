@@ -258,7 +258,23 @@ def pdb_to_pdbqt(pdbfile: str, adfr_path: str = '', ph: float = 7.4, verbose=Fal
             # raise error if not found
             # also suggest path should be stored in ADFR_PATH env variable
             raise FileNotFoundError(
-                "ADFR_PATH environment variable not set. Please install ADFR or specify adfr_path"
+                """ADFR_PATH environment variable not set. Please install ADFR or specify adfr_path.
+
+### ADFR Suite Installation
+
+Download from: https://ccsb.scripps.edu/adfr/downloads/
+
+```bash
+# Example installation
+wget https://ccsb.scripps.edu/adfr/download/1038/
+tar -xzvf ADFRsuite_x86_64Linux_1.0.tar.gz
+cd ADFRsuite_x86_64Linux_1.0
+./install.sh
+
+# Set ADFR_PATH environment variable
+export ADFR_PATH="/path/to/ADFRsuite/bin/prepare_receptor"
+```
+                """
             )
     elif not adfr_path.endswith('prepare_receptor'):
         # check if the path ends with /bin/
