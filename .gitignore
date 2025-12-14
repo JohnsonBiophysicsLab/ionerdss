@@ -112,6 +112,8 @@ cython_debug/
 *~
 .DS_Store
 
+# test set
+
 
 # Specficially ignore pdbfiles in proaffinity
 proaffinity-gnn/pdbfiles
@@ -121,11 +123,29 @@ proaffinity-gnn/pdbfiles
 *.png
 *.pml
 *.json
-/sim_params_6bno
-/sim_params_8erq
+/sim_params_*
 *.zip
-/workspace_1Q5R
-/workspace_6BNO
-/workspace_8ERQ
-test.py
+/workspace_*
 test_simularium.ipynb
+
+# pdb local test cases
+/6bno*
+/8erq*
+
+# local verification files
+analyze_filament.py
+check_env.py
+check_json.py
+check_proximity.py
+check_type_keys.py
+compare_angle_logic.py
+ignorebackup
+test_repro.py
+test_orientation.py
+test_angles.py
+run_6bno.py
+repro_serialization.py
+ref_angles.py
+reconstruction_test.py
+verify_angles*
+test.py
