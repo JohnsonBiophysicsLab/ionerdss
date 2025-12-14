@@ -49,6 +49,26 @@ THE SOFTWARE.
 import numpy as np
 
 from ionerdss.utils.coords import Coords
+from ionerdss.utils.vectors import convert_to_unit
+
+def signed_angle_arccos(a, b, axis, tol=1e-12):
+    """
+    Signed angle from a -> b about +axis, using arccos + oriented-sine sign.
+    """
+    u = convert_to_unit(axis, tol)
+    # project into plane ⟂ u
+    a_perp = a - u * np.dot(a, u)
+    b_perp = b - u * np.dot(b, u)
+    na = np.linalg.norm(a_perp)
+    nb = np.linalg.norm(b_perp)
+    if na <= tol or nb <= tol:
+        return 0.0  # degenerate
+    a_hat = a_perp / na
+    b_hat = b_perp / nb
+    c = float(np.clip(np.dot(a_hat, b_hat), -1.0, 1.0))  # cos
+    ang = float(np.arccos(c))
+    s = float(np.dot(u, np.cross(a_hat, b_hat)))         # oriented sin
+    return -ang if s < 0.0 else ang
 
 def angles_between_vector_and_vectors(reference_vec, targets, tol=1e-5):
     """
