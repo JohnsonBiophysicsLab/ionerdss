@@ -1,430 +1,82 @@
 """
 ionerdss.model.pdb.nerdss_exporter
+===================================
 
 Export ionerdss System to NERDSS simulation files.
 
 This module converts a complete ionerdss System object into the file format
-required by NERDSS simulations, including .mol files for each molecule type
-and parms.inp with reaction parameters. It generates `.mol` files for
-each molecule type and a `parms.inp` file with reaction parameters and simulation
-settings.
+required by NERDSS simulations, generating `.mol` files for each molecule type
+and a `parms.inp` file with reaction parameters and simulation settings.
 
-## Key Concepts
-
-### Maximum Binding Sites Selection
-
-**Problem**: Structural data often contains only partial assemblies of large
-protein complexes. For example, the 6BNO structure may show only a subset of all
-possible binding interfaces that exist in the complete biological assembly.
-
-**Solution**: The exporter selects the molecule instance with the maximum number
-of binding sites for each molecule type. This ensures we capture the full binding
-potential of each protein, even if most instances in the structure are partially
-connected.
-
-**Mathematical Rationale**:
-```
-For molecule type M with instances {I₁, I₂, ..., Iₙ}:
-Representative = argmax(|interfaces(Iᵢ)|)
-                  i∈{1,n}
-```
-
-**Limitations**: This approach may overestimate binding capacity for systems with
-mutually exclusive binding states (e.g., GATOR protein complexes where competing
-interfaces prevent simultaneous maximum connectivity).
-
-### Homotypic Interface Mapping
-
-**Purpose**: Ensure parameter consistency for interfaces of the same structural type.
-
-**Implementation**: Create a mapping from each site label to a representative site label:
-```python
-homotypic_interface_map = {
-    "a1": "a1",  # Representative for type A_A_1
-    "a4": "a1",  # Also type A_A_1, maps to same representative
-    "a2": "a2",  # Representative for type A_A_2  
-    "a3": "a2"   # Also type A_A_2, maps to same representative
-}
-```
-
-## Mathematical Foundations
-
-### Geometric Signature Calculation
-
-NERDSS requires precise geometric parameters for each reaction. The exporter
-calculates five key angles:
-
-#### Bond Length (σ)
-```
-σ = ||rᵢ - rⱼ||
-```
-Where `rᵢ` and `rⱼ` are interface coordinate vectors.
-
-#### Association Angles
-
-**θ₁ (COM-Interface-Interface angle for molecule 1)**:
-```
-θ₁ = arccos((rᶜᵒᵐ¹ - rᵢ) · (rⱼ - rᵢ) / (||rᶜᵒᵐ¹ - rᵢ|| × ||rⱼ - rᵢ||))
-```
-
-**θ₂ (COM-Interface-Interface angle for molecule 2)**:
-```
-θ₂ = arccos((rᶜᵒᵐ² - rⱼ) · (rᵢ - rⱼ) / (||rᶜᵒᵐ² - rⱼ|| × ||rᵢ - rⱼ||))
-```
-
-**φ₁, φ₂ (Dihedral angles for molecular orientation)**:
-```
-φ₁ = dihedral(rⱼ, rᵢ, rᶜᵒᵐ¹, rⁿᵒʳᵐ¹)
-φ₂ = dihedral(rᵢ, rⱼ, rᶜᵒᵐ², rⁿᵒʳᵐ²)
-```
-
-**ω (Inter-molecular dihedral angle)**:
-```
-ω = dihedral(rᶜᵒᵐ², rⱼ, rᵢ, rᶜᵒᵐ¹)
-```
-
-Where:
-- `rᶜᵒᵐ¹`, `rᶜᵒᵐ²`: Centers of mass
-- `rᵢ`, `rⱼ`: Interface coordinates  
-- `rⁿᵒʳᵐ¹`, `rⁿᵒʳᵐ²`: Normal vectors (default: [0,0,1])
-
-### Parameter Caching Mathematics
-
-**Cache Key Generation**:
-```python
-representative_site1 = homotypic_map[site1]
-representative_site2 = homotypic_map[site2] 
-cache_key = tuple(sorted([representative_site1, representative_site2]))
-```
-
-**Cache Hit Logic**:
-```
-If cache_key ∈ parameter_cache:
-    return cached_parameters
-Else:
-    calculate_parameters()
-    parameter_cache[cache_key] = calculated_parameters
-    return calculated_parameters
-```
-
-## Binding Site Selection Strategy
-
-### 1. Maximum Interface Selection
-
-**Algorithm**:
-```python
-def select_representative_instance(molecule_type):
-    max_interfaces = 0
-    representative = None
+**CRITICAL UNIT CONVENTIONS:**
+    ⚠️ **This module expects ALL input coordinates in nanometers (nm)!** ⚠️
     
-    for instance in system.molecule_instances:
-        if instance.molecule_type == molecule_type:
-            interface_count = len(instance.interfaces_neighbors_map)
-            if interface_count > max_interfaces:
-                max_interfaces = interface_count
-                representative = instance
-    
-    return representative
-```
+    - **Input (from System)**: Nanometers (nm) - already converted by PDB parser
+    - **Output (.mol files)**: Nanometers (nm) - NERDSS format
+    - **Output (parms.inp)**: Nanometers (nm) - NERDSS format
+    - **Angles**: Radians - converted from geometric calculations
+    - **Energies**: kT (dimensionless) - binding free energies
 
-**Example (6BNO case)**:
-- Instance A₁: 2 interfaces (partial assembly)
-- Instance A₂: 4 interfaces (more complete)
-- **Selected**: A₂ (captures maximum binding potential)
+**Coordinate Systems:**
+    - **Global frame**: All molecule COM and interface coordinates in simulation box (nm)
+    - **Local frame**: Interface positions relative to molecule COM (nm)
+    - **Reference vectors**: Unit vectors defining molecule orientation in global frame
 
-### 2. Interface Type Grouping
+**Key Methods:**
+    - ``export()``: Main export method - generates all NERDSS files
+    - ``_write_mol_file()``: Creates .mol file for each molecule type
+    - ``_write_parms_file()``: Creates parms.inp with all reactions
+    - ``_generate_reaction_angles()``: Calculates binding angles (θ, φ, ω)
 
-Interfaces are grouped by their structural type:
-```python
-interface_groups = {
-    "A_A_1": [interface1, interface4],  # Same binding type
-    "A_A_2": [interface2, interface3]   # Different binding type
-}
-```
+**File Outputs:**
+    - ``<MoleculeType>.mol``: Molecule geometry and binding sites (nm)
+    - ``parms.inp``: Simulation parameters and reaction definitions
 
-### 3. Site Label Generation
+**Homotypic Parameter Sharing:**
+    **Strategy**: Calculate normal vectors automatically, then share both sigma and
+    angles between all homotypic interfaces since they use the same normal vector.
 
-**Base Label Algorithm**:
-```python
-def get_base_site_label(mol_name, interface_type_name):
-    initial = mol_name[0].lower()  # "A" → "a"
-    
-    # Extract index from "A_A_1" → "1"
-    if "_" in interface_type_name:
-        parts = interface_type_name.split("_")
-        if parts[-1].isdigit():
-            return f"{initial}{parts[-1]}"  # "a1"
-    
-    return f"{initial}1"  # Default
-```
+    **Cache Key**: Use representative site for both sigma and angles since normal
+    vectors are now consistent within homotypic groups.
 
-**Uniqueness Enforcement**:
-```python
-def get_unique_site_label(base_label, used_labels):
-    if base_label not in used_labels:
-        return base_label
-    
-    # Extract base and increment: "a1" → "a2", "a3", ...
-    base = ''.join(c for c in base_label if c.isalpha())
-    num = int(''.join(c for c in base_label if c.isdigit()) or "1")
-    
-    counter = num + 1
-    while f"{base}{counter}" in used_labels:
-        counter += 1
-    
-    return f"{base}{counter}"
-```
+**Angle Calculation:**
+    Uses reference frame from each molecule instance to calculate NERDSS-compatible
+    binding angles. See ``_generate_reaction_angles()`` for mathematical details.
 
-## Reaction Generation Logic
+.. warning::
+    **Unit Mismatch Will Cause Simulation Failure!**
+    If coordinates are accidentally in Ångström instead of nm, NERDSS will
+    produce incorrect results or crash. Always verify units before export.
 
-### Homotypic Reactions (A + A)
-
-**Mathematical Basis**: For n sites of the same type, generate all unique
-pairwise combinations without double-counting.
-
-**Formula**: Total reactions = n(n+1)/2
-
-**Algorithm**:
-```python
-for i, site1 in enumerate(all_sites):
-    for j, site2 in enumerate(all_sites):
-        if i <= j:  # Avoid duplicates: (i,j) yes, (j,i) no
-            generate_reaction(site1, site2)
-            
-            # Cross-reactions (i≠j) get doubled rate
-            is_cross_reaction = (i != j)
-```
-
-**Example**: Sites [a1, a2, a4] (where a1≡a4 structurally)
-- Generated: (a1,a1), (a1,a2), (a1,a4), (a2,a2), (a2,a4), (a4,a4)
-- Cross-reactions: (a1,a2), (a1,a4), (a2,a4) get 2× rate
-- Self-reactions: (a1,a1), (a2,a2), (a4,a4) get 1× rate
-
-**Rate Doubling Rationale**: Cross-reactions like A(a1)+A(a2) can occur in two
-orientations in solution, effectively doubling the encounter rate.
-
-### Heterotypic Reactions (A + B)
-
-**Mathematical Basis**: For n sites on molecule A and m sites on molecule B,
-generate all n×m combinations.
-
-**Formula**: Total reactions = n × m
-
-**Algorithm**:
-```python
-for site_a in molecule_a_sites:
-    for site_b in molecule_b_sites:
-        generate_reaction(site_a, site_b)
-        # No rate doubling needed
-```
-
-**Example**: A has sites [a1, a2], B has sites [b1, b2]
-- Generated: A(a1)+B(b1), A(a1)+B(b2), A(a2)+B(b1), A(a2)+B(b2)
-- All reactions get same base rate (no doubling)
-
-**No Rate Doubling**: Each A-B pair represents a unique molecular encounter.
-
-## Parameter Calculation
-
-### Coordinate System Setup
-
-**Default Normal Vectors**: [0, 0, 1] (z-axis)
-```python
-norm1 = np.array([0.0, 0.0, 1.0])
-norm2 = np.array([0.0, 0.0, 1.0])
-
-# Convert to absolute coordinates
-abs_norm1 = com1 + norm1
-abs_norm2 = com2 + norm2
-```
-
-### Angle Calculation Pipeline
-
-**1. Theta Angles (Bond angles)**:
-```python
-theta1 = angles_from_points(com1, intf1, intf2)
-theta2 = angles_from_points(com2, intf2, intf1)
-```
-
-**2. Phi Angles (Orientation dihedrals)**:
-```python
-phi1 = dihedrals_from_points(intf2, intf1, com1, abs_norm1)
-phi2 = dihedrals_from_points(intf1, intf2, com2, abs_norm2)
-```
-
-**3. Omega Angle (Inter-molecular dihedral)**:
-```python
-omega = dihedrals_from_points(com2, intf2, intf1, com1)
-```
-
-### Parameter Caching Strategy
-
-**Cache Key Construction**:
-```python
-# Map sites to representatives
-rep1 = homotypic_interface_map[site1]  # a4 → a1
-rep2 = homotypic_interface_map[site2]  # a4 → a1
-
-# Create canonical cache key
-cache_key = tuple(sorted([rep1, rep2]))  # (a1, a1)
-```
-
-**Cache Benefits**:
-- Ensures A(a1)+A(a1) and A(a4)+A(a4) have identical parameters
-- Reduces computation for repeated interface types
-- Maintains consistency across similar binding events
-
-## File Format Specifications
-
-### MOL File Format
-
-```
-Name = ProteinA
-
-# translational diffusion constants
-D = [1.000000, 1.000000, 1.000000]
-
-# rotational diffusion constants  
-Dr = [0.100000, 0.100000, 0.100000]
-
-# Coordinates
-COM   0.0000000   0.0000000   0.0000000
-a1    1.0000000   0.0000000   0.0000000
-a2    0.0000000   1.0000000   0.0000000
-
-# bonds
-bonds = 2
-com a1
-com a2
-```
-
-**Key Elements**:
-- **Name**: Molecule type identifier
-- **D**: Translational diffusion constants (nm²/μs)
-- **Dr**: Rotational diffusion constants (rad²/μs)  
-- **Coordinates**: COM at origin, interfaces at local coordinates
-- **Bonds**: All interfaces bonded to COM (rigid body assumption)
-
-### PARMS File Format
-
-```
-start parameters
-    nItr = 100000.0
-    timestep = 0.5
-    timeWrite = 10000.0
-    trajWrite = 100000.0
-    restartWrite = 100000.0
-    checkPoint = 100000.0
-    pdbWrite = 100000.0
-end parameters
-
-start boundaries
-    WaterBox = [100.0, 100.0, 100.0] #nm
-end boundaries
-
-start molecules
-    ProteinA : 10
-    ProteinB : 5
-end molecules
-
-start reactions
-    
-    # Binding reactions
-    ProteinA(a1) + ProteinA(a1) <-> ProteinA(a1!1).ProteinA(a1!1)
-    onRate3Dka = 100.0
-    offRatekb = 1000.028
-    norm1 = [0.0, 0.0, 1.0]
-    norm2 = [0.0, 0.0, 1.0]
-    sigma = 1.2345678
-    assocAngles = [1.234,0.567,-0.891,0.234,-0.456]
-    
-    ProteinA(a1) + ProteinA(a2) <-> ProteinA(a1!1).ProteinA(a2!1)
-    onRate3Dka = 200.0  # Doubled for cross-reaction
-    offRatekb = 1000.028
-    norm1 = [0.0, 0.0, 1.0]
-    norm2 = [0.0, 0.0, 1.0]
-    sigma = 1.5678901
-    assocAngles = [0.789,1.234,-0.567,0.891,-0.234]
-    
-end reactions
-```
-
-**Rate Doubling Logic**:
-- **Self-reactions** (a1+a1): Base rate
-- **Cross-reactions** (a1+a2): 2× base rate
-- **Heterotypic reactions** (A+B): Base rate (no doubling)
-
-## Usage Examples
-
-### Basic Export
-
-```python
-from ionerdss.model.pdb.nerdss_exporter import NERDSSExporter
-
-# Create exporter
-exporter = NERDSSExporter(system, workspace_manager)
-
-# Export with defaults
-output_files = exporter.export_all()
-
-# Files created:
-# - ProteinA.mol
-# - ProteinB.mol  
-# - parms.inp
-```
-
-### Custom Parameters
-
-```python
-# Custom molecule counts and simulation box
-output_files = exporter.export_all(
-    molecule_counts={"ProteinA": 50, "ProteinB": 25},
-    box_nm=(200.0, 200.0, 200.0),
-    parms_overrides={
-        "nItr": 5e5,
-        "timestep": 0.1,
-        "onRate3Dka": 500.0,
-        "offRatekb": 2000.0
-    }
-)
-```
-
-### Parameter Analysis
-
-```python
-# Access internal mappings for analysis
-print("Interface to site mapping:")
-for interface, site in exporter.interface_to_site_map.items():
-    print(f"  {interface} → {site}")
-
-print("Homotypic mapping:")
-for site, representative in exporter.homotypic_interface_map.items():
-    print(f"  {site} → {representative}")
-
-print("Reaction metadata:")
-for i, metadata in enumerate(exporter.reaction_metadata):
-    print(f"  Reaction {i}: cross_reaction={metadata['is_cross_reaction']}")
-```
-
+See Also:
+    - ``ionerdss.model.pdb.parser``: Converts PDB (Å) → System (nm)
+    - NERDSS documentation: https://nerdss.github.io/
 """
 
 import re
 from typing import Dict, Any, Iterable, Optional, List, Tuple
+from dataclasses import dataclass
 from pathlib import Path
+import math
 
 import numpy as np
 
 from ionerdss.model.components.system import System
 from ionerdss.model.components.types import MoleculeType
-from ionerdss.utils.angles import angles_from_points, dihedrals_from_points
+from ionerdss.utils.vectors import convert_to_unit, get_magnitude
+from ionerdss.utils.angles import signed_angle_arccos
+from ionerdss.model.pdb import interface_naming
 from .file_manager import WorkspaceManager
 
+
+#------------ exporter class ---------------
 
 class NERDSSExporter:
     """Exporter for converting ionerdss System to NERDSS simulation files.
 
     Generates .mol files for each molecule type and parms.inp with simulation
-    parameters and reaction definitions.
+    parameters and reaction definitions. Automatically calculates normal vectors
+    based on interface geometry.
 
     Attributes:
         system: ionerdss System to export.
@@ -432,7 +84,12 @@ class NERDSSExporter:
         output_dir: Directory for NERDSS output files.
         interface_to_site_map: Mapping from interface names to site labels.
         reaction_metadata: Metadata about reactions for rate calculation.
+        homotypic_interface_map: Maps site labels to representative labels.
+        calculated_normals: Automatically calculated normal vectors per molecule type.
+        reaction_params_cache: Cache for calculated reaction parameters.
     """
+
+    # --------------- constructor ------------
 
     def __init__(self, system: System, workspace_manager: Optional[WorkspaceManager] = None):
         """Initialize NERDSS exporter."""
@@ -448,7 +105,10 @@ class NERDSSExporter:
         # Cache for homotypic interface mapping: site_label -> representative_site_label
         self.homotypic_interface_map: Dict[str, str] = {}
 
-        # Cache for reaction parameters: (site1, site2) -> (sigma, angles)
+        # Store automatically calculated normal vectors: mol_type -> {site_label: normal_vector}
+        self.calculated_normals: Dict[str, Dict[str, np.ndarray]] = {}
+
+        # Cache for reaction parameters: (representative_site1, representative_site2) -> (sigma, angles)
         self.reaction_params_cache: Dict[Tuple[str, str],
                                          Tuple[float, Tuple[float, float, float, float, float]]] = {}
 
@@ -461,20 +121,183 @@ class NERDSSExporter:
         else:
             self.output_dir = Path("nerdss_files")
             self.output_dir.mkdir(exist_ok=True)
+            
+    # ------------- helpers -----------------
+
+    def _circular_mean_signed(self, vals: List[float]) -> float:
+        """Mean on [-π, π] using atan2(⟨sin⟩, ⟨cos⟩)."""
+        if not vals:
+            return 0.0
+        s = np.mean(np.sin(vals))
+        c = np.mean(np.cos(vals))
+        return float(np.arctan2(s, c))
+
+    def _circular_var_signed(self, vals: List[float]) -> float:
+        """Circular variance on [-π, π]; 0 → tight, 1 → uniform."""
+        if not vals:
+            return 1.0
+        s = np.mean(np.sin(vals))
+        c = np.mean(np.cos(vals))
+        R = np.hypot(s, c)
+        return float(1.0 - R)
+
+    def _enumerate_binding_instance_pairs(self, mol1_name: str, site1: str,
+                                      mol2_name: str, site2: str):
+        """
+        Return only (m1, m2, intf1, intf2) where intf1.type ∈ types(site1) AND intf2.type ∈ types(site2),
+        and intf1↔intf2 are mutual partners (actual binding pair).
+        """
+        site1_types = self._site_to_interface_types(site1)
+        site2_types = self._site_to_interface_types(site2)
+        pairs = []
+
+        for m1 in self.system.molecule_instances:
+            if not (m1.molecule_type and m1.molecule_type.name == mol1_name):
+                continue
+            for intf1, m2 in m1.interfaces_neighbors_map.items():
+                if not (m2 and m2.molecule_type and m2.molecule_type.name == mol2_name):
+                    continue
+                if self._iface_type_name(intf1) not in site1_types:
+                    continue
+
+                # find partner interface that (a) points back to m1 and (b) is one of the site2 types
+                for intf2, back in m2.interfaces_neighbors_map.items():
+                    if back is m1 and self._iface_type_name(intf2) in site2_types:
+                        pairs.append((m1, m2, intf1, intf2))
+                        break  # one partner per intf1 is enough
+        return pairs
+
+    def _enumerate_exact_type_pairs(self, mol1_name: str, type1: str,
+                                mol2_name: str, type2: str):
+        """
+        Find all (m1, m2, intf1, intf2) where:
+        - m1 is mol1_name and has an interface intf1 with type == type1
+        - m2 is mol2_name and has an interface intf2 with type == type2
+        - intf1's partner is m2 and intf2's partner is m1 (actual bound pair)
+        """
+        out = []
+        for m1 in self.system.molecule_instances:
+            if not (m1.molecule_type and m1.molecule_type.name == mol1_name):
+                continue
+            for intf1, m2 in m1.interfaces_neighbors_map.items():
+                if not (intf1 and m2 and m2.molecule_type and m2.molecule_type.name == mol2_name):
+                    continue
+                if self._iface_type_name(intf1) != type1:
+                    continue
+                # find partner interface on m2 that points back and has the exact requested type
+                for intf2, back in m2.interfaces_neighbors_map.items():
+                    if back is m1 and self._iface_type_name(intf2) == type2:
+                        out.append((m1, m2, intf1, intf2))
+                        break
+        return out
+
+
+    def _mean_params_from_pairs(self, pairs: List[Tuple[Any, Any, Any, Any]],
+                            mol1: str, site1: str, mol2: str, site2: str
+                        ) -> Tuple[float, Tuple[float,float,float,float,float]]:
+        """
+        Compute averaged σ and angles across all provided binding pairs.
+        θ's get arithmetic mean/std; φ/ω use circular mean/std.
+        Also prints a per-pair debug line including local and rotated normals.
+        """
+        sigmas = []
+        th1s, th2s = [], []
+        ph1s, ph2s, ws = [], [], []
+
+        print("\n=== DEBUG: Averaging pairs for "
+            f"{mol1}({site1}) + {mol2}({site2}) ===")
+
+        header = ("idx  |  sigma   "
+                "|  n1(local)              n2(local)              "
+                "|  n1f(global)              n2f(global)             "
+                "|  theta1   theta2   phi1      phi2      omega")
+        print(header)
+        print("-" * len(header))
+
+        for k, (m1, m2, intf1, intf2) in enumerate(pairs, start=1):
+            com1, com2 = m1.com, m2.com
+            p1, p2 = intf1.absolute_coord, intf2.absolute_coord
+
+            # --- normals ---
+            # local normals are what will be written to parms.inp (NERDSS expects local)
+            n1_local = self._get_species_normal_vector(mol1, site1, m1)
+            n2_local = self._get_species_normal_vector(mol2, site2, m2)
+            # rotated/global normals used in angle calc (n1f, n2f)
+            n1f = self._get_species_normal_vector_with_rotation(mol1, site1, m1)
+            n2f = self._get_species_normal_vector_with_rotation(mol2, site2, m2)
+
+            # --- angles ---
+            sigma, (th1, th2, ph1, ph2, w) = self._generate_reaction_angles(
+                p1, p2, com1, com2, mol1, mol2, site1, site2
+            )
+
+            sigmas.append(sigma)
+            th1s.append(th1); th2s.append(th2)
+            ph1s.append(ph1); ph2s.append(ph2); ws.append(w)
+
+            def vfmt(v):
+                return f"[{v[0]: .6f},{v[1]: .6f},{v[2]: .6f}]"
+
+            print(f"{k:>3d}  | {sigma: .6f} "
+                f"| {vfmt(n1_local)} {vfmt(n2_local)} "
+                f"| {vfmt(n1f)} {vfmt(n2f)} "
+                f"| {th1: .6f} {th2: .6f} {ph1: .6f} {ph2: .6f} {w: .6f}")
+
+        # --- summary stats ---
+        if sigmas:
+            sigma_mean = float(np.mean(sigmas))
+            sigma_std  = float(np.std(sigmas))
+        else:
+            sigma_mean = 1.0; sigma_std = 0.0
+
+        if th1s:
+            theta1_mean = float(np.mean(th1s)); theta1_std = float(np.std(th1s))
+        else:
+            theta1_mean = 0.0; theta1_std = 0.0
+        if th2s:
+            theta2_mean = float(np.mean(th2s)); theta2_std = float(np.std(th2s))
+        else:
+            theta2_mean = 0.0; theta2_std = 0.0
+
+        phi1_mean, phi1_std = self._circular_mean_std(ph1s) if ph1s else (0.0, 0.0)
+        phi2_mean, phi2_std = self._circular_mean_std(ph2s) if ph2s else (0.0, 0.0)
+        w_mean, w_std       = self._circular_mean_std(ws)   if ws   else (0.0, 0.0)
+
+        print("\n--- SUMMARY (means ± std) ---")
+        print(f"sigma : {sigma_mean: .9f} ± {sigma_std: .9f}")
+        print(f"theta1: {theta1_mean: .9f} ± {theta1_std: .9f}")
+        print(f"theta2: {theta2_mean: .9f} ± {theta2_std: .9f}")
+        print(f"phi1  : {phi1_mean: .9f} ± {phi1_std: .9f}   (circular)")
+        print(f"phi2  : {phi2_mean: .9f} ± {phi2_std: .9f}   (circular)")
+        print(f"omega : {w_mean: .9f} ± {w_std: .9f}         (circular)")
+        print("=============================================\n")
+
+        # Return the means that will be used downstream
+        return sigma_mean, (theta1_mean, theta2_mean, phi1_mean, phi2_mean, w_mean)
+
+    
+    def _site_to_interface_types(self, site_label: str) -> set[str]:
+        """
+        Return the exact InterfaceType names that this site_label represents.
+        Built from interface_to_site_map (the mapping you create in _write_mol_file).
+        """
+        types = set()
+        for iface_type_name, mapped_site in self.interface_to_site_map.items():
+            if mapped_site == site_label:
+                types.add(iface_type_name)
+        return types
+
+    def _iface_type_name(self, interface_instance) -> str:
+        # Consistent accessor
+        return interface_instance.interface_type.get_name() if interface_instance.interface_type else ""
+
+    # ---------- main export function --------
+
 
     def export_all(self, molecule_counts: Optional[Dict[str, int]] = None,
                    box_nm: Tuple[float, float, float] = (100.0, 100.0, 100.0),
                    parms_overrides: Optional[Dict[str, Any]] = None) -> Dict[str, Path]:
-        """Export complete NERDSS simulation setup.
-
-        Args:
-            molecule_counts: Number of molecules per type. Defaults to 10 each.
-            box_nm: Simulation box size in nm. Default (100, 100, 100).
-            parms_overrides: Additional parameters for parms.inp.
-
-        Returns:
-            Dictionary mapping file types to output paths.
-        """
+        """Export complete NERDSS simulation setup."""
         if self.workspace_manager:
             self.workspace_manager.logger.info(
                 "Exporting NERDSS simulation files...")
@@ -487,14 +310,25 @@ class NERDSSExporter:
             for mol_type in self.system.molecule_types:
                 molecule_counts[mol_type.name] = 10
 
-        # Clear mappings for fresh export
+        # Clear mappings and caches for fresh export
         self.interface_to_site_map.clear()
         self.reaction_metadata.clear()
+        self.homotypic_interface_map.clear()
+        self.calculated_normals.clear()
+        self.reaction_params_cache.clear()
 
         # Export .mol files for each molecule type (this builds the mapping)
         for mol_type in self.system.molecule_types:
             mol_file_path = self._write_mol_file(mol_type)
             output_files[f"{mol_type.name}_mol"] = mol_file_path
+
+        # after the loop that calls _write_mol_file(...) for all mol types
+        # NOTE: legacy 1↔2 homodimer validation removed.
+        # With f/b scheme, validation happens implicitly when generating reactions below.
+
+
+        # Calculate normal vectors for each molecule type
+        self._calculate_normal_vectors()
 
         # Generate reactions using the stored mapping
         reactions = self._generate_reactions()
@@ -520,35 +354,610 @@ class NERDSSExporter:
             for file_type, file_path in output_files.items():
                 self.workspace_manager.logger.info(
                     "  %s: %s", file_type, file_path)
+                
+        # DEBUG: Print representative instance information
+        for mol_type in self.system.molecule_types:
+            self._debug_representative_instance(mol_type.name)
 
         return output_files
 
-    def _write_mol_file(self, mol_type: MoleculeType) -> Path:
-        """Write .mol file for a molecule type and build interface-to-site mapping."""
-        mol_file_path = self.output_dir / f"{mol_type.name}.mol"
+    def _calculate_normal_vectors(self):
+        """Calculate normal vectors for each molecule instance based on its specific interface geometry."""
+        # Clear the storage - now we store per instance, not per type
+        self.calculated_normals.clear()
 
-        # Find a representative molecule instance of this type to get actual interface counts
+        # Calculate normal vectors for each molecule instance individually
+        for mol_instance in self.system.molecule_instances:
+            if not mol_instance.molecule_type:
+                continue
+
+            mol_type_name = mol_instance.molecule_type.name
+            # Use instance ID as unique identifier
+            instance_id = id(mol_instance)
+
+            # Initialize storage for this instance
+            if mol_type_name not in self.calculated_normals:
+                self.calculated_normals[mol_type_name] = {}
+            self.calculated_normals[mol_type_name][instance_id] = {}
+
+            # Group interfaces by their type for this specific instance
+            homotypic_groups = self._group_interfaces_by_type(mol_instance)
+
+            for interface_type_name, interface_group in homotypic_groups.items():
+                # Get site labels and coordinates for this specific instance
+                site_labels = []
+                interface_coords = []
+
+                for interface_data in interface_group:
+                    # Find corresponding site label
+                    for key, site_label in self.interface_to_site_map.items():
+                        if (key.startswith(interface_type_name) or key == interface_type_name):
+                            if site_label not in site_labels:
+                                site_labels.append(site_label)
+                                interface_coords.append(
+                                    interface_data['coord'])
+                                break
+
+                if not site_labels:
+                    continue
+
+                # Calculate normal vector for this instance's interfaces
+                if len(site_labels) == 1:
+                    # Singleton interface
+                    normal_vector = self._calculate_singleton_normal_vector(
+                        interface_coords[0], mol_type_name, interface_type_name
+                    )
+                else:
+                    # Multiple interfaces - no rotation correction needed since we're using actual instance
+                    normal_vector = self._calculate_group_normal_vector(
+                        interface_coords, mol_type_name, interface_type_name
+                    )
+
+                # Assign normal vector to all sites in this group for this instance
+                for site_label in site_labels:
+                    self.calculated_normals[mol_type_name][instance_id][site_label] = normal_vector
+
+                if self.workspace_manager:
+                    group_type = "singleton" if len(
+                        site_labels) == 1 else "group"
+                    self.workspace_manager.logger.info(
+                        "Calculated normal vector for instance %s of %s %s interface %s (sites %s): %s",
+                        instance_id, mol_type_name, group_type, interface_type_name,
+                        site_labels, normal_vector
+                    )
+
+    def _get_species_normal_vector(self, mol_name: str, site_label: str,
+                                   mol_instance=None) -> np.ndarray:
+        """Get calculated normal vector for a specific molecule instance and site.
+
+        Args:
+            mol_name: Molecule type name (e.g., 'A').
+            site_label: Site label (e.g., 'a1', 'a2').
+            mol_instance: Specific molecule instance (if None, tries to find from context).
+
+        Returns:
+            Calculated normal vector for this specific instance.
+        """
+        if mol_instance is None:
+            # Try to find the instance from current context (fallback behavior)
+            mol_instance = self._find_molecule_instance_for_site(
+                mol_name, site_label)
+
+        if mol_instance is not None:
+            instance_id = id(mol_instance)
+
+            if (mol_name in self.calculated_normals and
+                instance_id in self.calculated_normals[mol_name] and
+                    site_label in self.calculated_normals[mol_name][instance_id]):
+                return self.calculated_normals[mol_name][instance_id][site_label]
+
+        # Fallback: try to find any instance with this site
+        if mol_name in self.calculated_normals:
+            for instance_id, sites in self.calculated_normals[mol_name].items():
+                if site_label in sites:
+                    if self.workspace_manager:
+                        self.workspace_manager.logger.info(
+                            "Using fallback normal vector for %s.%s from instance %s",
+                            mol_name, site_label, instance_id
+                        )
+                    return sites[site_label]
+
+        # Final fallback to default
+        if self.workspace_manager:
+            self.workspace_manager.logger.warning(
+                "No calculated normal for %s.%s (instance %s), using default [1,0,0]",
+                mol_name, site_label, id(
+                    mol_instance) if mol_instance else "unknown"
+            )
+        return np.array([1.0, 0.0, 0.0])
+
+    def _get_species_normal_vector_with_rotation(self, mol_name: str, site_label: str, 
+                                            mol_instance=None) -> np.ndarray:
+        """Get normal vector for a specific molecule instance with rotation correction."""
+        if mol_instance is None:
+            return self._get_species_normal_vector(mol_name, site_label, mol_instance)
+        
+        # Get the base normal vector from representative structure
+        base_normal = self._get_base_normal_vector_for_site(mol_name, site_label)
+        
+        # Check if this instance is the representative
+        representative_instance = self._get_representative_instance(mol_name)
+        
+        if representative_instance is None or mol_instance == representative_instance:
+            # This is the representative instance, no rotation needed
+            if self.workspace_manager:
+                self.workspace_manager.logger.info(
+                    "Using unrotated normal for representative instance %s.%s (id=%s): %s",
+                    mol_name, site_label, id(mol_instance), base_normal
+                )
+            return base_normal
+        
+        # This is not the representative, need to apply rotation
+        if self.workspace_manager:
+            self.workspace_manager.logger.info(
+                "Calculating rotation for non-representative instance %s.%s (id=%s)",
+                mol_name, site_label, id(mol_instance)
+            )
+        
+        # Remove the extra site_label parameter
+        rotation_matrix = self._calculate_rotation_from_representative(
+            mol_name, representative_instance, mol_instance
+        )
+        
+        if rotation_matrix is not None:
+            # Apply rotation to the normal vector
+            rotated_normal = np.dot(rotation_matrix, base_normal)
+            
+            if self.workspace_manager:
+                self.workspace_manager.logger.info(
+                    "Applied rotation to normal for instance %s.%s (id=%s): %s -> %s",
+                    mol_name, site_label, id(mol_instance), base_normal, rotated_normal
+                )
+            
+            return rotated_normal
+        else:
+            if self.workspace_manager:
+                self.workspace_manager.logger.warning(
+                    "Could not calculate rotation for instance %s.%s (id=%s), using base normal",
+                    mol_name, site_label, id(mol_instance)
+                )
+            return base_normal
+
+    def _calculate_rotation_from_representative(self, mol_name: str, representative_instance, target_instance) -> Optional[np.ndarray]:
+        """
+        Proper rotation mapping rep → target using LOCAL interface vectors
+        matched by exact type name. Works with 1, 2, or ≥3 matches (see _rotation_from_vectors).
+        """
+        ref_vecs, tgt_vecs = [], []
+        
+        def dump_map(inst):
+            rows = []
+            for intf, partner in inst.interfaces_neighbors_map.items():
+                rows.append((intf.interface_type.get_name(), partner.name, tuple(intf.absolute_coord)))
+            rows.sort()
+            for r in rows:
+                print(r)
+            # Count by family and f/b:
+            from collections import Counter
+            fam = [name[:-1] if name[-1] in ("f","b") else name for (name,_,_) in rows]
+            ends = [name[-1] if name[-1] in ("f","b") else "-" for (name,_,_) in rows]
+            print("By family:", Counter(fam))
+            print("Ends f/b:", Counter(ends))
+            
+        dump_map(representative_instance)
+        
+        for ref_intf, _ in representative_instance.interfaces_neighbors_map.items():
+            tname = ref_intf.interface_type.get_name()
+            ref_local = ref_intf.absolute_coord - representative_instance.com
+            match = None
+            for tgt_intf, _ in target_instance.interfaces_neighbors_map.items():
+                if tgt_intf.interface_type.get_name() == tname:
+                    match = tgt_intf
+                    break
+            if match is None:
+                continue
+            tgt_local = match.absolute_coord - target_instance.com
+            ref_vecs.append(ref_local); tgt_vecs.append(tgt_local)
+
+        if not ref_vecs:
+            if self.workspace_manager:
+                self.workspace_manager.logger.warning("No matched interfaces to define rotation for %s", mol_name)
+            return None
+
+        R = self._calculate_kabsch_rotation(ref_vecs, tgt_vecs)
+        if R is not None and self._is_valid_rotation_matrix(R):
+            return R
+        if self.workspace_manager:
+            self.workspace_manager.logger.warning("Computed rotation invalid; falling back to single-vector alignment")
+        # last fallback: align first vector only
+        return self._calculate_single_vector_rotation(ref_vecs[0], tgt_vecs[0])
+
+
+    def _calculate_single_vector_rotation(self, ref_vec: np.ndarray, target_vec: np.ndarray) -> np.ndarray:
+        """
+        Kept for compatibility; now delegates to the triad builder to guarantee det=+1.
+        """
+        def _orthonormal_triad(v1: np.ndarray) -> np.ndarray:
+            v1 = np.asarray(v1, float)
+            n = np.linalg.norm(v1)
+            e1 = v1 / n if n > 1e-12 else np.array([1.0, 0.0, 0.0])
+            cand = np.array([1.0, 0.0, 0.0]) if abs(e1[0]) < 0.9 else np.array([0.0, 1.0, 0.0])
+            v2p = cand - np.dot(cand, e1) * e1
+            e2 = v2p / (np.linalg.norm(v2p) + 1e-12)
+            e3 = np.cross(e1, e2); e3 /= (np.linalg.norm(e3) + 1e-12)
+            if np.linalg.det(np.column_stack([e1, e2, e3])) < 0:
+                e3 = -e3
+            return np.column_stack([e1, e2, e3])
+
+        B_ref = _orthonormal_triad(ref_vec)
+        B_tgt = _orthonormal_triad(target_vec)
+        R = B_tgt @ B_ref.T
+        if np.linalg.det(R) < 0:
+            B_tgt[:, 2] *= -1
+            R = B_tgt @ B_ref.T
+        return R
+
+
+    def _calculate_axis_alignment_rotation(self, axis_ref: np.ndarray, axis_target: np.ndarray) -> np.ndarray:
+        """Calculate rotation to align two axes (collinear interfaces case)."""
+        
+        # This is the same as single vector rotation
+        return self._calculate_single_vector_rotation(axis_ref, axis_target)
+
+    def _rodrigues_rotation(self, axis: np.ndarray, angle: float) -> np.ndarray:
+        """Calculate rotation matrix using Rodrigues' rotation formula."""
+        
+        axis = axis / np.linalg.norm(axis)  # Ensure unit vector
+        cos_angle = np.cos(angle)
+        sin_angle = np.sin(angle)
+        
+        # Rodrigues' formula
+        K = np.array([[0, -axis[2], axis[1]],
+                    [axis[2], 0, -axis[0]],
+                    [-axis[1], axis[0], 0]])
+        
+        R = np.eye(3) + sin_angle * K + (1 - cos_angle) * np.dot(K, K)
+        
+        return R
+
+    def _calculate_kabsch_rotation(self, ref_vecs: list[np.ndarray], tgt_vecs: list[np.ndarray]) -> Optional[np.ndarray]:
+        """
+        Return proper rotation R (det=+1) mapping representative → target given
+        matched LOCAL vectors (each defined as interface.absolute_coord - COM).
+
+        - ≥3 vectors: Kabsch on centered sets, then fix handedness.
+        - 2 vectors : build right-handed bases with Gram–Schmidt (twist fixed by v2⊥).
+        - 1 vector  : build bases from v and a deterministic pseudo-perp (twist fixed deterministically).
+        """
+        ref_vecs = [np.asarray(v, float) for v in ref_vecs]
+        tgt_vecs = [np.asarray(v, float) for v in tgt_vecs]
+        n = min(len(ref_vecs), len(tgt_vecs))
+
+        def _unit(x):
+            nrm = np.linalg.norm(x)
+            return x / nrm if nrm > 1e-12 else np.array([1.0, 0.0, 0.0], float)
+
+        def _basis_from(v1, v2=None):
+            e1 = _unit(v1)
+            if v2 is None:
+                # deterministic pseudo-perp
+                cand = np.array([1.0, 0.0, 0.0]) if abs(e1[0]) < 0.9 else np.array([0.0, 1.0, 0.0])
+                v2p = cand - e1 * np.dot(cand, e1)
+            else:
+                v2p = v2 - e1 * np.dot(v2, e1)
+                if np.linalg.norm(v2p) < 1e-12:
+                    # nearly collinear: pick a stable pseudo-perp
+                    cand = np.array([1.0, 0.0, 0.0]) if abs(e1[0]) < 0.9 else np.array([0.0, 1.0, 0.0])
+                    v2p = cand - e1 * np.dot(cand, e1)
+            e2 = _unit(v2p)
+            e3 = np.cross(e1, e2)
+            e3n = np.linalg.norm(e3)
+            if e3n < 1e-12:
+                # last-ditch: nudge e2
+                e2 = _unit(e2 + 1e-6*np.array([0.3,0.5,0.2]))
+                e3 = np.cross(e1, e2)
+                e3n = np.linalg.norm(e3)
+            e3 /= max(e3n, 1e-12)
+            B = np.column_stack([e1, e2, e3])
+            # enforce right-handed basis
+            if np.linalg.det(B) < 0:
+                B[:, 2] *= -1
+            return B
+
+        if n >= 3:
+            ref = np.stack(ref_vecs[:n], 0); tgt = np.stack(tgt_vecs[:n], 0)
+            ref_c = ref - ref.mean(0); tgt_c = tgt - tgt.mean(0)
+            H = ref_c.T @ tgt_c
+            U, S, Vt = np.linalg.svd(H)
+            R = Vt.T @ U.T
+            if np.linalg.det(R) < 0:
+                Vt[-1, :] *= -1
+                R = Vt.T @ U.T
+            return R
+
+        if n == 2:
+            B_ref = _basis_from(ref_vecs[0], ref_vecs[1])
+            B_tgt = _basis_from(tgt_vecs[0], tgt_vecs[1])
+            R = B_tgt @ B_ref.T
+            if np.linalg.det(R) < 0:
+                B_tgt[:, 2] *= -1
+                R = B_tgt @ B_ref.T
+            return R
+
+        if n == 1:
+            B_ref = _basis_from(ref_vecs[0], None)
+            B_tgt = _basis_from(tgt_vecs[0], None)
+            R = B_tgt @ B_ref.T
+            if np.linalg.det(R) < 0:
+                B_tgt[:, 2] *= -1
+                R = B_tgt @ B_ref.T
+            return R
+
+        return None
+
+
+    def _get_base_normal_vector_for_site(self, mol_name: str, site_label: str) -> np.ndarray:
+        """Get the base normal vector for a site from the representative structure.
+
+        Args:
+            mol_name: Molecule type name.
+            site_label: Site label.
+
+        Returns:
+            Base normal vector from representative structure.
+        """
+        # Get representative instance
+        representative_instance = self._get_representative_instance(mol_name)
+        if representative_instance:
+            instance_id = id(representative_instance)
+
+            if (mol_name in self.calculated_normals and
+                instance_id in self.calculated_normals[mol_name] and
+                    site_label in self.calculated_normals[mol_name][instance_id]):
+                return self.calculated_normals[mol_name][instance_id][site_label]
+
+        # Fallback to default
+        return np.array([1.0, 0.0, 0.0])
+
+    def _are_complementary_interfaces(self, interface_type1, interface_type2) -> bool:
+        """Check if two interface types are complementary (for homodimeric heterotypic cases).
+
+        Args:
+            interface_type1: First interface type.
+            interface_type2: Second interface type.
+
+        Returns:
+            True if they are complementary interfaces.
+        """
+        # For failed homotypic cases, check if they are complementary pairs
+        # A_A_1 is complementary to A_A_2, A_A_3 is complementary to A_A_4, etc.
+
+        try:
+            return interface_naming.are_complementary_homodimeric_heterotypic(interface_type1.get_name(), interface_type2.get_name())
+        except Exception:
+            return False
+
+    def _is_valid_rotation_matrix(self, R: np.ndarray, tolerance: float = 1e-6) -> bool:
+        """Check if matrix is a valid rotation matrix."""
+        try:
+            if R.shape != (3, 3):
+                return False
+
+            # Check if R^T * R = I (orthogonal)
+            should_be_identity = np.dot(R.T, R)
+            identity = np.eye(3)
+            if not np.allclose(should_be_identity, identity, atol=tolerance):
+                return False
+
+            # Check if det(R) = 1 (proper rotation, not reflection)
+            det_R = np.linalg.det(R)
+            if not np.isclose(det_R, 1.0, atol=tolerance):
+                return False
+
+            return True
+
+        except Exception:
+            return False
+
+    def _find_molecule_instance_for_site(self, mol_name: str, site_label: str):
+        """Find molecule instance that has the given site label.
+
+        Args:
+            mol_name: Molecule type name.
+            site_label: Site label to find.
+
+        Returns:
+            Molecule instance or None if not found.
+        """
+        for mol_instance in self.system.molecule_instances:
+            if (mol_instance.molecule_type and
+                    mol_instance.molecule_type.name == mol_name):
+
+                # Check if this instance has the site label
+                instance_id = id(mol_instance)
+                if (mol_name in self.calculated_normals and
+                    instance_id in self.calculated_normals[mol_name] and
+                        site_label in self.calculated_normals[mol_name][instance_id]):
+                    return mol_instance
+
+        return None
+
+    def _calculate_group_normal_vector(self, interface_coords: List[np.ndarray],
+                                       mol_name: str, interface_type_name: str) -> np.ndarray:
+        """Calculate normal vector for multiple interfaces of the same type."""
+        n_interfaces = len(interface_coords)
+
+        if n_interfaces == 0:
+            return np.array([1.0, 0.0, 0.0])  # Default
+
+        elif n_interfaces == 1:
+            # This shouldn't happen here since singletons are handled separately
+            # But include for safety
+            return self._calculate_singleton_normal_vector(interface_coords[0], mol_name, interface_type_name)
+
+        elif n_interfaces == 2:
+            # Two interfaces: use cross product
+            v1 = interface_coords[0]
+            v2 = interface_coords[1]
+
+            cross_prod = np.cross(v1, v2)
+            if np.linalg.norm(cross_prod) > 1e-10:
+                normal = cross_prod / np.linalg.norm(cross_prod)
+            else:
+                # Vectors are parallel, use perpendicular direction
+                normal = self._get_perpendicular_vector(v1)
+
+            if self.workspace_manager:
+                self.workspace_manager.logger.info(
+                    "Two interfaces %s: cross product %s", interface_type_name, normal
+                )
+            return normal
+
+        else:
+            # Three or more interfaces: fit plane
+            return self._fit_plane_normal(interface_coords, mol_name, interface_type_name)
+
+    def _calculate_singleton_normal_vector(self, interface_coord: np.ndarray,
+                                           mol_name: str, interface_type_name: str) -> np.ndarray:
+        """Calculate normal vector for a singleton interface using simple default method.
+
+        Uses the simple default method:
+        1. Try [1, 0, 0] as default
+        2. If approximately collinear with COM-to-site vector, use [0, 0, -1]
+
+        Args:
+            interface_coord: Interface coordinate relative to COM.
+            mol_name: Molecule type name.
+            interface_type_name: Interface type name.
+
+        Returns:
+            Normal vector for the singleton interface.
+        """
+        # Default normal vector - Changed back to Z-axis for parms.inp consistency
+        default_normal = np.array([0.0, 0.0, 1.0])
+
+        # COM-to-site vector (interface_coord is already relative to COM in local coordinates)
+        site_vector = interface_coord
+        site_vector_norm = np.linalg.norm(site_vector)
+
+        if site_vector_norm < 1e-10:
+            # Interface is at COM, use default
+            normal = default_normal
+            if self.workspace_manager:
+                self.workspace_manager.logger.info(
+                    "Singleton interface %s.%s at COM, using default normal %s",
+                    mol_name, interface_type_name, normal
+                )
+        else:
+            # Normalize site vector
+            site_unit = site_vector / site_vector_norm
+
+            # Check if default normal is approximately collinear with site vector
+            dot_product = abs(np.dot(default_normal, site_unit))
+            collinearity_threshold = 0.9  # cos(~25 degrees)
+
+            if dot_product > collinearity_threshold:
+                # Too collinear, use alternative normal
+                normal = np.array([1.0, 0.0, 0.0])
+                if self.workspace_manager:
+                    self.workspace_manager.logger.info(
+                        "Singleton interface %s.%s collinear with default (dot=%.3f), using alternative normal %s",
+                        mol_name, interface_type_name, dot_product, normal
+                    )
+            else:
+                # Use default normal
+                normal = default_normal
+                if self.workspace_manager:
+                    self.workspace_manager.logger.info(
+                        "Singleton interface %s.%s using default normal %s (dot=%.3f)",
+                        mol_name, interface_type_name, normal, dot_product
+                    )
+
+        return normal
+
+    def _fit_plane_normal(self, interface_coords: List[np.ndarray],
+                          mol_name: str, interface_type_name: str) -> np.ndarray:
+        """Fit plane to interface coordinates and return normal vector."""
+        coords_array = np.array(interface_coords)  # Shape: (n, 3)
+
+        # Center the coordinates
+        centroid = np.mean(coords_array, axis=0)
+        centered_coords = coords_array - centroid
+
+        # Use SVD to find the best-fit plane
+        try:
+            U, s, Vt = np.linalg.svd(centered_coords, full_matrices=False)
+
+            # The normal vector is the last column of V (last row of Vt)
+            normal = Vt[-1, :]
+
+            # Calculate fitting residual
+            residuals = np.abs(np.dot(centered_coords, normal))
+            max_residual = np.max(residuals)
+            rms_residual = np.sqrt(np.mean(residuals**2))
+
+            # Check if fit is reasonable
+            max_coord_range = np.max(np.ptp(coords_array, axis=0))
+            relative_error = rms_residual / max_coord_range if max_coord_range > 0 else 0
+
+            if relative_error > 0.1:  # 10% relative error threshold
+                if self.workspace_manager:
+                    self.workspace_manager.logger.warning(
+                        "Poor plane fit for %s.%s: RMS residual=%.3f, max=%.3f, relative=%.1f%%",
+                        mol_name, interface_type_name, rms_residual, max_residual, relative_error*100
+                    )
+
+            if self.workspace_manager:
+                self.workspace_manager.logger.info(
+                    "Plane fit for %s.%s: normal=%s, RMS residual=%.3f",
+                    mol_name, interface_type_name, normal, rms_residual
+                )
+
+            return normal / np.linalg.norm(normal)
+
+        except np.linalg.LinAlgError:
+            if self.workspace_manager:
+                self.workspace_manager.logger.warning(
+                    "SVD failed for %s.%s, using default normal", mol_name, interface_type_name
+                )
+            return np.array([0.0, 0.0, 1.0])
+
+    def _get_perpendicular_vector(self, v: np.ndarray) -> np.ndarray:
+        """Get a vector perpendicular to the input vector."""
+        v = v / \
+            np.linalg.norm(v) if np.linalg.norm(
+                v) > 1e-10 else np.array([1.0, 0.0, 0.0])
+
+        # Find the component with smallest absolute value
+        min_idx = np.argmin(np.abs(v))
+
+        # Create perpendicular vector
+        perp = np.zeros(3)
+        perp[min_idx] = 1.0
+
+        # Make it orthogonal using Gram-Schmidt
+        perp = perp - np.dot(perp, v) * v
+        return perp / np.linalg.norm(perp)
+
+    def _get_representative_instance(self, mol_type_name: str):
+        """Get representative instance with maximum interfaces for a molecule type."""
         representative_instance = None
         max_interfaces = 0
 
         for mol_instance in self.system.molecule_instances:
-            if mol_instance.molecule_type and mol_instance.molecule_type.name == mol_type.name:
+            if mol_instance.molecule_type and mol_instance.molecule_type.name == mol_type_name:
                 interface_count = len(mol_instance.interfaces_neighbors_map)
                 if interface_count > max_interfaces:
                     max_interfaces = interface_count
                     representative_instance = mol_instance
 
-        if not representative_instance:
-            if self.workspace_manager:
-                self.workspace_manager.logger.warning(
-                    "No instances found for molecule type %s", mol_type.name
-                )
-            return mol_file_path
+        return representative_instance
 
-        # Group interface instances by their interface type
+    def _group_interfaces_by_type(self, mol_instance):
+        """Group interfaces by their type name."""
         interface_groups = {}
-        for interface_instance, partner_instance\
-            in representative_instance.interfaces_neighbors_map.items():
+
+        for interface_instance, partner_instance in mol_instance.interfaces_neighbors_map.items():
             if interface_instance.interface_type:
                 type_name = interface_instance.interface_type.get_name()
 
@@ -558,145 +967,184 @@ class NERDSSExporter:
                 interface_groups[type_name].append({
                     'instance': interface_instance,
                     'coord': interface_instance.interface_type.local_coord,
-                    'partner': partner_instance.molecule_type.name\
-                        if partner_instance.molecule_type else "unknown",
+                    'partner': partner_instance.molecule_type.name if partner_instance.molecule_type else "unknown",
                     'type_name': type_name
                 })
 
-        # Generate unique site labels and build homotypic mapping
+        return interface_groups
+
+    def _validate_site_labels(self, all_site_labels: List[str]) -> bool:
+        """Validate that all site labels are unique and unambiguous.
+
+        Args:
+            all_site_labels: List of all generated site labels.
+
+        Returns:
+            True if all labels are unique.
+        """
+        unique_labels = set(all_site_labels)
+
+        if len(unique_labels) != len(all_site_labels):
+            # Find duplicates
+            seen = set()
+            duplicates = set()
+            for label in all_site_labels:
+                if label in seen:
+                    duplicates.add(label)
+                seen.add(label)
+
+            if self.workspace_manager:
+                self.workspace_manager.logger.error(
+                    "Duplicate site labels detected: %s", list(duplicates)
+                )
+            return False
+
+        if self.workspace_manager:
+            self.workspace_manager.logger.info(
+                "All %d site labels are unique: %s",
+                len(unique_labels), sorted(unique_labels)
+            )
+
+        return True
+
+    def _write_mol_file(self, mol_type: MoleculeType) -> Path:
+        mol_file_path = self.output_dir / f"{mol_type.name}.mol"
+
+        # Get the representative instance for this molecule type
+        rep_inst = self._get_representative_instance(mol_type.name)
+        if rep_inst is None:
+            if self.workspace_manager:
+                self.workspace_manager.logger.warning(
+                    "No representative instance found for molecule type %s", mol_type.name
+                )
+            return mol_file_path
+
+        # Initialize dictionaries to collect interface data
+        per_type_local: dict[str, np.ndarray] = {}
+        per_type_partner_ids: dict[str, int] = {}
+
+
+        # Collect interface coordinates from representative instance only
+        for iface, partner in rep_inst.interfaces_neighbors_map.items():
+            if not iface.interface_type:
+                continue
+            tname = iface.interface_type.get_name()   # e.g., "A_A_1f" or "A_A_2b"
+            # Local (template) coord = absolute - COM for representative instance
+            per_type_local[tname] = iface.absolute_coord - rep_inst.com
+            per_type_partner_ids[tname] = id(partner)
+
+        if self.workspace_manager:
+            self.workspace_manager.logger.info(
+                "Using representative instance (id=%s) with %d interfaces for molecule type %s",
+                id(rep_inst), len(per_type_local), mol_type.name
+            )
+
+
+        # Build stable list of interface records with site labels
         interfaces = []
-        used_labels = set()
-        # Maps interface type to its first (representative) site label
-        type_to_representative = {}
+        for interface_type_name, local_coord in sorted(per_type_local.items()):
+            site_label = self._get_base_site_label(mol_type.name, interface_type_name)
+            # Store mapping for *every* concrete type we found
+            self.interface_to_site_map[interface_type_name] = site_label
+            interfaces.append({
+                "type_name": interface_type_name,
+                "site_label": site_label,
+                "coord": local_coord,
+                "partner": per_type_partner_ids.get(interface_type_name, 0),
+            })
+            if self.workspace_manager:
+                self.workspace_manager.logger.debug(
+                    "Interface %s -> site %s at actual coord %s",
+                    interface_type_name, site_label, local_coord
+                )
 
-        for type_name, type_interfaces in interface_groups.items():
-            # Sort interfaces by coordinate to ensure deterministic ordering
-            type_interfaces.sort(key=lambda x: tuple(x['coord']))
+        # Sort interfaces by site label for consistent output
+        interfaces.sort(key=lambda x: x["site_label"])
 
-            for i, interface_data in enumerate(type_interfaces):
-                # Generate unique site label
-                base_label = self._get_base_site_label(
-                    mol_type.name, type_name)
-                site_label = self._get_unique_site_label_with_base(
-                    base_label, used_labels)
-                used_labels.add(site_label)
-
-                # Store the mapping for later use
-                interface_key = f"{type_name}_{i+1}"
-                self.interface_to_site_map[interface_key] = site_label
-
-                # Build homotypic interface mapping
-                if type_name not in type_to_representative:
-                    # First interface of this type becomes the representative
-                    type_to_representative[type_name] = site_label
-                    self.homotypic_interface_map[site_label] = site_label
-                else:
-                    # Map this interface to the representative
-                    representative_site = type_to_representative[type_name]
-                    self.homotypic_interface_map[site_label] = representative_site
-
-                # Also map the type name for the first instance (for backward compatibility)
-                if i == 0:
-                    self.interface_to_site_map[type_name] = site_label
-
-                interfaces.append({
-                    'type_name': type_name,
-                    'instance_key': interface_key,
-                    'site_label': site_label,
-                    'coord': interface_data['coord'],
-                    'partner': interface_data['partner']
-                })
-
-                if self.workspace_manager:
-                    self.workspace_manager.logger.debug(
-                        "Mapped interface %s -> site %s -> representative %s",
-                        interface_key, site_label, self.homotypic_interface_map[site_label])
-
-        # Write .mol file
+        # --- existing file writing logic below unchanged ---
         with open(mol_file_path, 'w', encoding='utf-8') as f:
             f.write(f"Name = {mol_type.name}\n\n")
-
-            # Diffusion constants
-            D_t = mol_type.D_t_nm2_us
-            D_r = mol_type.D_r_rad2_us
-
+            f.write("checkOverlap = true\n")
+            
+            D_t = mol_type.D_t_nm2_us; D_r = mol_type.D_r_rad2_us
             f.write("# translational diffusion constants\n")
             f.write(f"D = [{D_t:.6g}, {D_t:.6g}, {D_t:.6g}]\n\n")
             f.write("# rotational diffusion constants\n")
             f.write(f"Dr = [{D_r:.6g}, {D_r:.6g}, {D_r:.6g}]\n\n")
-
-            # Coordinates
             f.write("# Coordinates\n")
             f.write(f"COM   {self._format_vec([0.0, 0.0, 0.0])}\n")
-
-            # Interface sites with unique labels
-            for interface in interfaces:
-                site_label = interface['site_label']
-                coord = interface['coord']
-                f.write(f"{site_label}  {self._format_vec(coord)}\n")
-
-            # Bonds from COM to each site
+            for rec in interfaces:
+                f.write(f"{rec['site_label']}  {self._format_vec(rec['coord'])}\n")
             f.write("\n# bonds\n")
             f.write(f"bonds = {len(interfaces)}\n")
-            for interface in interfaces:
-                site_label = interface['site_label']
-                f.write(f"com {site_label}\n")
+            for rec in interfaces:
+                f.write(f"com {rec['site_label']}\n")
 
         if self.workspace_manager:
-            self.workspace_manager.logger.debug(
-                "Wrote .mol file with %d interfaces: %s", len(interfaces), mol_file_path)
             self.workspace_manager.logger.info(
-                "Homotypic interface mapping: %s", self.homotypic_interface_map)
+                "Wrote .mol file with %d interfaces using representative coordinates: %s",
+                len(interfaces), mol_file_path
+            )
 
         return mol_file_path
 
+
     def _get_base_site_label(self, mol_name: str, interface_type_name: str) -> str:
-        """Get base site label from molecule name and interface type.
+        """Get base site label from molecule name and interface type name.
+
+        Format rules:
+        - If both mol names are single character: A_A_1 -> aa1
+        - If any mol name >= 2 characters: AH_Q_1 -> ah_q1, YDF_UU_2 -> ydf_uu_2
+        - No special rule for hmodimeric heterotypic case: A_A_1f -> aa1f
 
         Args:
-            mol_name: Molecule name.
-            interface_type_name: Interface type name.
+            mol_name: Molecule type name.
+            interface_type_name: Interface type name (e.g., "A_A_1", "AH_Q_2").
 
         Returns:
-            Base site label.
+            Formatted site label.
         """
-        initial = mol_name[0].lower() if mol_name else "x"
+        # Parse interface type name to extract components
+        # Expected format: "MOL1_MOL2_INDEX" (e.g., "A_A_1", "AH_Q_2")
+        parts = interface_type_name.split("_")
 
-        # Extract index from interface type name
-        if "_" in interface_type_name:
-            parts = interface_type_name.split("_")
-            if len(parts) >= 3 and parts[-1].isdigit():
-                return f"{initial}{parts[-1]}"
+        if len(parts) < 3:
+            # Fallback for unexpected format
+            if self.workspace_manager:
+                self.workspace_manager.logger.warning(
+                    "Unexpected interface type format: %s, using fallback naming",
+                    interface_type_name
+                )
+            initial = mol_name[0].lower() if mol_name else "x"
+            return f"{initial}1"
 
-        return f"{initial}1"
+        # Extract molecule names and index
+        mol1_name = parts[0]
+        mol2_name = parts[1]
+        index = parts[2]
 
-    def _get_unique_site_label_with_base(self, base_label: str, used_labels: set) -> str:
-        """Generate unique site label starting from base label.
+        # Convert to lowercase
+        mol1_lower = mol1_name.lower()
+        mol2_lower = mol2_name.lower()
 
-        Args:
-            base_label: Base label to start from.
-            used_labels: Set of already used labels.
+        # Apply formatting rules
+        if len(mol1_name) == 1 and len(mol2_name) == 1:
+            # Both single character: A_A_1 -> aa1
+            site_label = f"{mol1_lower}{mol2_lower}{index}"
+        else:
+            # At least one is multi-character: AH_Q_1 -> ah_q1
+            site_label = f"{mol1_lower}_{mol2_lower}{index}"
 
-        Returns:
-            Unique site label.
-        """
-        if base_label not in used_labels:
-            return base_label
+        if self.workspace_manager:
+            self.workspace_manager.logger.info(
+                "Generated site label: %s -> %s (mol1=%s, mol2=%s, index=%s)",
+                interface_type_name, site_label, mol1_name, mol2_name, index
+            )
 
-        # Extract base and number
-        base = ''.join(c for c in base_label if c.isalpha())
-        base_num = int(''.join(c for c in base_label if c.isdigit()) or "1")
-
-        # Find unique label
-        counter = base_num + 1
-        while True:
-            label = f"{base}{counter}"
-            if label not in used_labels:
-                return label
-            counter += 1
+        return site_label
 
     def _generate_reactions(self) -> List[str]:
-        """Generate BNGL reaction strings with proper handling of multiple homotypic interfaces."""
+        """Generate BNGL reaction strings with proper handling of failed homotypic interfaces."""
         reactions = []
         processed_pairs = set()
 
@@ -707,9 +1155,7 @@ class NERDSSExporter:
             mol2 = interface_type.partner_mol_type_name
             index = interface_type.interface_index
 
-            # For heterotypic, don't canonicalize - process both directions
             pair_key = (mol1, mol2, index)
-
             if pair_key not in interface_pairs:
                 interface_pairs[pair_key] = []
             interface_pairs[pair_key].append(interface_type)
@@ -717,49 +1163,72 @@ class NERDSSExporter:
         for pair_key, interface_types in interface_pairs.items():
             mol1, mol2, index = pair_key
 
-            # Create canonical key only for duplicate checking
+            # Create canonical key for duplicate checking
             canonical_key = tuple(sorted([mol1, mol2]) + [index])
 
             if canonical_key in processed_pairs:
                 continue
             processed_pairs.add(canonical_key)
 
-            # Get sites for both molecule types
-            type_name = interface_types[0].get_name()
-            mol1_sites = []
-            mol2_sites = []
-
-            # Find sites for mol1
-            for key, site_label in self.interface_to_site_map.items():
-                if key.startswith(type_name + "_") or key == type_name:
-                    if site_label not in mol1_sites:
-                        mol1_sites.append(site_label)
-
-            # Find sites for mol2
-            partner_type_name = f"{mol2}_{mol1}_{index}"
-            for key, site_label in self.interface_to_site_map.items():
-                if key.startswith(partner_type_name + "_") or key == partner_type_name:
-                    if site_label not in mol2_sites:
-                        mol2_sites.append(site_label)
-
-            if mol1 == mol2:  # Homotypic case
-                all_sites = sorted(set(mol1_sites + mol2_sites))
-                # Generate reactions: (i,j) where i <= j to avoid duplicates
-                for i, site1 in enumerate(all_sites):
-                    for j, site2 in enumerate(all_sites):
-                        if i <= j:  # ✅ Correct: avoids (j,i) when (i,j) exists
-                            reaction = f"{mol1}({site1}) + {mol2}({site2}) <-> {mol1}({site1}!1).{mol2}({site2}!1)"
+            # Check if this is a failed homotypic case
+            is_homodimer = (mol1 == mol2)
+        
+            if is_homodimer:
+                # --- NEW: build f/b pairs at this (mol,index) ---
+                # Gather concrete type names present for this (mol,mol,index)
+                concrete = [t.get_name() for t in interface_types]
+                # Keep only validly parsed names (robustness)
+                parsed = []
+                for tname in concrete:
+                    try:
+                        p = interface_naming.parse_interface_name(tname)
+                        parsed.append((tname, p))
+                    except Exception:
+                        continue
+                # Group by index; for our single "index" in key, this is already aligned
+                # Find any f/b combo(s)
+                fb_pairs: list[tuple[str,str]] = []
+                names_set = set(t for t, _ in parsed)
+                for tname, p in parsed:
+                    if p.tag == 'f':
+                        candidate_b = f"{p.this_mol}_{p.partner_mol}_{p.index}b"
+                        if candidate_b in names_set:
+                            fb_pairs.append((tname, candidate_b))
+                # For each f/b pair, map type → site and create reactions
+                for t_f, t_b in fb_pairs:
+                    sites_f = [s for (k, s) in self.interface_to_site_map.items() if k == t_f]
+                    sites_b = [s for (k, s) in self.interface_to_site_map.items() if k == t_b]
+                    for s1 in sites_f:
+                        for s2 in sites_b:
+                            reaction = f"{mol1}({s1}) + {mol2}({s2}) <-> {mol1}({s1}!1).{mol2}({s2}!1)"
                             reactions.append(reaction)
-
-                            is_cross_reaction = (i != j)
                             self.reaction_metadata.append({
                                 'reaction': reaction,
-                                'is_cross_reaction': is_cross_reaction,
+                                'is_cross_reaction': False,
                                 'mol1': mol1, 'mol2': mol2,
-                                'site1': site1, 'site2': site2
-                            })
-            else:  # Heterotypic case
-                # ✅ Generate ALL combinations: A(i) + B(j) for all i,j
+                                'site1': s1, 'site2': s2,                           'interaction_type': 'hom_het'
+                                    })
+
+            else:
+                # Handle true heterotypic cases as before
+                type_name = interface_types[0].get_name()
+                mol1_sites = []
+                mol2_sites = []
+
+                # Find sites for mol1
+                for key, site_label in self.interface_to_site_map.items():
+                    if key.startswith(type_name + "_") or key == type_name:
+                        if site_label not in mol1_sites:
+                            mol1_sites.append(site_label)
+
+                # Find sites for mol2
+                partner_type_name = f"{mol2}_{mol1}_{index}"
+                for key, site_label in self.interface_to_site_map.items():
+                    if key.startswith(partner_type_name + "_") or key == partner_type_name:
+                        if site_label not in mol2_sites:
+                            mol2_sites.append(site_label)
+
+                # Generate all combinations for heterotypic
                 for site1 in mol1_sites:
                     for site2 in mol2_sites:
                         reaction = f"{mol1}({site1}) + {mol2}({site2}) <-> {mol1}({site1}!1).{mol2}({site2}!1)"
@@ -769,17 +1238,30 @@ class NERDSSExporter:
                             'reaction': reaction,
                             'is_cross_reaction': False,
                             'mol1': mol1, 'mol2': mol2,
-                            'site1': site1, 'site2': site2
+                            'site1': site1, 'site2': site2,
+                            'interaction_type': 'het'
                         })
 
         return reactions
 
     def _calculate_reaction_parameters(self, reactions: List[str]) -> Tuple[List[float], List[Tuple[float, float, float, float, float]]]:
-        """Calculate bond lengths and angles for reactions using homotypic mapping cache."""
-        sigma_list = []
-        angles_list = []
+        """Calculate bond lengths and angles for reactions; print all contributing pairs + summary."""
 
-        # Regex to parse reaction format
+        def _circ_mean_std(vals: List[float]) -> Tuple[float, float]:
+            """Circular mean and circular std (sqrt(-2 ln R)) on [-π, π]."""
+            if not vals:
+                return 0.0, 0.0
+            s = float(np.mean(np.sin(vals)))
+            c = float(np.mean(np.cos(vals)))
+            mean = float(np.arctan2(s, c))
+            R = float(np.hypot(s, c))
+            R = np.clip(R, 1e-12, 1.0)
+            std = float(np.sqrt(-2.0 * np.log(R)))
+            return mean, std
+
+        sigma_list: List[float] = []
+        angles_list: List[Tuple[float, float, float, float, float]] = []
+
         reaction_re = re.compile(
             r"^\s*([A-Za-z0-9_]+)\(([A-Za-z0-9_]+)\)\s*\+\s*([A-Za-z0-9_]+)\(([A-Za-z0-9_]+)\)"
         )
@@ -793,168 +1275,400 @@ class NERDSSExporter:
 
             mol1, site1, mol2, site2 = match.groups()
 
-            # Map sites to their representatives using homotypic mapping
-            representative_site1 = self.homotypic_interface_map.get(
-                site1, site1)
-            representative_site2 = self.homotypic_interface_map.get(
-                site2, site2)
+            # Resolve sites to exact interface type names
+            type1 = self._site_to_single_interface_type(site1)
+            type2 = self._site_to_single_interface_type(site2)
 
-            # Create cache key using representative sites (canonical order)
-            cache_key = tuple(
-                sorted([representative_site1, representative_site2]))
-
-            if self.workspace_manager:
-                self.workspace_manager.logger.debug(
-                    "Reaction %s(%s) + %s(%s) -> representatives %s + %s -> cache key %s",
-                    mol1, site1, mol2, site2, representative_site1, representative_site2, cache_key
-                )
-
-            # Check cache first
-            if cache_key in self.reaction_params_cache:
-                sigma, angles = self.reaction_params_cache[cache_key]
-                sigma_list.append(sigma)
-                angles_list.append(angles)
-
-                if self.workspace_manager:
-                    self.workspace_manager.logger.debug(
-                        "Using cached parameters for %s: sigma=%.3f", cache_key, sigma
-                    )
+            if not type1 or not type2:
+                sigma, angles = 1.0, (0.0, 0.0, 0.0, 0.0, 0.0)
+                sigma_list.append(sigma); angles_list.append(angles)
                 continue
 
-            # Calculate parameters for the first time
-            com1, com2, interface1_coord, interface2_coord = self._get_coms_interfaces(
-                mol1, representative_site1, mol2, representative_site2)
+            cache_key = (mol1, site1, type1, mol2, site2, type2)
 
-            if interface1_coord is None or interface2_coord is None or com1 is None or com2 is None:
-                sigma, angles = 1.0, (0.0, 0.0, 0.0, 0.0, 0.0)
-            else:
-                sigma, angles = self._generate_reaction_angles(
-                    interface1_coord, interface2_coord, com1, com2
-                )
+            # Cache hit?
+            if cache_key in self.reaction_params_cache:
+                sigma, angles = self.reaction_params_cache[cache_key]
+                sigma_list.append(sigma); angles_list.append(angles)
+                if self.workspace_manager:
+                    self.workspace_manager.logger.info("Using cached params for %s: sigma=%.6f", cache_key, sigma)
+                continue
 
-            # Cache the result
-            self.reaction_params_cache[cache_key] = (sigma, angles)
-
-            sigma_list.append(sigma)
-            angles_list.append(angles)
+            # Enumerate ONLY exact-type bound pairs
+            pairs = self._enumerate_exact_type_pairs(mol1, type1, mol2, type2)
 
             if self.workspace_manager:
-                self.workspace_manager.logger.debug(
-                    "Calculated and cached parameters for %s: sigma=%.3f", cache_key, sigma
+                self.workspace_manager.logger.info(
+                    "Found %d bound instance pairs for %s(%s:%s) + %s(%s:%s)",
+                    len(pairs), mol1, site1, type1, mol2, site2, type2
                 )
+
+            if not pairs:
+                if self.workspace_manager:
+                    self.workspace_manager.logger.warning(
+                        "No exact-type bound pairs for %s(%s:%s)+%s(%s:%s); using default.",
+                        mol1, site1, type1, mol2, site2, type2
+                    )
+                sigma, angles = 1.0, (0.0, 0.0, 0.0, 0.0, 0.0)
+                self.reaction_params_cache[cache_key] = (sigma, angles)
+                sigma_list.append(sigma); angles_list.append(angles)
+                continue
+
+            # --- DEBUG PRINT HEADER ---
+            print("\n=== DEBUG: Averaging pairs for "
+                f"{mol1}({site1})[{type1}] + {mol2}({site2})[{type2}] ===")
+            header = ("idx  |  sigma     "
+                    "|  n1(local)                n2(local)                "
+                    "|  n1f(global)                n2f(global)               "
+                    "|  theta1     theta2     phi1        phi2        omega")
+            print(header)
+            print("-" * len(header))
+
+            # Compute per-pair params, then average
+            sigmas = []
+            angles_acc = []  # list of (theta1, theta2, phi1, phi2, omega)
+
+            # track a "representative" pair to anchor torsion mode
+            repr_pair_idx = 0
+            repr_inst = self._get_representative_instance(mol1)
+            for idx, (m1i, m2i, intf1, intf2) in enumerate(pairs):
+                if m1i is repr_inst:        # prefer the one that contains the representative of mol1
+                    repr_pair_idx = idx
+                com1 = m1i.com; com2 = m2i.com
+                p1   = intf1.absolute_coord; p2 = intf2.absolute_coord
+                sigma_i, angles_i = self._generate_reaction_angles(
+                    p1, p2, com1, com2, mol1, mol2, site1, site2
+                )
+                sigmas.append(sigma_i)
+                angles_acc.append(angles_i)
+
+            # arithmetic for sigma/thetas
+            sigma = float(np.mean(sigmas))
+            theta1_vals = [a[0] for a in angles_acc]
+            theta2_vals = [a[1] for a in angles_acc]
+            theta1 = float(np.mean(theta1_vals))
+            theta2 = float(np.mean(theta2_vals))
+
+            # torsions: circular mode selection if broad
+            phi1_vals = [a[2] for a in angles_acc]
+            phi2_vals = [a[3] for a in angles_acc]
+            omega_vals= [a[4] for a in angles_acc]
+
+            phi1_ref  = angles_acc[repr_pair_idx][2]
+            phi2_ref  = angles_acc[repr_pair_idx][3]
+            omega_ref = angles_acc[repr_pair_idx][4]
+
+            phi1_mu, R1, used1 = self._circ_mode_mean(phi1_vals,  phi1_ref, var_threshold=0.5)
+            phi2_mu, R2, used2 = self._circ_mode_mean(phi2_vals,  phi2_ref, var_threshold=0.5)
+            omg_mu , Rw, usedw = self._circ_mode_mean(omega_vals, omega_ref, var_threshold=0.5)
+
+            angles = (theta1, theta2, phi1_mu, phi2_mu, omg_mu)
+
+            # Diagnostics / warnings
+            if self.workspace_manager:
+                def _cvar(R): return (1.0 - R)
+                self.workspace_manager.logger.info(
+                    ("Angle dispersion for %s(%s)+%s(%s): "
+                    "σ_std=%.4g | Var(θ1)=%.4g Var(θ2)=%.4g | CVar(φ1)=%.4g%s CVar(φ2)=%.4g%s CVar(ω)=%.4g%s  [N=%d]"),
+                    mol1, site1, mol2, site2,
+                    float(np.std(sigmas)),
+                    float(np.var(theta1_vals)), float(np.var(theta2_vals)),
+                    _cvar(R1), " [MODE]" if used1 else "",
+                    _cvar(R2), " [MODE]" if used2 else "",
+                    _cvar(Rw), " [MODE]" if usedw else "",
+                    len(sigmas)
+                )
+
+            # Cache & store
+            self.reaction_params_cache[cache_key] = (sigma, angles)
+            sigma_list.append(sigma); angles_list.append(angles)
 
         return sigma_list, angles_list
 
+
     def _get_coms_interfaces(self, mol1_name: str, site1: str, mol2_name: str, site2: str) -> Tuple[Optional[np.ndarray], Optional[np.ndarray], Optional[np.ndarray], Optional[np.ndarray]]:
-        """Get center of mass and interface site coordinates for two molecules.
+        """Get center of mass and interface site coordinates for two specific molecule instances.
 
-        Args:
-            mol1_name: First molecule type name.
-            site1: First site label.
-            mol2_name: Second molecule type name.
-            site2: Second site label.
-
-        Returns:
-            Tuple of (com1, com2, interface1_coord, interface2_coord).
+        For homotypic reactions (A + A), ensures we get two different instances.
         """
-        # Convert site labels back to interface names using stored mapping
-        interface1_name = None
-        interface2_name = None
+        # For homotypic reactions, we need to find two different instances
+        is_homotypic = (mol1_name == mol2_name)
 
-        # Find interface names from site labels using reverse mapping
-        for intf_name, site_label in self.interface_to_site_map.items():
-            if site_label == site1:
-                # Check if this interface belongs to mol1
-                if intf_name.startswith(mol1_name + "_"):
-                    interface1_name = intf_name
-            if site_label == site2:
-                # Check if this interface belongs to mol2
-                if intf_name.startswith(mol2_name + "_"):
-                    interface2_name = intf_name
+        if is_homotypic:
+            return self._get_coms_interfaces_homotypic(mol1_name, site1, site2)
+        else:
+            return self._get_coms_interfaces_heterotypic(mol1_name, site1, mol2_name, site2)
 
-        if not interface1_name or not interface2_name:
-            if self.workspace_manager:
-                self.workspace_manager.logger.warning(
-                    "Could not find interface names for sites %s:%s or %s:%s",
-                    mol1_name, site1, mol2_name, site2
-                )
+    def _get_coms_interfaces_homotypic(self, mol_name: str, site1: str, site2: str) -> Tuple[Optional[np.ndarray], Optional[np.ndarray], Optional[np.ndarray], Optional[np.ndarray]]:
+        """Get coordinates for homotypic reaction using representative for site1."""
+        
+        # Always use representative instance for site1 (mol1)
+        representative_instance = self._get_representative_instance(mol_name)
+        if not representative_instance:
             return None, None, None, None
+        
+        # Find the interface on representative that matches site1
+        repr_interface = None
+        repr_coord = None
+        
+        for interface, partner in representative_instance.interfaces_neighbors_map.items():
+            if self._interface_matches_site(interface, site1):
+                repr_interface = interface
+                repr_coord = interface.absolute_coord
+                
+                # Find the partner instance that has site2
+                partner_instance = partner
+                partner_coord = None
+                
+                # Find partner's interface that matches site2 and connects back to repr
+                for partner_interface, partner_neighbor in partner_instance.interfaces_neighbors_map.items():
+                    if (partner_neighbor == representative_instance and
+                        self._interface_matches_site(partner_interface, site2)):
+                        partner_coord = partner_interface.absolute_coord
+                        break
+                
+                if partner_coord is not None:
+                    if self.workspace_manager:
+                        self.workspace_manager.logger.info(
+                            "Homotypic reaction %s(%s) + %s(%s): repr=%s (site1) -> partner=%s (site2)",
+                            mol_name, site1, mol_name, site2,
+                            id(representative_instance), id(partner_instance)
+                        )
+                    
+                    return (representative_instance.com, partner_instance.com, 
+                            repr_coord, partner_coord)
+        
+        if self.workspace_manager:
+            self.workspace_manager.logger.warning(
+                "Could not find binding pair for %s(%s) + %s(%s) using representative",
+                mol_name, site1, mol_name, site2
+            )
+        
+        return None, None, None, None
 
-        # Initialize
-        coord1 = None
-        coord2 = None
-        com1 = None
-        com2 = None
-
-        # Look up molecule instances to get their COMs
+    def _get_coms_interfaces_heterotypic(self, mol1_name: str, site1: str, mol2_name: str, site2: str) -> Tuple[Optional[np.ndarray], Optional[np.ndarray], Optional[np.ndarray], Optional[np.ndarray]]:
+        """Get coordinates for heterotypic reaction (A + B)."""
+        # Find instances that are actually binding to each other
         for mol_instance in self.system.molecule_instances:
             if mol_instance.molecule_type and mol_instance.molecule_type.name == mol1_name:
-                com1 = mol_instance.com
                 for this_interface, neighbor_instance in mol_instance.interfaces_neighbors_map.items():
                     if (neighbor_instance.molecule_type and
                         neighbor_instance.molecule_type.name == mol2_name and
-                            this_interface.interface_type.get_name() == interface1_name):
-                        com2 = neighbor_instance.com
-                        coord1 = this_interface.absolute_coord
-                        coord2 = this_interface.partner_interface.absolute_coord
-                        break
+                            self._interface_matches_site(this_interface, site1)):
 
-            # Break early if we found both
-            if com1 is not None and com2 is not None and coord1 is not None and coord2 is not None:
-                break
+                        # Find the corresponding interface on the partner
+                        for partner_interface, partner_neighbor in neighbor_instance.interfaces_neighbors_map.items():
+                            if (partner_neighbor == mol_instance and
+                                    self._interface_matches_site(partner_interface, site2)):
 
-        return com1, com2, coord1, coord2
+                                return (mol_instance.com, neighbor_instance.com,
+                                        this_interface.absolute_coord, partner_interface.absolute_coord)
 
-    def _generate_reaction_angles(self, intf1: np.ndarray, intf2: np.ndarray,
-                                  com1: np.ndarray, com2: np.ndarray) -> Tuple[float, Tuple[float, float, float, float, float]]:
-        """Generate reaction angles and bond length.
+        return None, None, None, None
+
+    def _interface_matches_site(self, interface_instance, site_label: str) -> bool:
+        """Check if an interface instance corresponds to a site label."""
+        # Get the interface type name
+        interface_type_name = interface_instance.interface_type.get_name()
+
+        # Check if this interface type maps to the site label
+        for key, mapped_site in self.interface_to_site_map.items():
+            if mapped_site == site_label and key == interface_type_name:
+                return True
+
+        return False
+
+    def _find_instance_from_coordinates(self, mol_name: str, com: np.ndarray,
+                                        intf_coord: np.ndarray) -> Optional:
+        """Find molecule instance based on COM and interface coordinates.
 
         Args:
-            intf1: Interface 1 coordinates.
-            intf2: Interface 2 coordinates.
-            com1: COM 1 coordinates.
-            com2: COM 2 coordinates.
+            mol_name: Molecule type name.
+            com: Center of mass coordinates.
+            intf_coord: Interface coordinates.
 
         Returns:
-            Tuple of (bond_length, (theta1, theta2, phi1, phi2, omega)).
+            Matching molecule instance or None.
         """
-        # Default normal vectors
-        norm1 = np.array([0.0, 0.0, 1.0])
-        norm2 = np.array([0.0, 0.0, 1.0])
+        tolerance = 1e-6  # Coordinate matching tolerance
 
-        # Convert to absolute normal vectors
-        abs_norm1 = com1 + norm1
-        abs_norm2 = com2 + norm2
+        for mol_instance in self.system.molecule_instances:
+            if (mol_instance.molecule_type and
+                    mol_instance.molecule_type.name == mol_name):
 
-        # Calculate angles
-        theta1 = angles_from_points(com1, intf1, intf2)
-        theta2 = angles_from_points(com2, intf2, intf1)
-        phi1 = dihedrals_from_points(intf2, intf1, com1, abs_norm1)
-        phi2 = dihedrals_from_points(intf1, intf2, com2, abs_norm2)
-        omega = dihedrals_from_points(com2, intf2, intf1, com1)
+                # Check COM match
+                if np.linalg.norm(mol_instance.com - com) < tolerance:
+                    # Check if any interface coordinate matches
+                    for interface, _ in mol_instance.interfaces_neighbors_map.items():
+                        if np.linalg.norm(interface.absolute_coord - intf_coord) < tolerance:
+                            return mol_instance
 
-        # Bond length
-        bond_length = np.linalg.norm(intf1 - intf2)
+        return None
 
-        return bond_length, (theta1, theta2, phi1, phi2, omega)
+    def _generate_reaction_angles(self, intf1: np.ndarray, intf2: np.ndarray,
+                                com1: np.ndarray, com2: np.ndarray,
+                                mol1_name: str, mol2_name: str,
+                                site1: str, site2: str,
+                                tol: float = 1e-8) -> Tuple[float, Tuple[float, float, float, float, float]]:
+        """
+        Infer NERDSS-style reaction parameters (σ, θ₁, θ₂, φ₁, φ₂, ω) using 
+        reference vectors (ref1) from MoleculeInstance.
+        
+        Logic adopted from ref_angles.py.
+        """
+        
+        # DEBUG: Log all inputs
+        if self.workspace_manager:
+            self.workspace_manager.logger.debug("="*80)
+            self.workspace_manager.logger.debug(f"ANGLE CALC for {mol1_name}({site1}) + {mol2_name}({site2})")
+            self.workspace_manager.logger.debug(f"  COM1:   {com1}")
+            self.workspace_manager.logger.debug(f"  COM2:   {com2}")
+            self.workspace_manager.logger.debug(f"  intf1:  {intf1}")
+            self.workspace_manager.logger.debug(f"  intf2:  {intf2}")
+        
+        mol1_instance = self._find_instance_from_coordinates(mol1_name, com1, intf1)
+        mol2_instance = self._find_instance_from_coordinates(mol2_name, com2, intf2)
+        
+        if mol1_instance is None or mol2_instance is None:
+             if self.workspace_manager:
+                 self.workspace_manager.logger.error("Could not find instances for angle calculation")
+             return 0.0, (0.0, 0.0, 0.0, 0.0, 0.0)
+
+        # helpers
+        def mag(x): 
+            return np.linalg.norm(x)
+        def unit(x):
+            m = mag(x)
+            return x / m if m > 1e-12 else np.zeros_like(x)
+
+        # 1. Determine normal points (ref points) from ref1
+        # Use the same normal vector logic as parms.inp to ensure consistent reference frames
+        n1 = self._n_global_from_local_x(mol1_name, site1, mol1_instance)
+        # Check if we need to normalize (though _n_global usually returns unit vectors)
+        n1 = unit(n1)
+        if self.workspace_manager:
+            self.workspace_manager.logger.debug(f"  n1 (norm): {n1}")
+        
+        n2 = self._n_global_from_local_x(mol2_name, site2, mol2_instance)
+        n2 = unit(n2)
+        if self.workspace_manager:
+            self.workspace_manager.logger.debug(f"  n2 (norm): {n2}")
+
+        # 2. Basic vectors
+        v1 = intf1 - com1
+        v2 = intf2 - com2
+        sigma1 = intf1 - intf2
+        sigma2 = intf2 - intf1
+        sigma_magnitude = mag(sigma1)
+        
+        if self.workspace_manager:
+            self.workspace_manager.logger.debug(f"  v1: {v1}, |v1|={mag(v1):.6f}")
+            self.workspace_manager.logger.debug(f"  v2: {v2}, |v2|={mag(v2):.6f}")
+            self.workspace_manager.logger.debug(f"  sigma: {sigma_magnitude:.6f}")
+        
+        if sigma_magnitude < tol:
+            return 0.0, (0.0, 0.0, 0.0, 0.0, 0.0)
+
+        # 3. Calculate theta
+        # theta = acos( (v . sigma) / (|v| |sigma|) )
+        theta1 = math.acos(np.clip(np.dot(v1, sigma1) / (mag(v1) * sigma_magnitude), -1.0, 1.0))
+        theta2 = math.acos(np.clip(np.dot(v2, sigma2) / (mag(v2) * sigma_magnitude), -1.0, 1.0))
+
+        # 4. Calculate phi
+        # t1 = unit(cross(v, sigma))
+        # t2 = unit(cross(v, n))
+        # phi = acos( t1 . t2 )
+        t1_1 = unit(np.cross(v1, sigma1))
+        t2_1 = unit(np.cross(v1, n1))
+        t1_2 = unit(np.cross(v2, sigma2))
+        t2_2 = unit(np.cross(v2, n2))
+        
+        phi1 = math.acos(np.clip(np.dot(t1_1, t2_1), -1.0, 1.0))
+        phi2 = math.acos(np.clip(np.dot(t1_2, t2_2), -1.0, 1.0))
+
+        # 5. Determine sign of phi
+        # Project n and sigma onto plane perpendicular to v
+        v1_uni = unit(v1)
+        v2_uni = unit(v2)
+        
+        n1_proj = n1 - v1_uni * np.dot(v1_uni, n1)
+        sigma1_proj = sigma1 - v1_uni * np.dot(v1_uni, sigma1)
+        
+        n2_proj = n2 - v2_uni * np.dot(v2_uni, n2)
+        sigma2_proj = sigma2 - v2_uni * np.dot(v2_uni, sigma2)
+        
+        phi1_dir = unit(np.cross(sigma1_proj, n1_proj))
+        phi2_dir = unit(np.cross(sigma2_proj, n2_proj))
+        
+        # Determine sign of phi - using full 3D vector comparison (robust for arbitrary orientations)
+        # Check if v_uni and phi_dir are parallel (dot ≈ 1) or anti-parallel (dot ≈ -1)
+        tol_sign = 1e-6
+        dot_v1_phi1 = np.dot(v1_uni, phi1_dir)
+        if abs(dot_v1_phi1 - 1.0) < tol_sign:  # parallel
+            phi1 = -phi1
+        elif abs(dot_v1_phi1 + 1.0) < tol_sign:  # anti-parallel
+            phi1 = phi1
+        else:
+            if self.workspace_manager:
+                self.workspace_manager.logger.warning(
+                    f"Phi1 sign ambiguous: dot(v1,phi1_dir)={dot_v1_phi1:.6f}")
+        
+        dot_v2_phi2 = np.dot(v2_uni, phi2_dir)
+        if abs(dot_v2_phi2 - 1.0) < tol_sign:  # parallel
+            phi2 = -phi2
+        elif abs(dot_v2_phi2 + 1.0) < tol_sign:  # anti-parallel
+            phi2 = phi2
+        else:
+            if self.workspace_manager:
+                self.workspace_manager.logger.warning(
+                    f"Phi2 sign ambiguous: dot(v2,phi2_dir)={dot_v2_phi2:.6f}")
+
+        # 6. Calculate omega
+        # a1 = cross(sigma1, v1)
+        # a2 = cross(sigma1, v2)
+        # omega = acos(a1 . a2)
+        a1 = unit(np.cross(sigma1, v1))
+        a2 = unit(np.cross(sigma1, v2))
+        
+        # fallback for degenerate omega logic not explicitly in ref_angles.py but in previous code
+        # retaining basic logic from ref_angles.py which assumes non-degenerate
+        omega = math.acos(np.clip(np.dot(a1, a2), -1.0, 1.0))
+
+        # 7. Determine sign of omega
+        sigma1_uni = unit(sigma1)
+        # Project v1, v2 onto plane perpendicular to sigma1
+        v1_proj_om = v1 - sigma1_uni * np.dot(sigma1_uni, v1)
+        v2_proj_om = v2 - sigma1_uni * np.dot(sigma1_uni, v2)
+        
+        omega_dir = unit(np.cross(v1_proj_om, v2_proj_om))
+        
+        # Determine sign of omega - using full 3D vector comparison (robust for arbitrary orientations)
+        dot_sigma_omega = np.dot(sigma1_uni, omega_dir)
+        if abs(dot_sigma_omega - 1.0) < tol_sign:  # parallel
+            omega = -omega
+        elif abs(dot_sigma_omega + 1.0) < tol_sign:  # anti-parallel
+            omega = omega
+        else:
+            if self.workspace_manager:
+                self.workspace_manager.logger.warning(
+                    f"Omega sign ambiguous: dot(sigma1,omega_dir)={dot_sigma_omega:.6f}")
+            
+        if self.workspace_manager:
+              self.workspace_manager.logger.debug(
+                  "Calculated angles (ref-based) for %s(%s) + %s(%s): σ=%.4f | θ₁=%.4f θ₂=%.4f φ₁=%.4f φ₂=%.4f ω=%.4f",
+                  mol1_name, site1, mol2_name, site2,
+                  sigma_magnitude, theta1, theta2, phi1, phi2, omega
+              )
+
+        return sigma_magnitude, (theta1, theta2, phi1, phi2, omega)
+
+
 
     def _write_parms_file(self, reactions: List[str], molecule_counts: Dict[str, int],
                           box_nm: Tuple[float, float, float], sigma_list: List[float],
                           angles_list: List[Tuple[float, float, float, float, float]],
                           parms_overrides: Optional[Dict[str, Any]] = None) -> Path:
-        """Write parms.inp file with proper handling of homotypic cross-reactions.
-
-        Args:
-            reactions: List of reaction strings.
-            molecule_counts: Number of molecules per type.
-            box_nm: Simulation box size.
-            sigma_list: Bond lengths for each reaction.
-            angles_list: Angles for each reaction.
-            parms_overrides: Additional parameters.
-
-        Returns:
-            Path to written parms.inp file.
-        """
+        """Write parms.inp file with calculated normal vectors."""
         parms_path = self.output_dir / "parms.inp"
 
         # Default parameters
@@ -968,24 +1682,24 @@ class NERDSSExporter:
             'pdbWrite': 1e5,
             'onRate3Dka': 100.0,
             'offRatekb': 1000.028,
-            'norm1': (0.0, 0.0, 1.0),
-            'norm2': (0.0, 0.0, 1.0),
+            'overlapSepLimit': 2.0,
+            'scaleMaxDisplace': 100.0,
         }
 
         # Apply overrides
         if parms_overrides:
             params.update(parms_overrides)
 
+        # Regex to parse reactions
+        reaction_re = re.compile(
+            r"^\s*([A-Za-z0-9_]+)\(([A-Za-z0-9_]+)\)\s*\+\s*([A-Za-z0-9_]+)\(([A-Za-z0-9_]+)\)"
+        )
+
         with open(parms_path, 'w', encoding='utf-8') as f:
             # Parameters section
             f.write("start parameters\n")
-            f.write(f"    nItr = {params['nItr']}\n")
-            f.write(f"    timestep = {params['timestep']}\n")
-            f.write(f"    timeWrite = {params['timeWrite']}\n")
-            f.write(f"    trajWrite = {params['trajWrite']}\n")
-            f.write(f"    restartWrite = {params['restartWrite']}\n")
-            f.write(f"    checkPoint = {params['checkPoint']}\n")
-            f.write(f"    pdbWrite = {params['pdbWrite']}\n")
+            for key, val in params.items():
+                f.write(f"    {key} = {val}\n")
             f.write("end parameters\n\n")
 
             # Boundaries section
@@ -1008,11 +1722,25 @@ class NERDSSExporter:
             for i, reaction in enumerate(reactions):
                 f.write(f"    {reaction}\n")
 
-                # Determine onRate3Dka based on whether it's a cross-reaction
+                # Parse reaction to get molecule types and sites
+                match = reaction_re.match(reaction)
+                if match:
+                    mol1, site1, mol2, site2 = match.groups()
+
+                    # Get calculated normal vectors for each species and site
+                    norm1_local = self._local_x_with_degeneracy(mol1, site1)
+                    norm2_local = self._local_x_with_degeneracy(mol2, site2)
+
+                else:
+                    # Fallback
+                    norm1_local = np.array([0.0, 0.0, 1.0])
+                    norm2_local = np.array([0.0, 0.0, 1.0])
+
+                # Determine onRate3Dka based on cross-reaction
                 base_on_rate = params['onRate3Dka']
                 if i < len(self.reaction_metadata):
                     if self.reaction_metadata[i]['is_cross_reaction']:
-                        on_rate = base_on_rate * 2.0  # Double for cross-reactions
+                        on_rate = base_on_rate * 2.0
                     else:
                         on_rate = base_on_rate
                 else:
@@ -1021,16 +1749,16 @@ class NERDSSExporter:
                 f.write(f"    onRate3Dka = {on_rate}\n")
                 f.write(f"    offRatekb = {params['offRatekb']}\n")
 
-                norm1 = params['norm1']
-                norm2 = params['norm2']
-                f.write(f"    norm1 = [{norm1[0]}, {norm1[1]}, {norm1[2]}]\n")
-                f.write(f"    norm2 = [{norm2[0]}, {norm2[1]}, {norm2[2]}]\n")
+                # Write calculated normal vectors
+                f.write(
+                    f"    norm1 = [{norm1_local[0]}, {norm1_local[1]}, {norm1_local[2]}]\n")
+                f.write(
+                    f"    norm2 = [{norm2_local[0]}, {norm2_local[1]}, {norm2_local[2]}]\n")
 
-                # Use calculated sigma or default
+                # Use calculated sigma and angles
                 sigma = sigma_list[i] if i < len(sigma_list) else 1.0
                 f.write(f"    sigma = {sigma}\n")
 
-                # Use calculated angles or default
                 angles = angles_list[i] if i < len(
                     angles_list) else (0.0, 0.0, 0.0, 0.0, 0.0)
                 f.write(
@@ -1040,19 +1768,251 @@ class NERDSSExporter:
             f.write("end reactions\n")
 
         if self.workspace_manager:
-            self.workspace_manager.logger.debug(
+            self.workspace_manager.logger.info(
                 "Wrote parms.inp file: %s", parms_path)
 
         return parms_path
 
     def _format_vec(self, vec: Iterable[float], precision: int = 7) -> str:
-        """Format vector for output files.
-
-        Args:
-            vec: Vector to format.
-            precision: Number of decimal places.
-
-        Returns:
-            Formatted vector string.
-        """
+        """Format vector for output files."""
         return "   ".join(f"{float(v):.{precision}f}" for v in vec)
+
+    #######
+    #debug
+    #######
+    
+    def _debug_representative_instance(self, mol_name: str):
+        """Debug print all information about the representative instance."""
+        
+        representative = self._get_representative_instance(mol_name)
+        
+        if not representative:
+            print(f"DEBUG REPRESENTATIVE: No representative found for {mol_name}")
+            return
+        
+        print(f"DEBUG REPRESENTATIVE INSTANCE for {mol_name}:")
+        print(f"=" * 60)
+        print(f"Instance ID: {id(representative)}")
+        print(f"COM (absolute): {representative.com}")
+        print(f"Number of interfaces: {len(representative.interfaces_neighbors_map)}")
+        print()
+        
+        print("INTERFACES AND BINDING PARTNERS:")
+        for i, (interface, partner) in enumerate(representative.interfaces_neighbors_map.items(), 1):
+            interface_type_name = interface.interface_type.get_name()
+            interface_absolute_coord = interface.absolute_coord
+            interface_local_coord = interface_absolute_coord - representative.com
+            
+            # Find the site label for this interface
+            site_label = "UNKNOWN"
+            for key, label in self.interface_to_site_map.items():
+                if key.startswith(interface_type_name) or key == interface_type_name:
+                    site_label = label
+                    break
+            
+            print(f"  Interface {i}:")
+            print(f"    Type: {interface_type_name}")
+            print(f"    Site label: {site_label}")
+            print(f"    Absolute coord: {interface_absolute_coord}")
+            print(f"    Local coord (relative to COM): {interface_local_coord}")
+            print(f"    Partner molecule ID: {id(partner)}")
+            print(f"    Partner molecule COM: {partner.com}")
+            
+            # Find the partner's interface that connects back
+            partner_interface = None
+            for p_interface, p_neighbor in partner.interfaces_neighbors_map.items():
+                if p_neighbor == representative:
+                    partner_interface = p_interface
+                    break
+            
+            if partner_interface:
+                partner_type_name = partner_interface.interface_type.get_name()
+                partner_absolute_coord = partner_interface.absolute_coord
+                partner_local_coord = partner_absolute_coord - partner.com
+                
+                # Find partner site label
+                partner_site_label = "UNKNOWN"
+                for key, label in self.interface_to_site_map.items():
+                    if key.startswith(partner_type_name) or key == partner_type_name:
+                        partner_site_label = label
+                        break
+                
+                print(f"    Partner interface type: {partner_type_name}")
+                print(f"    Partner site label: {partner_site_label}")
+                print(f"    Partner interface absolute coord: {partner_absolute_coord}")
+                print(f"    Partner interface local coord: {partner_local_coord}")
+                print(f"    Bond length: {np.linalg.norm(interface_absolute_coord - partner_absolute_coord):.6f}")
+            else:
+                print(f"    ERROR: Could not find partner interface!")
+            
+            print()
+        
+        print("INTERFACE-TO-SITE MAPPING:")
+        print("Interface type -> Site label:")
+        for key, site_label in self.interface_to_site_map.items():
+            print(f"  {key} -> {site_label}")
+        print()
+        
+        print("EXPECTED REACTIONS (based on interface types):")
+        interface_types = [intf.interface_type.get_name()
+                           for intf in representative.interfaces_neighbors_map.keys()]
+        # f/b complementary preview (homodimeric heterotypic)
+        for t in interface_types:
+            try:
+                p = interface_naming.parse_interface_name(t)
+                if p.this_mol == p.partner_mol and p.tag == 'f':
+                    partner = f"{p.this_mol}_{p.partner_mol}_{p.index}b"
+                    if partner in interface_types:
+                        s1 = self._get_site_label_for_interface_type(t)
+                        s2 = self._get_site_label_for_interface_type(partner)
+                        print(f"  {mol_name}({s1}) + {mol_name}({s2}) <-> {mol_name}({s1}!1).{mol_name}({s2}!1)")
+            except Exception:
+                continue
+        
+        print("=" * 60)
+
+    def _get_site_label_for_interface_type(self, interface_type_name: str) -> str:
+        """Get site label for a given interface type name."""
+        for key, site_label in self.interface_to_site_map.items():
+            if key == interface_type_name:
+                return site_label
+        return "UNKNOWN"
+    
+    def _iface_type_name(self, interface_instance) -> str:
+        return interface_instance.interface_type.get_name() if interface_instance and interface_instance.interface_type else ""
+
+    def _site_to_single_interface_type(self, site_label: str) -> str:
+        """
+        Resolve a site label to exactly ONE interface type name.
+        If multiple or none are found, emit a clear warning and choose deterministically.
+        """
+        hits = [t for t, s in self.interface_to_site_map.items() if s == site_label]
+        if not hits:
+            if self.workspace_manager:
+                self.workspace_manager.logger.error("Site %s maps to no interface types.", site_label)
+            return ""  # caller will guard
+        uniq = sorted(set(hits))
+        if len(uniq) > 1:
+            if self.workspace_manager:
+                self.workspace_manager.logger.warning(
+                    "Site %s maps to multiple interface types %s; using the first: %s",
+                    site_label, uniq, uniq[0]
+                )
+        return uniq[0]
+
+    def _rep_local_site_vector(self, mol_name: str, site_label: str) -> Optional[np.ndarray]:
+        """Return the representative instance's LOCAL coordinate of this site (p_local)."""
+        rep = self._get_representative_instance(mol_name)
+        if rep is None:
+            return None
+        # Resolve site -> exact interface type name
+        iface_type = self._site_to_single_interface_type(site_label)
+        if not iface_type:
+            return None
+        # Find the matching interface on the representative
+        for intf, _ in rep.interfaces_neighbors_map.items():
+            if self._iface_type_name(intf) == iface_type:
+                return (intf.absolute_coord - rep.com)  # local vector in representative frame
+        return None
+
+    def _local_x_with_degeneracy(self, mol_name: str, site_label: str, thr: float = 0.99) -> np.ndarray:
+        """
+        Choose the local base normal for a site in the REPRESENTATIVE frame.
+        Default [0,0,1] (Z-axis); if collinear with the site's local vector (at rep), use [1,0,0].
+        """
+        n_local = np.array([0.0, 0.0, 1.0], dtype=float)
+        p_local = self._rep_local_site_vector(mol_name, site_label)
+        if p_local is None:
+            return n_local
+        nl = np.linalg.norm(p_local)
+        if nl > 1e-12:
+            vhat = p_local / nl
+            if abs(float(np.dot(n_local, vhat))) > thr:
+                return np.array([1.0, 0.0, 0.0], dtype=float)
+        return n_local
+
+    def _n_global_from_local_x(self, mol_name: str, site_label: str, inst) -> np.ndarray:
+        """
+        Take the base local normal (chosen in representative frame) and rotate it
+        to the *instance's* global frame using the existing R(repr->inst).
+        """
+        rep = self._get_representative_instance(mol_name)
+        if rep is None or inst is None or inst is rep:
+            # No rotation needed (rep itself)
+            return self._local_x_with_degeneracy(mol_name, site_label)
+
+        R = self._calculate_rotation_from_representative(mol_name, rep, inst)
+        if R is None:
+            # Fallback: no rotation available
+            return self._local_x_with_degeneracy(mol_name, site_label)
+
+        n_local = self._local_x_with_degeneracy(mol_name, site_label)
+        return R @ n_local
+    
+    def _circular_mean_std(self, vals: List[float]) -> Tuple[float, float]:
+        """
+        Circular mean and 'circular std' (sqrt(-2 ln R)) on [-π, π].
+        If vals empty, returns (0, 0).
+        """
+        if not vals:
+            return 0.0, 0.0
+        s = float(np.mean(np.sin(vals)))
+        c = float(np.mean(np.cos(vals)))
+        mean = float(np.arctan2(s, c))
+        R = float(np.hypot(s, c))
+        # Clamp R into (0,1] to avoid log issues
+        R = np.clip(R, 1e-12, 1.0)
+        std = float(np.sqrt(-2.0 * np.log(R)))
+        return mean, std
+
+
+    def _circ_mean_R(self, angles: list[float]) -> tuple[float, float]:
+        """Return (circular_mean, resultant_length R in [0,1])."""
+        if not angles:
+            return 0.0, 0.0
+        s = np.mean(np.sin(angles)); c = np.mean(np.cos(angles))
+        mu = float(np.arctan2(s, c))
+        R = float(np.hypot(s, c))
+        return mu, R
+
+    def _circ_mode_mean(self, angles: list[float], ref_angle: float, var_threshold: float = 0.5) -> tuple[float, float, bool]:
+        """
+        If the circular resultant R < (1 - var_threshold), treat as bimodal and
+        choose the cluster closest to ref_angle. Returns (mean, R_selected, used_mode).
+        """
+        mu_all, R_all = self._circ_mean_R(angles)
+        # circular variance ≈ 1 - R; high if R small
+        if (1.0 - R_all) <= var_threshold:
+            return mu_all, R_all, False
+
+        # --- simple 2-means on the unit circle with seeded antipodal centers ---
+        ref = np.array([np.cos(ref_angle), np.sin(ref_angle)], float)
+        ctrs = np.stack([ref, -ref], axis=0)
+
+        pts = np.stack([np.cos(angles), np.sin(angles)], axis=1)
+        assign = None
+
+        for _ in range(10):
+            # cosine distance maximization == dot maximization
+            dots = pts @ ctrs.T                         # N x 2
+            new_assign = np.argmax(dots, axis=1)        # 0 or 1
+            if assign is not None and np.all(new_assign == assign):
+                break
+            assign = new_assign
+            for k in (0, 1):
+                sel = pts[assign == k]
+                if len(sel) > 0:
+                    v = sel.mean(axis=0)
+                    n = np.linalg.norm(v)
+                    ctrs[k] = v / n if n > 1e-12 else ctrs[k]
+
+        # choose cluster whose center is closer to ref on the circle
+        k_ref = np.argmax(ctrs @ ref)
+        sel = pts[assign == k_ref]
+        if len(sel) == 0:
+            # fallback to all
+            return mu_all, R_all, False
+
+        mu = float(np.arctan2(sel[:,1].mean(), sel[:,0].mean()))
+        R  = float(np.linalg.norm(sel.mean(axis=0)))
+        return mu, R, True
