@@ -470,6 +470,7 @@ visualizations = builder.generate_visualizations()
 
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 import numpy as np
 
 from ionerdss.model.components.system import System
@@ -485,6 +486,32 @@ from .file_manager import WorkspaceManager
 from .visualizer import PDBVisualizer
 from .ring_regularizer import RingRegularizer
 
+from .template_builder import _enforce_identical_local_geometry_after_com
+
+def _kabsch_rotation(P: np.ndarray, Q: np.ndarray) -> np.ndarray:
+    """
+    Calculate best rotation R that aligns P to Q (Q ~ R @ P).
+    P, Q: (N, 3) arrays.
+    """
+    # Center coordinates
+    P_cent = P - np.mean(P, axis=0)
+    Q_cent = Q - np.mean(Q, axis=0)
+    
+    # Compute covariance matrix
+    H = np.dot(P_cent.T, Q_cent)
+    
+    # Singular Value Decomposition
+    U, S, Vt = np.linalg.svd(H)
+    
+    # Calculate Rotation Matrix
+    R = np.dot(Vt.T, U.T)
+    
+    # Special reflection case
+    if np.linalg.det(R) < 0:
+        Vt[-1, :] *= -1
+        R = np.dot(Vt.T, U.T)
+        
+    return R
 
 class SystemBuilder:
     """Builder for complete ionerdss System objects.
@@ -548,7 +575,7 @@ class SystemBuilder:
 
         # Step 1: Create molecule instances
         self.molecule_instances = self._create_molecule_instances()
-
+        
         # Step 2: Create interface instances
         self.interface_instances = self._create_interface_instances()
 
@@ -609,6 +636,39 @@ class SystemBuilder:
             # Convert coordinates to nanometers
             com_nm = self.parser.convert_coords_to_nm(chain_data.com)
 
+            # Calculate rotation and transform ref1/ref2
+            ref1 = molecule_type.ref1_local
+            ref2 = molecule_type.ref2_local
+            
+            # If this chain is not the representative, we need to find the rotation
+            # that maps the representative to this chain instance
+            if chain_id != group.representative:
+                try:
+                    coords_rep = self.parser.get_chain_data(group.representative)['ca_coords']
+                    coords_curr = self.parser.get_chain_data(chain_id)['ca_coords']
+                    
+                    if len(coords_rep) == len(coords_curr) and len(coords_rep) > 2:
+                        # Use Kabsch algorithm to find rotation
+                        # P = coords_rep (template/source)
+                        # Q = coords_curr (instance/target)
+                        rot = _kabsch_rotation(coords_rep, coords_curr)
+                        
+                        # Apply rotation to reference vectors
+                        ref1 = rot @ ref1
+                        ref2 = rot @ ref2
+                    else:
+                        if self.workspace_manager:
+                            self.workspace_manager.logger.warning(
+                                "Cannot align chain %s to representative %s for orientation (different lengths or too short). Using default orientation.",
+                                chain_id, group.representative
+                            )
+                except Exception as e:
+                    if self.workspace_manager:
+                        self.workspace_manager.logger.warning(
+                            "Failed to calculate orientation for chain %s: %s. Using default orientation.",
+                            chain_id, str(e)
+                        )
+
             # Create arbitrary normal vector (could be computed from structure)
             norm = np.array([0.0, 0.0, 1.0])
 
@@ -617,7 +677,9 @@ class SystemBuilder:
                 name=f"{chain_id}_{template_name}",
                 molecule_type=molecule_type,
                 com=com_nm,
-                norm=norm
+                norm=norm,
+                ref1=ref1,
+                ref2=ref2
             )
 
             instances.append(molecule_instance)
@@ -629,123 +691,438 @@ class SystemBuilder:
         return instances
 
     def _create_interface_instances(self) -> List[InterfaceInstance]:
-        """Create interface instances from processed interfaces."""
-        instances = []
+        """
+        Create interface instances with:
+        - de-duplication of undirected edges
+        - robust partner template resolution
+        - deterministic f/b assignment for homodimeric-heterotypic pairs:
+            representative chain side -> ..._1f, non-representative side -> ..._1b
+        """
+        instances: List[InterfaceInstance] = []
         interfaces = self.coarse_grainer.get_interfaces()
 
-        if self.workspace_manager:
-            self.workspace_manager.logger.info(
-                f"Processing {len(interfaces)} interfaces for instance creation")
+        log = self.workspace_manager.logger if self.workspace_manager else None
+        if log:
+            log.info("Processing %d interfaces for instance creation", len(interfaces))
+            log.info("Beginning interface instance creation with de-duplication")
+
+        # ---------- helpers ----------
+        def _nm(coord):
+            return self.parser.convert_coords_to_nm(coord)
+
+        def _round_sig(v: np.ndarray, nd=3) -> tuple:
+            return tuple(np.round(v, nd))
+
+        def _iface_name(obj) -> Optional[str]:
+            if obj is None:
+                return None
+            if hasattr(obj, "get_name"):
+                return obj.get_name()
+            if isinstance(obj, str):
+                return obj
+            return None
+
+        def _lookup_iface(name: Optional[str]):
+            return self.template_builder.interface_templates.get(name) if name else None
+
+        def _parse_iface_name(name: str):
+            # A_B_1, A_A_1f, A_A_1b
+            try:
+                p = name.split("_")
+                if len(p) < 3:
+                    return (None, None, None, None)
+                fam_i, fam_j = p[0], p[1]
+                last = p[2]
+                if len(last) >= 2 and last[-1] in ("f", "b") and last[:-1].isdigit():
+                    return (fam_i, fam_j, last[:-1], last[-1])
+                if last.isdigit():
+                    return (fam_i, fam_j, last, None)
+            except Exception:
+                pass
+            return (None, None, None, None)
+
+        def _compose_name(f1, f2, idx, suf):
+            return f"{f1}_{f2}_{idx}{suf}" if suf in ("f", "b") else f"{f1}_{f2}_{idx}"
+
+        def _infer_partner_name(primary: Optional[str]) -> Optional[str]:
+            if not primary:
+                return None
+            fi, fj, idx, suf = _parse_iface_name(primary)
+            if fi is None:
+                return None
+            if fi != fj:
+                # heterodimeric: swap families, keep idx/suf
+                return _compose_name(fj, fi, idx, suf)
+            # homodimeric
+            if suf in ("f", "b"):  # heterotypic
+                return _compose_name(fi, fj, idx, "b" if suf == "f" else "f")
+            # homotypic
+            return _compose_name(fi, fj, idx, None)
+
+        def _resolve_partner_template(primary_template):
+            # 1) explicit partner
+            partner = getattr(primary_template, "partner_interface_type", None)
+            if partner is not None:
+                if hasattr(partner, "get_name"):
+                    return partner
+                cand = _lookup_iface(_iface_name(partner))
+                if cand is not None:
+                    return cand
+            # 2) name inference
+            primary_name = _iface_name(primary_template)
+            inferred = _infer_partner_name(primary_name)
+            cand = _lookup_iface(inferred)
+            if cand is not None:
+                return cand
+            # 3) homodimeric-homotypic safe fallback to same
+            fi, fj, idx, suf = _parse_iface_name(primary_name or "")
+            if fi is not None and fi == fj and suf is None:
+                return primary_template
+            # 4) last resort: same
+            if log:
+                log.warning("Could not find partner template for %s; using same template", primary_name)
+            return primary_template
+
+        def _lookup_hht_meta_from_catalog(iface_template):
+            """
+            Try to pull canonical HHT info from template_builder.hht_catalog.
+
+            Key shape in template_builder:
+              (template_name, ordered_signature_tuple) -> {
+                  'canon_order': 'ij' | 'ji',
+                  'f': name_f,
+                  'b': name_b,
+                  'index': int,
+              }
+
+            We assume the interface template exposes:
+              - get_name()
+              - signature (a dict) with some ordered tuple we can use
+            """
+            if not hasattr(self.template_builder, "hht_catalog"):
+                return None
+
+            # get template name
+            tname = None
+            if hasattr(iface_template, "get_name"):
+                tname = iface_template.get_name()
+            else:
+                tname = getattr(iface_template, "name", None)
+
+            if not tname:
+                return None
+
+            sig = getattr(iface_template, "signature", None)
+            if not sig:
+                return None
+
+            # try to find an ordered signature tuple in the signature dict
+            # adjust the key name here to *your* actual signature layout
+            ordered = (
+                sig.get("ordered_signature")
+                or sig.get("ordered_signature_tuple")
+                or sig.get("ordered")
+            )
+
+            # last resort: if signature itself is already a tuple (rare)
+            if ordered is None and isinstance(sig, (tuple, list)):
+                ordered = tuple(sig)
+
+            if ordered is None:
+                return None
+
+            key = (tname, tuple(ordered))
+            return self.template_builder.hht_catalog.get(key)
+
+        def _get_hht_pair(primary_template):
+            """
+            If this is a homodimeric-heterotypic family, return (f_template, b_template, fam, idx).
+            Otherwise return (None, None, None, None).
+            """
+            name = _iface_name(primary_template)
+            fi, fj, idx, suf = _parse_iface_name(name or "")
+            if fi is None or fi != fj:
+                return (None, None, None, None)
+            # Needs f/b suffix on at least one side
+            if suf not in ("f", "b"):
+                return (None, None, None, None)
+
+            fam = fi
+            # Find both f and b templates via names; fall back to partner link if needed
+            f_name = _compose_name(fam, fam, idx, "f")
+            b_name = _compose_name(fam, fam, idx, "b")
+            f_t = _lookup_iface(f_name)
+            b_t = _lookup_iface(b_name)
+            # If one is missing, try from explicit partner connection
+            if f_t is None or b_t is None:
+                partner_t = _resolve_partner_template(primary_template)
+                # ensure both
+                for nm in (f_name, b_name):
+                    if _lookup_iface(nm) is None and _iface_name(partner_t) == nm:
+                        if nm.endswith("f"):
+                            f_t = partner_t
+                        else:
+                            b_t = partner_t
+            if f_t is None or b_t is None:
+                return (None, None, None, None)
+            return (f_t, b_t, fam, idx)
+
+        def _enforce_hht_orientation(primary_template, chain_i: str, chain_j: str):
+            """
+            Deterministically choose which side is 'f' and which is 'b' for
+            homodimeric-heterotypic (HHT) interfaces.
+
+            Priority:
+            1. If template_builder.hht_catalog has an entry for this interface
+               template + ordered signature, obey it.
+               - 'canon_order' == 'ij'  -> chain_i gets 'f', chain_j gets 'b'
+               - 'canon_order' == 'ji'  -> chain_j gets 'f', chain_i gets 'b'
+            2. Else, fall back to your current representative-based logic.
+            """
+            # detect HHT pair the old way
+            f_t, b_t, fam, idx = _get_hht_pair(primary_template)
+            if f_t is None:
+                # not an HHT case -> old path
+                partner = _resolve_partner_template(primary_template)
+                return (primary_template, partner)
+
+            # 1) try catalog
+            hht_meta = _lookup_hht_meta_from_catalog(primary_template)
+            if hht_meta is not None:
+                canon_order = hht_meta.get("canon_order")  # 'ij' or 'ji'
+                name_f = hht_meta.get("f")
+                name_b = hht_meta.get("b")
+
+                # resolve to actual templates, because catalog stores names
+                tmpl_f = _lookup_iface(name_f) or f_t
+                tmpl_b = _lookup_iface(name_b) or b_t
+
+                if canon_order == "ij":
+                    # original order i -> f, j -> b
+                    return (tmpl_f, tmpl_b)
+                elif canon_order == "ji":
+                    # original order j -> f, i -> b
+                    return (tmpl_b, tmpl_f)
+                else:
+                    # unknown string: just fall back
+                    if log:
+                        log.warning(
+                            "HHT catalog entry for %s has unknown canon_order=%s; falling back",
+                            primary_template.get_name() if hasattr(primary_template, "get_name") else str(primary_template),
+                            canon_order,
+                        )
+
+            # 2) catalog not available or incomplete -> use your representative rule
+
+            g_i = self.chain_grouper.get_group_for_chain(chain_i)
+            g_j = self.chain_grouper.get_group_for_chain(chain_j)
+            rep = None
+            if g_i and g_i.representative:
+                rep = g_i.representative
+            elif g_j and g_j.representative:
+                rep = g_j.representative
+
+            if rep is None:
+                partner = _resolve_partner_template(primary_template)
+                if log:
+                    log.warning(
+                        "HHT naming detected but representative not found; using default assignment"
+                    )
+                return (primary_template, partner)
+
+            # rep side -> f, other side -> b
+            if chain_i == rep and chain_j != rep:
+                return (f_t, b_t)
+            if chain_j == rep and chain_i != rep:
+                return (b_t, f_t)
+
+            # tie / pathological -> alphabetical to stay deterministic
+            if chain_i <= chain_j:
+                return (f_t, b_t)
+            else:
+                return (b_t, f_t)
+
+
+        # de-dup key over undirected edges using rounded nm coords
+        seen_edges = set()
 
         for i, interface in enumerate(interfaces):
-            # Check if the interface has been assigned a type during template building
-            if hasattr(interface, 'interface_type') and interface.interface_type:
-                interface_type_name = interface.interface_type
-                if self.workspace_manager:
-                    self.workspace_manager.logger.debug(
-                        f"Interface {i} has assigned type: {interface_type_name}")
+            # Resolve interface type name
+            if hasattr(interface, "interface_type") and interface.interface_type:
+                iface_type_name = interface.interface_type
+                if log:
+                    log.info("Interface %d has assigned type: %s", i, iface_type_name)
             else:
-                # Fallback: ask template builder for the type
-                interface_type_name = self.template_builder.get_interface_type_for_interface(
-                    interface)
-                if self.workspace_manager:
-                    self.workspace_manager.logger.debug(
-                        f"Interface {i} fallback type lookup: {interface_type_name}")
+                iface_type_name = self.template_builder.get_interface_type_for_interface(interface)
+                if log:
+                    log.info("Interface %d fallback type lookup: %s", i, iface_type_name)
 
-            if not interface_type_name:
-                if self.workspace_manager:
-                    self.workspace_manager.logger.warning(
-                        "No interface type found for interface %s <-> %s, skipping",
-                        interface.chain_i, interface.chain_j
-                    )
+            if not iface_type_name:
+                if log:
+                    log.warning("No interface type for %s <-> %s; skipping",
+                                getattr(interface, "chain_i", "?"), getattr(interface, "chain_j", "?"))
                 continue
 
-            # Get the interface template
-            interface_template = self.template_builder.interface_templates.get(
-                interface_type_name)
-            if not interface_template:
-                if self.workspace_manager:
-                    self.workspace_manager.logger.warning(
-                        "Interface template %s not found, skipping interface %s <-> %s",
-                        interface_type_name, interface.chain_i, interface.chain_j
-                    )
+            iface_template = _lookup_iface(iface_type_name)
+            if not iface_template:
+                if log:
+                    log.warning("Interface template %s not found; skipping %s <-> %s",
+                                iface_type_name, interface.chain_i, interface.chain_j)
                 continue
 
-            # Get template names for the chains
-            group_i = self.chain_grouper.get_group_for_chain(interface.chain_i)
-            group_j = self.chain_grouper.get_group_for_chain(interface.chain_j)
-            template_i = self.template_builder.group_to_template.get(
-                group_i.representative) if group_i else None
-            template_j = self.template_builder.group_to_template.get(
-                group_j.representative) if group_j else None
-
-            if not template_i or not template_j:
-                if self.workspace_manager:
-                    self.workspace_manager.logger.warning(
-                        "Missing template for interface %s <-> %s",
-                        interface.chain_i, interface.chain_j
-                    )
+            # Resolve molecule templates for the two chains
+            gi = self.chain_grouper.get_group_for_chain(interface.chain_i)
+            gj = self.chain_grouper.get_group_for_chain(interface.chain_j)
+            ti = self.template_builder.group_to_template.get(gi.representative) if gi else None
+            tj = self.template_builder.group_to_template.get(gj.representative) if gj else None
+            if not ti or not tj:
+                if log:
+                    log.warning("Missing template for interface %s <-> %s", interface.chain_i, interface.chain_j)
                 continue
 
-            # Always create interface instance for side i
-            instance_i = InterfaceInstance(
-                absolute_coord=self.parser.convert_coords_to_nm(
-                    interface.coord_i),
-                interface_type=interface_template,
-                this_mol_name=f"{interface.chain_i}_{template_i}",
-                partner_mol_name=f"{interface.chain_j}_{template_j}",
-                interface_index=getattr(
-                    interface_template, 'interface_index', 1),
-                residues=list(interface.residues_i) if hasattr(
-                    interface, 'residues_i') else [],
-                energy=interface.energy
+            # Prepare de-dup edge key
+            ci_nm = _nm(interface.coord_i)
+            cj_nm = _nm(interface.coord_j)
+            ci_sig = _round_sig(ci_nm, 3)
+            cj_sig = _round_sig(cj_nm, 3)
+            a, b = sorted([interface.chain_i, interface.chain_j])
+            pos_pair = tuple(sorted([ci_sig, cj_sig]))
+            edge_key = (a, b, pos_pair)
+            if edge_key in seen_edges:
+                if log:
+                    log.debug("Skipping duplicate interface edge %s<->%s (key=%s)",
+                            interface.chain_i, interface.chain_j, edge_key)
+                continue
+            seen_edges.add(edge_key)
+
+            # =========================
+            # Deterministic HHT mapping
+            # =========================
+            # If HHT, orient by representative => (f on rep, b on non-rep)
+            tmpl_i, tmpl_j = _enforce_hht_orientation(iface_template, interface.chain_i, interface.chain_j)
+
+            # Build the two instances
+            inst_i = InterfaceInstance(
+                absolute_coord=ci_nm,
+                interface_type=tmpl_i,
+                this_mol_name=f"{interface.chain_i}_{ti}",
+                partner_mol_name=f"{interface.chain_j}_{tj}",
+                interface_index=getattr(tmpl_i, "interface_index", 1),
+                residues=list(getattr(interface, "residues_i", [])),
+                energy=getattr(interface, "energy", None),
             )
-            instances.append(instance_i)
-
-            # Always create interface instance for side j (bidirectional)
-            # Get the partner interface type
-            partner_type = getattr(
-                interface_template, 'partner_interface_type', None)
-
-            if isinstance(partner_type, str):
-                partner_template = self.template_builder.interface_templates.get(
-                    partner_type)
-            else:
-                partner_template = partner_type
-
-            # If no explicit partner template, use the same template (for homodimeric cases)
-            if not partner_template:
-                partner_template = interface_template
-
-            instance_j = InterfaceInstance(
-                absolute_coord=self.parser.convert_coords_to_nm(
-                    interface.coord_j),
-                interface_type=partner_template,
-                this_mol_name=f"{interface.chain_j}_{template_j}",
-                partner_mol_name=f"{interface.chain_i}_{template_i}",
-                interface_index=getattr(
-                    partner_template, 'interface_index', 1),
-                residues=list(interface.residues_j) if hasattr(
-                    interface, 'residues_j') else [],
-                energy=interface.energy
+            inst_j = InterfaceInstance(
+                absolute_coord=cj_nm,
+                interface_type=tmpl_j,
+                this_mol_name=f"{interface.chain_j}_{tj}",
+                partner_mol_name=f"{interface.chain_i}_{ti}",
+                interface_index=getattr(tmpl_j, "interface_index", 1),
+                residues=list(getattr(interface, "residues_j", [])),
+                energy=getattr(interface, "energy", None),
             )
-            instances.append(instance_j)
 
-            # Pre-link the partner interfaces
-            instance_i.partner_interface = instance_j
-            instance_j.partner_interface = instance_i
+            # Pre-link partners
+            inst_i.partner_interface = inst_j
+            inst_j.partner_interface = inst_i
 
-            if self.workspace_manager:
-                self.workspace_manager.logger.debug(
-                    "Created bidirectional interface instances: %s <-> %s",
-                    instance_i.get_name(), instance_j.get_name()
-                )
+            instances.extend([inst_i, inst_j])
 
-        if self.workspace_manager:
-            self.workspace_manager.logger.info(
-                f"Created {len(instances)} interface instances")
+            if log:
+                try:
+                    log.info("Created bidirectional interface instances: %s (%s) <-> %s (%s)",
+                            inst_i.get_name(), inst_i.interface_type.get_name(), inst_j.get_name(), inst_j.interface_type.get_name())
+                except Exception:
+                    log.info("Created bidirectional interface instances: (%s -> %s) and (%s -> %s)",
+                            inst_i.this_mol_name, inst_i.partner_mol_name,
+                            inst_j.this_mol_name, inst_j.partner_mol_name)
 
+        if log:
+            log.info("Created %d interface instances", len(instances))
         return instances
+
+
+
+    def _is_homodimeric_heterotypic_interface(self, interface_instance: InterfaceInstance) -> bool:
+        """Check if an interface instance represents a hom het interface.
+
+        Args:
+            interface_instance: Interface instance to check.
+
+        Returns:
+            True if this is a hom het interface.
+        """
+        # Extract molecule type from names (remove instance part)
+        this_mol_type = interface_instance.this_mol_name.split('_')[-1]
+        partner_mol_type = interface_instance.partner_mol_name.split('_')[-1]
+
+        # Failed homotypic: same molecule type but different interface indices
+        return (this_mol_type == partner_mol_type and
+                hasattr(interface_instance.interface_type, 'signature') and
+                interface_instance.interface_type.signature.get('interaction_type') == 'failed_homotypic')
+
+    def _find_failed_homotypic_partner(self, interface_instance: InterfaceInstance,
+                                       interface_instances_by_key: Dict) -> Optional[InterfaceInstance]:
+        """Find the complementary partner for a failed homotypic interface.
+
+        For failed homotypic interfaces:
+        - A_A_1 partners with A_A_2
+        - A_A_3 partners with A_A_4
+
+        Args:
+            interface_instance: Interface instance to find partner for.
+            interface_instances_by_key: Lookup dictionary of interface instances.
+
+        Returns:
+            Partner interface instance or None.
+        """
+        current_index = interface_instance.interface_index
+
+        # Determine the complementary index
+        if current_index % 2 == 1:  # Odd index (1, 3, 5...)
+            partner_index = current_index + 1  # Look for next even index
+        else:  # Even index (2, 4, 6...)
+            partner_index = current_index - 1  # Look for previous odd index
+
+        # Look for the complementary interface
+        # For failed homotypic, both this_mol_name and partner_mol_name should be the same
+        # but we need to find the one with the complementary index
+        for key, partner_candidate in interface_instances_by_key.items():
+            candidate_this_mol, candidate_partner_mol, candidate_index = key
+
+            # Check if this is the complementary interface:
+            # 1. Same molecule types (since it's failed homotypic)
+            # 2. Complementary index
+            # 3. Reverse direction (this becomes partner, partner becomes this)
+            if (candidate_this_mol == interface_instance.partner_mol_name and
+                candidate_partner_mol == interface_instance.this_mol_name and
+                    candidate_index == partner_index):
+                return partner_candidate
+
+        return None
+
+    def _get_expected_partner_key(self, interface_instance: InterfaceInstance) -> Tuple:
+        """Get the expected partner key for debugging purposes.
+
+        Args:
+            interface_instance: Interface instance.
+
+        Returns:
+            Expected partner key tuple.
+        """
+        if self._is_homodimeric_heterotypic_interface(interface_instance):
+            current_index = interface_instance.interface_index
+            if current_index % 2 == 1:
+                partner_index = current_index + 1
+            else:
+                partner_index = current_index - 1
+
+            return (interface_instance.partner_mol_name,
+                    interface_instance.this_mol_name,
+                    partner_index)
+        else:
+            return (interface_instance.partner_mol_name,
+                    interface_instance.this_mol_name,
+                    interface_instance.interface_index)
 
     def _establish_cross_references(self) -> None:
         """Establish all cross-references between instances."""
@@ -756,14 +1133,19 @@ class SystemBuilder:
         # Create lookup maps
         mol_instances_by_name = {
             mol.name: mol for mol in self.molecule_instances}
+
         # Create lookup map for interface instances by their identifying properties
         interface_instances_by_key = {}
         for intf in self.interface_instances:
             key = (intf.this_mol_name, intf.partner_mol_name,
                    intf.interface_index)
             interface_instances_by_key[key] = intf
-        print("-----------")
-        print(interface_instances_by_key.keys())
+
+        if self.workspace_manager:
+            self.workspace_manager.logger.debug(
+                "Interface instances keys: %s", list(
+                    interface_instances_by_key.keys())
+            )
 
         # Set this_mol references for interface instances
         for interface_instance in self.interface_instances:
@@ -778,14 +1160,31 @@ class SystemBuilder:
                         interface_instance.this_mol_name
                     )
 
-        # Establish partner_interface cross-references
+        # Establish partner_interface cross-references with special handling for failed homotypic
         for interface_instance in self.interface_instances:
-            # Look for the complementary interface instance
-            partner_key = (interface_instance.partner_mol_name,
-                           interface_instance.this_mol_name,
-                           interface_instance.interface_index)
+            if interface_instance.partner_interface:
+                # Already linked during creation
+                continue
 
-            partner_interface = interface_instances_by_key.get(partner_key)
+            # Determine if this is a failed homotypic case
+            is_hom_het = self._is_homodimeric_heterotypic_interface(
+                interface_instance)
+            
+            print("-------------")
+            print(f"DEBUG: Interface {interface_instance.get_name()} is hom het!")
+
+            if is_hom_het:
+                # For failed homotypic, find the complementary interface
+                partner_interface = self._find_failed_homotypic_partner(
+                    interface_instance, interface_instances_by_key
+                )
+            else:
+                # For regular heterotypic, look for reverse direction
+                partner_key = (interface_instance.partner_mol_name,
+                               interface_instance.this_mol_name,
+                               interface_instance.interface_index)
+                partner_interface = interface_instances_by_key.get(partner_key)
+
             if partner_interface:
                 # Set up bidirectional references
                 interface_instance.partner_interface = partner_interface
@@ -798,13 +1197,14 @@ class SystemBuilder:
                     )
             else:
                 if self.workspace_manager:
+                    expected_key = self._get_expected_partner_key(
+                        interface_instance)
                     self.workspace_manager.logger.info(
                         "No partner interface found for %s (looking for key: %s)",
-                        interface_instance.get_name(), partner_key
+                        interface_instance.get_name(), expected_key
                     )
 
         # Build interfaces_neighbors_map for molecule instances
-        # This maps InterfaceInstance objects to their partner MoleculeInstance objects
         for mol_instance in self.molecule_instances:
             # Find all interface instances belonging to this molecule
             mol_interfaces = [
@@ -942,6 +1342,13 @@ class SystemBuilder:
             Dictionary mapping file types to output paths.
         """
         exporter = NERDSSExporter(self.system, self.workspace_manager)
+        for mol_instance in self.system.molecule_instances:
+            print("======================")
+            print(mol_instance.name)
+            print(mol_instance.com)
+            print(type(mol_instance.interfaces_neighbors_map))
+            for (intf, neighbor) in mol_instance.interfaces_neighbors_map.items():
+                print(f"{intf.get_name()}:{neighbor.name}, {intf.absolute_coord}")
         return exporter.export_all(
             molecule_counts=molecule_counts,
             box_nm=box_nm,
