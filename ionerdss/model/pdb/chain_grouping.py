@@ -387,17 +387,17 @@ class ChainGrouper:
 
     def _run_grouping(self) -> None:
         """Execute chain grouping based on specified method."""
-        if self.hyperparams.matching_mode == "default":
+        if self.hyperparams.chain_grouping_matching_mode == "default":
             success = self._group_by_header()
             if not success:
                 self._group_by_sequence()
-        elif self.hyperparams.matching_mode == "sequence":
+        elif self.hyperparams.chain_grouping_matching_mode == "sequence":
             self._group_by_sequence()
-        elif self.hyperparams.matching_mode == "structure":
+        elif self.hyperparams.chain_grouping_matching_mode == "structure":
             self._group_by_structure()
         else:
             raise ValueError(
-                f"Unknown matching_mode: {self.hyperparams.matching_mode}")
+                f"Unknown matching_mode: {self.hyperparams.chain_grouping_matching_mode}")
 
         # Ensure all chains are assigned to groups
         self._ensure_all_chains_grouped()
@@ -428,7 +428,7 @@ class ChainGrouper:
         # Convert to ChainGroup objects
         for entity_id, chains in entity_groups.items():
             if chains:  # Skip empty groups
-                representative = chains[0]  # First chain as representative
+                representative = self._select_representative(chains)
                 group = ChainGroup(representative, chains, "header")
                 self.groups.append(group)
 
@@ -452,7 +452,7 @@ class ChainGrouper:
             sequences[chain_id] = chain_data['sequence']
 
         # Use the score-based grouping logic from the sample
-        aligner = self.hyperparams.custom_aligner
+        aligner = self.hyperparams.chain_grouping_custom_aligner
         chains_groups = []
         visited = set()
 
@@ -475,7 +475,7 @@ class ChainGrouper:
                     # Get alignment score directly
                     score = aligner.align(seq_i, seq_j).score
                     identity = score / max(len(seq_i), len(seq_j))
-                    if identity >= self.hyperparams.seq_threshold:
+                    if identity >= self.hyperparams.chain_grouping_seq_threshold:
                         group.append(cj)
                         visited.add(cj)
                 except Exception as e:
@@ -490,15 +490,14 @@ class ChainGrouper:
         # Convert to ChainGroup objects
         for group_members in chains_groups:
             if group_members:  # Skip empty groups
-                # First chain as representative
-                representative = group_members[0]
+                representative = self._select_representative(group_members)
                 group = ChainGroup(representative, group_members, "sequence")
                 self.groups.append(group)
 
                 # Update mapping
                 for chain_id in group_members:
                     self.chain_to_group[chain_id] = representative
-
+                
     def _group_by_structure(self) -> None:
         """Group chains based on structural similarity."""
         # Get chain data
@@ -532,14 +531,49 @@ class ChainGrouper:
         # Convert to ChainGroup objects
         for group_members in chains_groups:
             if group_members:  # Skip empty groups
-                # First chain as representative
-                representative = group_members[0]
+                representative = self._select_representative(group_members)
                 group = ChainGroup(representative, group_members, "structure")
                 self.groups.append(group)
 
                 # Update mapping
                 for chain_id in group_members:
                     self.chain_to_group[chain_id] = representative
+    
+    def _select_representative(self, chain_ids: List[str]) -> str:
+        """Select the representative chain from a group based on interface count.
+        
+        Selects the chain with the most interfaces. If multiple chains have the
+        same number of interfaces, selects the first one alphabetically.
+        
+        Args:
+            chain_ids: List of chain IDs in the group.
+            
+        Returns:
+            Chain ID of the selected representative.
+        """
+        if len(chain_ids) == 1:
+            return chain_ids[0]
+        
+        # Count interfaces for each chain
+        interface_counts = {}
+        for chain_id in chain_ids:
+            try:
+                # Get interface count from coarse_grainer
+                # Assuming coarse_grainer has a method to get interface information
+                interfaces = self.coarse_grainer.get_chain_interfaces(chain_id)
+                interface_counts[chain_id] = len(interfaces) if interfaces else 0
+            except (AttributeError, KeyError):
+                # Fallback: try to get from parser or set to 0
+                interface_counts[chain_id] = 0
+        
+        # Find chain(s) with maximum interface count
+        max_interfaces = max(interface_counts.values())
+        candidates = [chain_id for chain_id, count in interface_counts.items() 
+                    if count == max_interfaces]
+        
+        # If multiple chains have same interface count, choose first alphabetically
+        return sorted(candidates)[0]
+
 
     def _are_structures_similar_coords(self, coords_i: np.ndarray, coords_j: np.ndarray) -> bool:
         """Check if two coordinate sets represent similar structures.
@@ -561,13 +595,13 @@ class ChainGrouper:
                 # For very short chains, use simple distance comparison
                 distances = np.linalg.norm(coords_i - coords_j, axis=1)
                 mean_distance = np.mean(distances)
-                return mean_distance <= self.hyperparams.rmsd_threshold
+                return mean_distance <= self.hyperparams.chain_grouping_rmsd_threshold
 
             # Perform structural superposition
             sup = Superimposer()
             sup.set_atoms(coords_i, coords_j)
             rmsd = sup.rms
-            return rmsd <= self.hyperparams.rmsd_threshold
+            return rmsd <= self.hyperparams.chain_grouping_rmsd_threshold
 
         except Exception as e:
             print(f"Warning: Structure comparison failed: {e}")
@@ -627,7 +661,7 @@ class ChainGrouper:
         """
         return {
             "num_groups": len(self.groups),
-            "grouping_method": self.hyperparams.matching_mode,
+            "grouping_method": self.hyperparams.chain_grouping_matching_mode,
             "groups": [
                 {
                     "representative": group.representative,
