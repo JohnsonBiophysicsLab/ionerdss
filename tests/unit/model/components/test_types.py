@@ -309,7 +309,9 @@ class TestMoleculeType(unittest.TestCase):
             "radius": 2.5,
             "diffusion_translation": 1.0,
             "diffusion_rotation": 0.5,
-            "interfaces_neighbors_map": {"interface1": "neighbor1", "interface2": "neighbor2"}
+            "interfaces_neighbors_map": {"interface1": "neighbor1", "interface2": "neighbor2"},
+            "ref1_local": [1.0, 0.0, 0.0],
+            "ref2_local": [0.0, 0.0, 1.0]
         }
 
         self.assertEqual(result, expected)
@@ -324,7 +326,9 @@ class TestMoleculeType(unittest.TestCase):
             "radius": 0.0,
             "diffusion_translation": 0.0,
             "diffusion_rotation": 0.0,
-            "interfaces_neighbors_map": {}
+            "interfaces_neighbors_map": {},
+            "ref1_local": [1.0, 0.0, 0.0],
+            "ref2_local": [0.0, 0.0, 1.0]
         }
 
         self.assertEqual(result, expected)

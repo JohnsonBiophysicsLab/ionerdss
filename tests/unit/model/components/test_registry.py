@@ -234,11 +234,15 @@ class TestMoleculeInstanceRegistry(unittest.TestCase):
         self.mol_instance_a = MoleculeInstance(
             name="MolA_001",
             norm=np.array([0.0, 0.0, 1.0]),
+            ref1=np.array([1.0, 0.0, 0.0]),
+            ref2=np.array([0.0, 0.0, 1.0]),
             com=np.array([0.0, 0.0, 0.0])
         )
         self.mol_instance_b = MoleculeInstance(
             name="MolB_001",
             norm=np.array([1.0, 0.0, 0.0]),
+            ref1=np.array([0.0, 1.0, 0.0]),
+            ref2=np.array([0.0, 0.0, 1.0]),
             com=np.array([1.0, 1.0, 1.0])
         )
 
@@ -458,6 +462,8 @@ class TestRegistryIteration(unittest.TestCase):
             instance = MoleculeInstance(
                 name=f"Mol_{i:03d}",
                 norm=np.array([0.0, 0.0, 1.0]),
+                ref1=np.array([1.0, 0.0, 0.0]),
+                ref2=np.array([0.0, 0.0, 1.0]),
                 com=np.array([float(i), 0.0, 0.0])
             )
             registry.add(instance)
@@ -637,6 +643,8 @@ class TestRegistryIntegration(unittest.TestCase):
         mol_instance = MoleculeInstance(
             name="TestProtein_001",
             norm=np.array([0.0, 0.0, 1.0]),
+            ref1=np.array([1.0, 0.0, 0.0]),
+            ref2=np.array([0.0, 0.0, 1.0]),
             com=np.array([0.0, 0.0, 0.0]),
             molecule_type=mol_type
         )
