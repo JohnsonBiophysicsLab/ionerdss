@@ -98,6 +98,8 @@ from dataclasses import dataclass, field, fields
 from typing import Optional, Literal
 from Bio.Align import PairwiseAligner
 
+from ionerdss.model.components.units import Units
+
 
 @dataclass
 class PDBModelHyperparameters:
@@ -106,59 +108,53 @@ class PDBModelHyperparameters:
     Contains all configurable parameters that control the molecular model
     building process, from interface detection to template generation.
 
-    Attributes:
-        distance_cutoff: Contact search radius per atom pair in nm. Default 0.6.
-        residue_cutoff: Minimum number of contacting residues (on each chain) 
-            to accept an interface. Default 3.
-        rmsd_threshold: RMSD threshold for structure superimposing to determine
-            repeated chains in Angstroms. Default 2.0.
-        seq_threshold: Sequence threshold for sequence alignment to determine
-            repeated chains. Default 0.5.
-        custom_aligner: Custom Bio.Align.PairwiseAligner for sequence alignment.
-            If None, uses default settings.
-        matching_mode: Mode for determining repeated chains. Options:
-            - "default": Use mmCIF header, fallback to sequence
-            - "sequence": Sequence alignment based
-            - "structure": Structure superposition based
-        steric_clash_mode: Mode for detecting steric clashes. Options:
-            - "off": No steric clash detection
-            - "auto": Automatic detection via Cα clash checks
-            - "custom": User-provided required_free lists
-        signature_precision: Number of decimal places for geometric signature
-            normalization to avoid floating-point errors. Default 6.
-        homodimer_distance_threshold: Distance threshold for homodimer detection
-            in Angstroms. Default 0.1.
-        homodimer_angle_threshold: Angle threshold for homodimer detection
-            in radians. Default 0.1.
     """
 
     # Core detection parameters
-    distance_cutoff: float = 0.6  # nm
-    residue_cutoff: int = 3
+    interface_detect_distance_cutoff: float = 0.6  # nm
+    interface_detect_n_residue_cutoff: int = 3
 
     # Chain grouping parameters
-    rmsd_threshold: float = 2.0  # Angstroms
-    seq_threshold: float = 0.5
-    custom_aligner: Optional[PairwiseAligner] = field(default=None)
-    matching_mode: Literal["default", "sequence", "structure"] = "default"
+    chain_grouping_rmsd_threshold: float = 2.0  # A
+    chain_grouping_seq_threshold: float = 0.5
+    chain_grouping_custom_aligner: Optional[PairwiseAligner] = field(default=None)
+    chain_grouping_matching_mode: Literal["default", "sequence", "structure"] = "default"
 
     # Steric clash detection
     steric_clash_mode: Literal["off", "auto", "custom"] = "off"
 
     # Template building parameters
     signature_precision: int = 6
-    homodimer_distance_threshold: float = 0.1  # Angstroms
-    homodimer_angle_threshold: float = 0.1  # radians
+    homodimer_distance_threshold: float = 0.5  # nm
+    homodimer_angle_threshold: float = 0.5  # radians
+
+    # Enhanced homotypic detection parameters
+    homotypic_detection: Literal["auto", "signature", "off"] = "auto"
+    homotypic_detection_residue_similarity_threshold: float = 0.7  # 70% similarity
+    homotypic_detection_interface_radius: float = 8.0  # A
 
     # Ring regularizer parameters
     ring_regularization_mode: str = "uniform"  # "off", "separate", "uniform"
     ring_geometry: str = "cylinder"  # "cylinder", "sphere"
     min_ring_size: int = 3
 
+    # Chain regularizer parameters
+    template_regularization_strength: float = 0.0
+
+    # Visualizer options
+    generate_visualizations: bool = True
+
+    # NERDSS file options
+    generate_nerdss_files: bool = True
+    
+    # units
+    units = Units()
+    
+
     def __post_init__(self):
         """Initialize default aligner if not provided."""
-        if self.custom_aligner is None:
-            self.custom_aligner = self._create_default_aligner()
+        if self.chain_grouping_custom_aligner is None:
+            self.chain_grouping_custom_aligner = self._create_default_aligner()
 
     def _create_default_aligner(self) -> PairwiseAligner:
         """Create default PairwiseAligner with standard parameters.
@@ -248,21 +244,31 @@ class PDBModelHyperparameters:
             List of validation error messages. Empty list if all valid.
         """
         errors = []
+        
+        # Validate enhanced homotypic detection parameters
+        if self.homotypic_detection not in ["auto", "signature", "off"]:
+            errors.append("homotypic_detection must be 'auto', 'signature', or 'off'")
+
+        if not (0.0 <= self.homotypic_detection_residue_similarity_threshold <= 1.0):
+            errors.append("residue_similarity_threshold must be between 0.0 and 1.0")
+
+        if self.homotypic_detection_interface_radius <= 0:
+            errors.append("interface_radius must be positive")
 
         # Validate distance_cutoff
-        if self.distance_cutoff <= 0:
+        if self.interface_detect_distance_cutoff <= 0:
             errors.append("distance_cutoff must be positive")
 
         # Validate residue_cutoff
-        if self.residue_cutoff < 1:
+        if self.interface_detect_n_residue_cutoff < 1:
             errors.append("residue_cutoff must be at least 1")
 
         # Validate rmsd_threshold
-        if self.rmsd_threshold < 0:
+        if self.chain_grouping_rmsd_threshold < 0:
             errors.append("rmsd_threshold must be non-negative")
 
         # Validate seq_threshold
-        if not (0 <= self.seq_threshold <= 1):
+        if not (0 <= self.chain_grouping_seq_threshold <= 1):
             errors.append("seq_threshold must be between 0 and 1")
 
         # Validate signature_precision
@@ -281,9 +287,11 @@ class PDBModelHyperparameters:
     def __str__(self) -> str:
         """Return string representation of hyperparameters."""
         return (f"PDBModelHyperparameters("
-                f"distance_cutoff={self.distance_cutoff}, "
-                f"residue_cutoff={self.residue_cutoff}, "
-                f"matching_mode='{self.matching_mode}', "
+                f"homotypic_detection='{self.homotypic_detection}', "
+                f"residue_similarity_threshold={self.homotypic_detection_residue_similarity_threshold}, "
+                f"distance_cutoff={self.interface_detect_distance_cutoff}, "
+                f"residue_cutoff={self.interface_detect_n_residue_cutoff}, "
+                f"matching_mode='{self.chain_grouping_matching_mode}', "
                 f"steric_clash_mode='{self.steric_clash_mode}')")
 
     def __repr__(self) -> str:
