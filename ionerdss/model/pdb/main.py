@@ -35,29 +35,23 @@ class PDBModelBuilder:
         parser: PDB parser instance (created during build).
     """
 
-    def __init__(self, source: Union[str, Path], fetch_format: str = 'mmcif'):
+    def __init__(self, source: Union[str, Path], fetch_format: str = 'mmcif',
+                 hyperparams: PDBModelHyperparameters = None,):
         """Initialize PDB model builder.
 
         Args:
             source: PDB ID (4 characters) or path to PDB/mmCIF file.
             fetch_format: Format for downloading ('pdb' or 'mmcif'). Default 'mmcif'.
         """
-        self.source = source
-        self.fetch_format = fetch_format
+        self.source = source # set source from either PDB ID or local path
+        self.fetch_format = fetch_format # format = either mmcif or pdb
         self.workspace_manager: Optional[WorkspaceManager] = None
-        self.pdb_id: Optional[str] = None
+        self.pdb_id: Optional[str] = None # pdb_id to be set from source
         self.parser: Optional[PDBParser] = None
+        self.hyperparams = hyperparams
 
     def build_system(self, workspace_path: str,
-                     distance_cutoff: float = 0.6,
-                     residue_cutoff: int = 3,
-                     rmsd_threshold: float = 2.0,
-                     seq_threshold: float = 0.5,
-                     matching_mode: str = "default",
-                     steric_clash_mode: str = "off",
-                     units: Optional[Units] = None,
-                     generate_visualizations: bool = True,
-                     generate_nerdss_files: bool = True,
+                     hyperparams: PDBModelHyperparameters = None,
                      molecule_counts: Optional[Dict[str, int]] = None,
                      box_nm: Tuple[float, float, float] = (
                          100.0, 100.0, 100.0),
@@ -97,20 +91,14 @@ class PDBModelBuilder:
 
         try:
             # Create hyperparameters
-            hyperparams = PDBModelHyperparameters(
-                distance_cutoff=distance_cutoff,
-                residue_cutoff=residue_cutoff,
-                rmsd_threshold=rmsd_threshold,
-                seq_threshold=seq_threshold,
-                matching_mode=matching_mode,
-                steric_clash_mode=steric_clash_mode,
-                **kwargs
-            )
+            if PDBModelHyperparameters is None:
+                hyperparams = PDBModelHyperparameters()
 
             self.workspace_manager.logger.info(
                 "Hyperparameters: %s", hyperparams)
 
             # Use provided units or create default
+            units = hyperparams.units
             if units is None:
                 units = Units()
 
@@ -181,7 +169,7 @@ class PDBModelBuilder:
             system = system_builder.get_system()
 
             # Step 6: Generate visualizations (if requested)
-            if generate_visualizations:
+            if hyperparams.generate_visualizations:
                 self.workspace_manager.logger.info(
                     "Step 6: Generating visualizations...")
                 viz_outputs = system_builder.generate_visualizations()
@@ -191,7 +179,7 @@ class PDBModelBuilder:
                         "Generated %s: %s", viz_type, viz_path)
 
             # Step 7: Export NERDSS files (if requested)
-            if generate_nerdss_files:
+            if hyperparams.generate_visualizations:
                 self.workspace_manager.logger.info(
                     "Step 7: Exporting NERDSS simulation files...")
 
@@ -213,7 +201,7 @@ class PDBModelBuilder:
                         "Generated NERDSS file %s: %s", file_type, file_path)
 
             # Step 8: Save system and generate reports
-            step_num = 8 if generate_nerdss_files else 7
+            step_num = 8 if hyperparams.generate_nerdss_files else 7
             self.workspace_manager.logger.info(
                 "Step %d: Saving outputs...", step_num)
 
@@ -266,7 +254,7 @@ class PDBModelBuilder:
                     f.write(f"  {key}: {value}\n")
 
                 # Add NERDSS export info if generated
-                if generate_nerdss_files:
+                if hyperparams.generate_nerdss_files:
                     f.write(f"\nNERDSS Export:\n")
                     f.write(f"  Molecule counts: {molecule_counts}\n")
                     f.write(f"  Box size (nm): {box_nm}\n")
