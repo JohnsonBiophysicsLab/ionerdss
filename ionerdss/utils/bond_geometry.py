@@ -27,16 +27,7 @@ All vectors are assumed to be in Cartesian coordinates, and all angles are retur
 import math
 import numpy as np
 
-def _magnitude(vector):
-    """Compute the Euclidean magnitude of a 3D vector."""
-    return math.sqrt(sum(coord ** 2 for coord in vector))
-
-def _unit(vector, tol=1e-12):
-    """Normalize a 3D vector. Return zero vector if norm is below tolerance."""
-    norm = _magnitude(vector)
-    if norm < tol:
-        return [0.0, 0.0, 0.0]
-    return [coord / norm for coord in vector]
+from ionerdss.utils.vectors import get_magnitude, convert_to_unit
 
 def compute_bond_angles_and_length(com1, com2,
                                    bind_site1, bind_site2,
@@ -77,66 +68,66 @@ def compute_bond_angles_and_length(com1, com2,
     v2 = [bind_site2[i] - com2[i] for i in range(3)]
     sigma1 = [bind_site1[i] - bind_site2[i] for i in range(3)]
     sigma2 = [-x for x in sigma1]
-    sigma_magnitude = _magnitude(sigma1)
+    sigma_magnitude = get_magnitude(sigma1)
 
     # Theta: angle between interaction vector and inter-chain vector
-    theta1 = math.acos(np.dot(v1, sigma1) / (_magnitude(v1) * _magnitude(sigma1)))
-    theta2 = math.acos(np.dot(v2, sigma2) / (_magnitude(v2) * _magnitude(sigma2)))
+    theta1 = math.acos(np.dot(v1, sigma1) / (get_magnitude(v1) * get_magnitude(sigma1)))
+    theta2 = math.acos(np.dot(v2, sigma2) / (get_magnitude(v2) * get_magnitude(sigma2)))
 
     # Local normal vectors
-    normal1 = _unit([normal_point1[i] - com1[i] for i in range(3)])
-    normal2 = _unit([normal_point2[i] - com2[i] for i in range(3)])
+    normal1 = convert_to_unit([normal_point1[i] - com1[i] for i in range(3)])
+    normal2 = convert_to_unit([normal_point2[i] - com2[i] for i in range(3)])
 
     # Torsion-like vectors for phi angles
-    torsion1_plane = _unit(np.cross(v1, sigma1))
-    torsion1_normal = _unit(np.cross(v1, normal1))
-    torsion2_plane = _unit(np.cross(v2, sigma2))
-    torsion2_normal = _unit(np.cross(v2, normal2))
+    torsion1_plane = convert_to_unit(np.cross(v1, sigma1))
+    torsion1_normal = convert_to_unit(np.cross(v1, normal1))
+    torsion2_plane = convert_to_unit(np.cross(v2, sigma2))
+    torsion2_normal = convert_to_unit(np.cross(v2, normal2))
 
     phi1 = math.acos(np.dot(torsion1_plane, torsion1_normal))
     phi2 = math.acos(np.dot(torsion2_plane, torsion2_normal))
 
     # Sign correction for phi1
-    v1_unit = _unit(v1)
+    v1_unit = convert_to_unit(v1)
     n1_proj = [normal1[i] - v1_unit[i] * np.dot(v1_unit, normal1) for i in range(3)]
     sigma1_proj = [sigma1[i] - v1_unit[i] * np.dot(v1_unit, sigma1) for i in range(3)]
-    phi1_dir = _unit(np.cross(sigma1_proj, n1_proj))
+    phi1_dir = convert_to_unit(np.cross(sigma1_proj, n1_proj))
     if abs(v1_unit[0] - phi1_dir[0]) < tol:
         phi1 = -phi1
     elif abs(v1_unit[0] + phi1_dir[0]) >= tol:
         print("Warning: Unable to determine phi1 sign.")
 
     # Sign correction for phi2
-    v2_unit = _unit(v2)
+    v2_unit = convert_to_unit(v2)
     n2_proj = [normal2[i] - v2_unit[i] * np.dot(v2_unit, normal2) for i in range(3)]
     sigma2_proj = [sigma2[i] - v2_unit[i] * np.dot(v2_unit, sigma2) for i in range(3)]
-    phi2_dir = _unit(np.cross(sigma2_proj, n2_proj))
+    phi2_dir = convert_to_unit(np.cross(sigma2_proj, n2_proj))
     if abs(v2_unit[0] - phi2_dir[0]) < tol:
         phi2 = -phi2
     elif abs(v2_unit[0] + phi2_dir[0]) >= tol:
         print("Warning: Unable to determine phi2 sign.")
 
     # Omega: torsion angle between v1 and v2 around sigma1
-    a1 = np.cross(sigma1, v1) / _magnitude(np.cross(sigma1, v1))
-    a2 = np.cross(sigma1, v2) / _magnitude(np.cross(sigma1, v2))
+    a1 = np.cross(sigma1, v1) / get_magnitude(np.cross(sigma1, v1))
+    a2 = np.cross(sigma1, v2) / get_magnitude(np.cross(sigma1, v2))
     omega = math.acos(np.dot(a1, a2))
 
     # Omega: torsion angle between v1 and v2 around sigma1
     cross1 = np.cross(sigma1, v1)
     cross2 = np.cross(sigma1, v2)
 
-    if _magnitude(cross1) < tol or _magnitude(cross2) < tol:
+    if get_magnitude(cross1) < tol or get_magnitude(cross2) < tol:
         omega = 0.0
     else:
-        a1 = cross1 / _magnitude(cross1)
-        a2 = cross2 / _magnitude(cross2)
+        a1 = cross1 / get_magnitude(cross1)
+        a2 = cross2 / get_magnitude(cross2)
         omega = math.acos(np.clip(np.dot(a1, a2), -1.0, 1.0))
 
         # Sign correction for omega
-        sigma1_unit = _unit(sigma1)
+        sigma1_unit = convert_to_unit(sigma1)
         v1_proj = [v1[i] - sigma1_unit[i] * np.dot(sigma1_unit, v1) for i in range(3)]
         v2_proj = [v2[i] - sigma1_unit[i] * np.dot(sigma1_unit, v2) for i in range(3)]
-        omega_dir = _unit(np.cross(v1_proj, v2_proj))
+        omega_dir = convert_to_unit(np.cross(v1_proj, v2_proj))
 
         if abs(sigma1_unit[0] - omega_dir[0]) < tol:
             omega = -omega
