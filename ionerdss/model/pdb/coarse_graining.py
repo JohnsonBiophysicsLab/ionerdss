@@ -18,7 +18,6 @@ and generating coarse-grained molecular models.
 complex molecular structures by reducing atomic-level detail while preserving 
 essential geometric and interaction properties. In ionerdss, this involves:
 
-
 - Converting protein chains into single particles with effective radii
 - Identifying binding interfaces as discrete interaction sites
 - Representing molecular assemblies as networks of interacting particles
@@ -30,6 +29,7 @@ contact and can potentially bind. The algorithm uses:
 - **Spatial proximity**: Cα atoms within a distance cutoff
 - **Contact persistence**: Minimum number of contacting residues
 - **Geometric characterization**: Interface coordinates and contact maps
+- **Residue composition**: Amino acid types and positions at interfaces
 
 ### Partner Mapping
 **Partner mapping** creates explicit relationships between binding interfaces,
@@ -37,26 +37,43 @@ enabling the construction of molecular interaction networks for simulation setup
 
 ## Classes and Data Structures
 
+### `ResidueInfo`
+
+Represents detailed information about a residue at an interface.
+
+```python
+@dataclass
+class ResidueInfo:
+    residue_id: int           # Residue sequence number
+    residue_name: str         # Three-letter amino acid code (e.g., "ALA")
+    position: np.ndarray      # Cα coordinate position (Å)
+    chain_id: str            # Chain identifier
+```
+
 ### `InterfaceString`
 
-Represents a detected binding interface between two protein chains.
+Represents a detected binding interface between two protein chains with detailed
+residue composition information.
 
 ```python
 @dataclass
 class InterfaceString:
-    chain_i: str              # First chain ID
-    chain_j: str              # Second chain ID  
-    coord_i: np.ndarray       # Interface coordinate on chain i (Å)
-    coord_j: np.ndarray       # Interface coordinate on chain j (Å)
-    residues_i: Set[int]      # Contacting residue IDs on chain i
-    residues_j: Set[int]      # Contacting residue IDs on chain j
-    energy: float = -1.0      # Binding energy (default -1.0)
+    chain_i: str                        # First chain ID
+    chain_j: str                        # Second chain ID  
+    coord_i: np.ndarray                 # Interface coordinate on chain i (Å)
+    coord_j: np.ndarray                 # Interface coordinate on chain j (Å)
+    residues_i: Set[int]                # Contacting residue IDs on chain i
+    residues_j: Set[int]                # Contacting residue IDs on chain j
+    residue_details_i: List[ResidueInfo] # Detailed residue info for chain i
+    residue_details_j: List[ResidueInfo] # Detailed residue info for chain j
+    energy: float = -1.0                # Binding energy (default -1.0)
 ```
 
 ### `CoarseGrainedChain`
 
 Coarse-grained representation of a protein chain containing essential geometric
-and topological information.
+and topological information. Interface references are managed separately to avoid
+JSON serialization issues.
 
 ```python
 @dataclass  
@@ -64,7 +81,6 @@ class CoarseGrainedChain:
     chain_id: str                      # Chain identifier
     com: np.ndarray                    # Center of mass (Å)
     radius: float                      # Effective radius (Å)
-    interfaces: List[InterfaceString]  # Associated interfaces
     sequence: str                      # Amino acid sequence
     bbox_min: np.ndarray              # Bounding box minimum (Å)
     bbox_max: np.ndarray              # Bounding box maximum (Å)
@@ -86,283 +102,30 @@ class CoarseGrainer:
 - `interfaces`: List of all detected interfaces
 - `partner_map`: Mapping of interface partnerships
 
-## Algorithm Overview
+## Enhanced Interface Detection
 
-### 1. Chain Initialization
-```python
-# Extract essential properties from parsed structure
-for chain_id in parser.get_chain_ids():
-    chain_data = parser.get_chain_data(chain_id)
-    coarse_chain = CoarseGrainedChain(
-        chain_id=chain_id,
-        com=chain_data['com'],
-        radius=chain_data['radius'],
-        # ... other properties
-    )
-```
-
-### 2. Interface Detection Pipeline
-```python
-# Detect interfaces between all chain pairs
-for chain_i, chain_j in all_chain_pairs:
-    if can_chains_interact(chain_i, chain_j):      # Bounding box pre-filter
-        interface = detect_interface(chain_i, chain_j)  # Detailed detection
-        if interface:
-            store_interface(interface)
-```
-
-### 3. Partner Mapping Construction
-```python
-# Build explicit partner relationships
-partner_map[(chain_i, interface_idx)] = (chain_j, partner_idx)
-```
-
-## Interface Detection Pipeline
-
-### Step 1: Bounding Box Pre-filtering
-
-**Purpose:** Eliminate distant chain pairs to reduce computational cost.
-
-**Algorithm:**
-```python
-def can_chains_interact(chain_i, chain_j):
-    r_cut = distance_cutoff_in_angstrom
-    
-    # Check separation along each axis
-    for dimension in [x, y, z]:
-        gap = min(chain_j.bbox_min[dim] - chain_i.bbox_max[dim],
-                  chain_i.bbox_min[dim] - chain_j.bbox_max[dim])
-        if gap > r_cut:
-            return False  # Chains too far apart
-    return True
-```
-
-### Step 2: Detailed Interface Detection
-
-**Purpose:** Identify actual binding interfaces using atomic-level proximity.
-
-**Algorithm:**
-```python
-def detect_interface(chain_i, chain_j):
-    # Build KD-tree for efficient spatial queries
-    tree_j = KDTree(chain_j.ca_coords)
-    
-    # Find neighbors for each residue in chain_i
-    neighbor_lists = tree_j.query_ball_point(
-        chain_i.ca_coords, 
-        r=distance_cutoff
-    )
-    
-    # Count contacting residues
-    contacting_i = [idx for idx, neighbors in enumerate(neighbor_lists) 
-                   if len(neighbors) > 0]
-    contacting_j = set().union(*neighbor_lists)
-    
-    # Apply residue cutoff
-    if len(contacting_i) >= residue_cutoff and len(contacting_j) >= residue_cutoff:
-        return create_interface(contacting_i, contacting_j)
-    
-    return None
-```
-
-### Step 3: Interface Coordinate Calculation
-
-**Purpose:** Determine representative coordinates for each interface.
-
-**Algorithm:**
-```python
-# Calculate interface coordinates as centroids of contacting residues
-interface_coord_i = mean(ca_coords_i[contacting_residues_i])
-interface_coord_j = mean(ca_coords_j[contacting_residues_j])
-```
-
-### Step 4: Partner Index Mapping
-
-**Purpose:** Create explicit partnership relationships for simulation setup.
-
-**Algorithm:**
-```python
-# Assign sequential indices to interfaces on each chain
-chain_interface_counts = defaultdict(int)
-
-for interface in all_interfaces:
-    i_idx = chain_interface_counts[interface.chain_i]
-    j_idx = chain_interface_counts[interface.chain_j]
-    
-    # Create bidirectional mapping
-    partner_map[(interface.chain_i, i_idx)] = (interface.chain_j, j_idx)
-    partner_map[(interface.chain_j, j_idx)] = (interface.chain_i, i_idx)
-    
-    chain_interface_counts[interface.chain_i] += 1
-    chain_interface_counts[interface.chain_j] += 1
-```
-
-## Usage Examples
-
-### Basic Usage
+The interface detection now captures detailed amino acid composition:
 
 ```python
-from ionerdss.model.pdb.coarse_graining import CoarseGrainer
-from ionerdss.model.pdb.hyperparameters import PDBModelHyperparameters
-from ionerdss.model.pdb.parser import PDBParser
-
-# Initialize components
-parser = PDBParser("structure.pdb")
-hyperparams = PDBModelHyperparameters(
-    distance_cutoff=0.8,  # 8 Å cutoff in nm
-    residue_cutoff=5      # Minimum 5 contacting residues
+# For each contacting residue, store:
+residue_info = ResidueInfo(
+    residue_id=101,           # Sequence number
+    residue_name="ALA",       # Alanine
+    position=[x, y, z],       # Cα coordinates
+    chain_id="A"              # Chain identifier
 )
-
-# Run coarse-graining
-grainer = CoarseGrainer(parser, hyperparams)
-
-# Access results
-chains = grainer.get_coarse_grained_chains()
-interfaces = grainer.get_interfaces()
-partner_map = grainer.get_partner_mapping()
 ```
 
-### Analyzing Results
+This enables downstream residue-based homotypic interface validation.
 
-```python
-# Get summary statistics
-summary = grainer.get_summary()
-print(f"Processed {summary['num_chains']} chains")
-print(f"Detected {summary['num_interfaces']} interfaces")
-print(f"Interface pairs: {summary['interface_pairs']}")
+## JSON Serialization
 
-# Examine specific chains
-for chain_id, chain in chains.items():
-    print(f"Chain {chain_id}:")
-    print(f"  COM: {chain.com}")
-    print(f"  Radius: {chain.radius:.2f} Å")
-    print(f"  Interfaces: {len(chain.interfaces)}")
-    print(f"  Sequence length: {len(chain.sequence)}")
-```
-
-### Interface Analysis
-
-```python
-# Analyze detected interfaces
-for i, interface in enumerate(interfaces):
-    print(f"Interface {i+1}: {interface.chain_i} ↔ {interface.chain_j}")
-    print(f"  Distance: {np.linalg.norm(interface.coord_i - interface.coord_j):.2f} Å")
-    print(f"  Contacts: {len(interface.residues_i)} ↔ {len(interface.residues_j)}")
-    print(f"  Energy: {interface.energy}")
-```
-
-### Partner Mapping Usage
-
-```python
-# Explore partner relationships
-for (chain, idx), (partner_chain, partner_idx) in partner_map.items():
-    print(f"Chain {chain} interface {idx} ↔ Chain {partner_chain} interface {partner_idx}")
-
-# Find partners for specific chain
-chain_a_partners = [(partner_chain, partner_idx) 
-                   for (chain, idx), (partner_chain, partner_idx) in partner_map.items()
-                   if chain == "A"]
-print(f"Chain A has {len(chain_a_partners)} binding partners")
-```
-
-## Configuration Parameters
-
-### Distance Cutoff (`distance_cutoff`)
-
-**Definition:** Maximum distance between Cα atoms to consider them in contact.
-
-**Units:** Nanometers (converted to Angstroms internally)
-
-**Typical Values:**
-- `0.5 nm` (5 Å): Very tight contacts only
-- `0.8 nm` (8 Å): Standard protein-protein interfaces  
-- `1.2 nm` (12 Å): Loose contacts, includes water-mediated
-
-### Residue Cutoff (`residue_cutoff`)
-
-**Definition:** Minimum number of contacting residues required on each chain to form a valid interface.
-
-**Units:** Number of residues
-
-**Typical Values:**
-- `3-5`: Small interfaces, individual contacts
-- `5-10`: Standard protein-protein interfaces
-- `10+`: Large, extensive interfaces only
-
-## Performance Considerations
-
-### Computational Complexity
-
-| Operation | Time Complexity | Space Complexity | Notes |
-|-----------|----------------|------------------|-------|
-| Bounding box check | O(n²) | O(n) | n = number of chains |
-| Interface detection | O(n² × m × log m) | O(n × m) | m = average residues per chain |
-| Partner mapping | O(k) | O(k) | k = number of interfaces |
-| **Total** | **O(n² × m × log m)** | **O(n × m)** | Dominated by KD-tree queries |
-
-### Optimization Strategies
-
-#### 1. Bounding Box Pre-filtering
-```python
-# Eliminates ~90% of chain pairs in typical structures
-if not can_chains_interact(chain_i, chain_j):
-    continue  # Skip expensive interface detection
-```
-
-#### 2. KD-tree Spatial Indexing
-```python
-# O(log m) neighbor queries instead of O(m) brute force
-tree = KDTree(coordinates)
-neighbors = tree.query_ball_point(query_points, radius)
-```
-
-#### 3. Early Termination
-```python
-# Stop as soon as residue cutoff is violated
-if len(contacting_residues) < residue_cutoff:
-    return None  # No need to continue processing
-```
-
-### Memory Usage
-
-**Typical Memory Requirements:**
-- Small protein (100 residues): ~1 MB
-- Medium protein (500 residues): ~25 MB  
-- Large complex (2000 residues): ~400 MB
-- Viral capsid (10000+ residues): ~10+ GB
-
-### Downstream Usage
-
-**Chain Grouping:**
-```python
-# Uses coarse-grained chains for structural comparison
-chains = coarse_grainer.get_coarse_grained_chains()
-for chain_id, chain in chains.items():
-    # Compare COM positions, radii, interface patterns
-    group_chains_by_similarity(chain)
-```
-
-**Template Building:**
-```python
-# Uses interfaces for template creation
-interfaces = coarse_grainer.get_interfaces()
-for interface in interfaces:
-    # Create interface templates from geometric data
-    template = create_interface_template(interface)
-```
-
-**System Building:**
-```python
-# Uses partner mapping for instance creation
-partner_map = coarse_grainer.get_partner_mapping()
-for (chain, idx), (partner, p_idx) in partner_map.items():
-    # Create molecular instances with proper connectivity
-    create_molecule_instance(chain, partner, connectivity_info)
-```
+All data structures are designed to be JSON serializable to avoid system export issues.
+InterfaceString objects are stored separately and accessed through helper methods.
 
 """
 
-from typing import Dict, List, Tuple, Set, Optional
+from typing import Any, Dict, List, Tuple, Set, Optional
 from dataclasses import dataclass
 
 import numpy as np
@@ -373,12 +136,55 @@ from .parser import PDBParser
 
 
 @dataclass
+class ResidueInfo:
+    """Detailed information about a residue at an interface.
+
+    Attributes:
+        residue_id: Residue sequence number.
+        residue_name: Three-letter amino acid code (e.g., "ALA").
+        position: Cα coordinate position in Angstroms.
+        chain_id: Chain identifier.
+    """
+    residue_id: int
+    residue_name: str
+    position: np.ndarray
+    chain_id: str
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert ResidueInfo to JSON-serializable dictionary."""
+        return {
+            'residue_id': self.residue_id,
+            'residue_name': self.residue_name,
+            'position': self.position.tolist() if isinstance(self.position, np.ndarray) else self.position,
+            'chain_id': self.chain_id
+        }
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> 'ResidueInfo':
+        """Create ResidueInfo from dictionary."""
+        return cls(
+            residue_id=data['residue_id'],
+            residue_name=data['residue_name'],
+            position=np.array(data['position']),
+            chain_id=data['chain_id']
+        )
+
+    def __str__(self) -> str:
+        """Return human-readable representation."""
+        return f"{self.residue_name}{self.residue_id}"
+
+    def __repr__(self) -> str:
+        """Return detailed representation."""
+        return f"ResidueInfo({self.residue_name}{self.residue_id}, chain={self.chain_id})"
+
+
+@dataclass
 class InterfaceString:
-    """Detected interface between two chains.
+    """Detected interface between two chains with detailed residue information.
 
     Separate from interface instance and use simple string to
     avoid assigning complicated crosslink at first
-    
+
     Represents a validated binding interface with geometric and
     topological information for downstream processing.
 
@@ -389,6 +195,8 @@ class InterfaceString:
         coord_j: Interface coordinate on chain j (Angstroms).
         residues_i: Set of contacting residue IDs on chain i.
         residues_j: Set of contacting residue IDs on chain j.
+        residue_details_i: Detailed residue information for chain i.
+        residue_details_j: Detailed residue information for chain j.
         energy: Optional binding energy (default -1.0).
     """
     chain_i: str
@@ -397,7 +205,92 @@ class InterfaceString:
     coord_j: np.ndarray
     residues_i: Set[int]
     residues_j: Set[int]
+    residue_details_i: List[ResidueInfo]
+    residue_details_j: List[ResidueInfo]
+    is_hht: bool = False
+    hht_orientation: str = "ji"
     energy: float = -1.0
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert InterfaceString to JSON-serializable dictionary."""
+        return {
+            'chain_i': self.chain_i,
+            'chain_j': self.chain_j,
+            'coord_i': self.coord_i.tolist() if isinstance(self.coord_i, np.ndarray) else self.coord_i,
+            'coord_j': self.coord_j.tolist() if isinstance(self.coord_j, np.ndarray) else self.coord_j,
+            'residues_i': list(self.residues_i),
+            'residues_j': list(self.residues_j),
+            'residue_details_i': [residue.to_dict() for residue in self.residue_details_i],
+            'residue_details_j': [residue.to_dict() for residue in self.residue_details_j],
+            'energy': self.energy
+        }
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> 'InterfaceString':
+        """Create InterfaceString from dictionary."""
+        return cls(
+            chain_i=data['chain_i'],
+            chain_j=data['chain_j'],
+            coord_i=np.array(data['coord_i']),
+            coord_j=np.array(data['coord_j']),
+            residues_i=set(data['residues_i']),
+            residues_j=set(data['residues_j']),
+            residue_details_i=[ResidueInfo.from_dict(r) for r in data['residue_details_i']],
+            residue_details_j=[ResidueInfo.from_dict(r) for r in data['residue_details_j']],
+            energy=data.get('energy', -1.0)
+        )
+
+    def get_residue_composition_i(self) -> Dict[str, int]:
+        """Get amino acid composition for chain i side of interface.
+
+        Returns:
+            Dictionary mapping amino acid names to counts.
+        """
+        composition = {}
+        for residue in self.residue_details_i:
+            composition[residue.residue_name] = composition.get(residue.residue_name, 0) + 1
+        return composition
+
+    def get_residue_composition_j(self) -> Dict[str, int]:
+        """Get amino acid composition for chain j side of interface.
+
+        Returns:
+            Dictionary mapping amino acid names to counts.
+        """
+        composition = {}
+        for residue in self.residue_details_j:
+            composition[residue.residue_name] = composition.get(residue.residue_name, 0) + 1
+        return composition
+
+    def get_residue_sequence_i(self) -> str:
+        """Get ordered residue sequence for chain i side of interface.
+
+        Returns:
+            String of single-letter amino acid codes.
+        """
+        # Sort by residue ID to get proper sequence order
+        sorted_residues = sorted(self.residue_details_i, key=lambda r: r.residue_id)
+        return ''.join(self._three_to_one(r.residue_name) for r in sorted_residues)
+
+    def get_residue_sequence_j(self) -> str:
+        """Get ordered residue sequence for chain j side of interface.
+
+        Returns:
+            String of single-letter amino acid codes.
+        """
+        # Sort by residue ID to get proper sequence order
+        sorted_residues = sorted(self.residue_details_j, key=lambda r: r.residue_id)
+        return ''.join(self._three_to_one(r.residue_name) for r in sorted_residues)
+
+    def _three_to_one(self, three_letter: str) -> str:
+        """Convert three-letter amino acid code to one-letter code."""
+        conversion = {
+            'ALA': 'A', 'ARG': 'R', 'ASN': 'N', 'ASP': 'D', 'CYS': 'C',
+            'GLU': 'E', 'GLN': 'Q', 'GLY': 'G', 'HIS': 'H', 'ILE': 'I',
+            'LEU': 'L', 'LYS': 'K', 'MET': 'M', 'PHE': 'F', 'PRO': 'P',
+            'SER': 'S', 'THR': 'T', 'TRP': 'W', 'TYR': 'Y', 'VAL': 'V'
+        }
+        return conversion.get(three_letter.upper(), 'X')
 
 
 @dataclass
@@ -405,13 +298,13 @@ class CoarseGrainedChain:
     """Coarse-grained representation of a protein chain.
 
     Contains the essential geometric and topological information
-    needed for molecular simulation setup.
+    needed for molecular simulation setup. Interface references are
+    managed separately to avoid JSON serialization issues.
 
     Attributes:
         chain_id: Chain identifier.
         com: Center of mass in Angstroms.
         radius: Coarse-grained radius in Angstroms.
-        interfaces: List of interfaces involving this chain.
         sequence: Amino acid sequence.
         bbox_min: Minimum coordinates of bounding box.
         bbox_max: Maximum coordinates of bounding box.
@@ -419,10 +312,32 @@ class CoarseGrainedChain:
     chain_id: str
     com: np.ndarray
     radius: float
-    interfaces: List[InterfaceString]
     sequence: str
     bbox_min: np.ndarray
     bbox_max: np.ndarray
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert CoarseGrainedChain to JSON-serializable dictionary."""
+        return {
+            'chain_id': self.chain_id,
+            'com': self.com.tolist() if isinstance(self.com, np.ndarray) else self.com,
+            'radius': self.radius,
+            'sequence': self.sequence,
+            'bbox_min': self.bbox_min.tolist() if isinstance(self.bbox_min, np.ndarray) else self.bbox_min,
+            'bbox_max': self.bbox_max.tolist() if isinstance(self.bbox_max, np.ndarray) else self.bbox_max
+        }
+    
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> 'CoarseGrainedChain':
+        """Create CoarseGrainedChain from dictionary."""
+        return cls(
+            chain_id=data['chain_id'],
+            com=np.array(data['com']),
+            radius=data['radius'],
+            sequence=data['sequence'],
+            bbox_min=np.array(data['bbox_min']),
+            bbox_max=np.array(data['bbox_max'])
+        )
 
 
 class CoarseGrainer:
@@ -431,7 +346,7 @@ class CoarseGrainer:
     Implements the interface detection pipeline using KD-tree spatial
     queries to identify binding interfaces between protein chains.
     Generates coarse-grained representations suitable for molecular
-    simulation.
+    simulation with detailed residue composition information.
 
     Attributes:
         parser: PDB parser containing structure data.
@@ -477,7 +392,6 @@ class CoarseGrainer:
                 chain_id=chain_id,
                 com=chain_data['com'].copy(),
                 radius=chain_data['radius'],
-                interfaces=[],
                 sequence=chain_data['sequence'],
                 bbox_min=chain_data['bbox_min'].copy(),
                 bbox_max=chain_data['bbox_max'].copy()
@@ -494,8 +408,9 @@ class CoarseGrainer:
                     interface = self._detect_interface(chain_i, chain_j)
                     if interface:
                         self.interfaces.append(interface)
-                        self.chains[chain_i].interfaces.append(interface)
-                        self.chains[chain_j].interfaces.append(interface)
+                        # Don't store InterfaceString objects in chains to avoid serialization issues
+                        # The interfaces are already stored in self.interfaces
+                        # Access interfaces by chain using get_interfaces_for_chain()
 
     def _can_chains_interact(self, chain_i: str, chain_j: str) -> bool:
         """Check if two chains can potentially interact via bounding box test.
@@ -512,7 +427,7 @@ class CoarseGrainer:
 
         # Convert distance cutoff to Angstroms
         r_cut_angstrom = self.parser.convert_distance_to_angstrom(
-            self.hyperparams.distance_cutoff
+            self.hyperparams.interface_detect_distance_cutoff
         )
 
         # Check separation along each axis
@@ -525,7 +440,7 @@ class CoarseGrainer:
         return True
 
     def _detect_interface(self, chain_i: str, chain_j: str) -> Optional[InterfaceString]:
-        """Detect interface between two specific chains.
+        """Detect interface between two specific chains with detailed residue information.
 
         Args:
             chain_i: First chain ID.
@@ -549,7 +464,7 @@ class CoarseGrainer:
 
         # Convert distance cutoff to Angstroms
         r_cut_angstrom = self.parser.convert_distance_to_angstrom(
-            self.hyperparams.distance_cutoff
+            self.hyperparams.interface_detect_distance_cutoff
         )
 
         # Build KD-tree for chain j
@@ -567,16 +482,37 @@ class CoarseGrainer:
         n_j_hits = len(hit_j_indices)
 
         # Check if both chains meet the residue cutoff
-        if n_i_hits >= self.hyperparams.residue_cutoff and n_j_hits >= self.hyperparams.residue_cutoff:
+        if n_i_hits >= self.hyperparams.interface_detect_n_residue_cutoff and n_j_hits >= self.hyperparams.interface_detect_n_residue_cutoff:
             # Calculate interface coordinates as mean of contacting Cα positions
             interface_coord_i = coords_i[hit_i_mask].mean(axis=0)
             interface_coord_j = coords_j[list(hit_j_indices)].mean(axis=0)
 
-            # Get contacting residue IDs
-            contacting_residues_i = {residues_i[idx]['id'] for idx in np.where(hit_i_mask)[
-                0]}
-            contacting_residues_j = {
-                residues_j[idx]['id'] for idx in hit_j_indices}
+            # Get contacting residue IDs (for backward compatibility)
+            contacting_residues_i = {residues_i[idx]['id'] for idx in np.where(hit_i_mask)[0]}
+            contacting_residues_j = {residues_j[idx]['id'] for idx in hit_j_indices}
+
+            # Create detailed residue information
+            residue_details_i = []
+            for idx in np.where(hit_i_mask)[0]:
+                residue_data = residues_i[idx]
+                residue_info = ResidueInfo(
+                    residue_id=residue_data['id'],
+                    residue_name=residue_data['name'],
+                    position=coords_i[idx].copy(),
+                    chain_id=chain_i
+                )
+                residue_details_i.append(residue_info)
+
+            residue_details_j = []
+            for idx in hit_j_indices:
+                residue_data = residues_j[idx]
+                residue_info = ResidueInfo(
+                    residue_id=residue_data['id'],
+                    residue_name=residue_data['name'],
+                    position=coords_j[idx].copy(),
+                    chain_id=chain_j
+                )
+                residue_details_j.append(residue_info)
 
             return InterfaceString(
                 chain_i=chain_i,
@@ -585,6 +521,8 @@ class CoarseGrainer:
                 coord_j=interface_coord_j,
                 residues_i=contacting_residues_i,
                 residues_j=contacting_residues_j,
+                residue_details_i=residue_details_i,
+                residue_details_j=residue_details_j,
                 energy=-1.0  # Default energy
             )
 
@@ -627,9 +565,21 @@ class CoarseGrainer:
         """Get all detected interfaces.
 
         Returns:
-            List of Interface objects.
+            List of Interface objects with detailed residue information.
         """
         return self.interfaces.copy()
+
+    def get_interfaces_for_chain(self, chain_id: str) -> List[InterfaceString]:
+        """Get all interfaces involving a specific chain.
+        
+        Args:
+            chain_id: Chain ID to get interfaces for.
+            
+        Returns:
+            List of interfaces involving the specified chain.
+        """
+        return [interface for interface in self.interfaces 
+                if interface.chain_i == chain_id or interface.chain_j == chain_id]
 
     def get_partner_mapping(self) -> Dict[Tuple[str, int], Tuple[str, int]]:
         """Get the binding partner index mapping.
@@ -643,11 +593,51 @@ class CoarseGrainer:
         """Get summary statistics of coarse-graining results.
 
         Returns:
-            Dictionary containing summary information.
+            Dictionary containing summary information including residue composition.
         """
+        # Calculate residue composition statistics
+        total_interface_residues = 0
+        amino_acid_counts = {}
+
+        for interface in self.interfaces:
+            total_interface_residues += len(interface.residue_details_i) + len(interface.residue_details_j)
+
+            # Count amino acids
+            for residue in interface.residue_details_i + interface.residue_details_j:
+                amino_acid_counts[residue.residue_name] = amino_acid_counts.get(residue.residue_name, 0) + 1
+
         return {
             "num_chains": len(self.chains),
             "num_interfaces": len(self.interfaces),
             "chains": list(self.chains.keys()),
-            "interface_pairs": [(intf.chain_i, intf.chain_j) for intf in self.interfaces]
+            "interface_pairs": [(intf.chain_i, intf.chain_j) for intf in self.interfaces],
+            "total_interface_residues": total_interface_residues,
+            "amino_acid_composition": amino_acid_counts,
+            "average_interface_size": total_interface_residues / (2 * len(self.interfaces)) if self.interfaces else 0
         }
+
+    def print_interface_details(self) -> None:
+        """Print detailed information about all detected interfaces."""
+        print(f"Detected {len(self.interfaces)} interfaces:")
+        print("=" * 80)
+
+        for i, interface in enumerate(self.interfaces):
+            print(f"\nInterface {i+1}: {interface.chain_i} ↔ {interface.chain_j}")
+            print(f"Distance: {np.linalg.norm(interface.coord_i - interface.coord_j):.2f} Å")
+            print(f"Contacts: {len(interface.residue_details_i)} ↔ {len(interface.residue_details_j)} residues")
+
+            print(f"\nChain {interface.chain_i} residues:")
+            for residue in sorted(interface.residue_details_i, key=lambda r: r.residue_id):
+                print(f"  {residue}")
+
+            print(f"\nChain {interface.chain_j} residues:")
+            for residue in sorted(interface.residue_details_j, key=lambda r: r.residue_id):
+                print(f"  {residue}")
+
+            print(f"\nAmino acid composition:")
+            comp_i = interface.get_residue_composition_i()
+            comp_j = interface.get_residue_composition_j()
+            print(f"  Chain {interface.chain_i}: {comp_i}")
+            print(f"  Chain {interface.chain_j}: {comp_j}")
+
+            print("-" * 40)
