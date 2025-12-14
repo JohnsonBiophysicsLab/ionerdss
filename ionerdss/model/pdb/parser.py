@@ -268,7 +268,7 @@ if len(coords) > 0:
 
 """
 
-from typing import Dict, List, Tuple, Optional, Union
+from typing import Any, Dict, List, Tuple, Optional, Union
 from pathlib import Path
 import shutil
 import tempfile
@@ -277,7 +277,7 @@ import numpy as np
 from Bio.PDB import PDBParser as BioPDBParser, MMCIFParser, PDBList
 from Bio.PDB.Structure import Structure
 from Bio.PDB.Chain import Chain
-#from Bio.PDB.Residue import Residue
+# from Bio.PDB.Residue import Residue
 from Bio.PDB.Polypeptide import PPBuilder, is_aa
 
 from ionerdss.model.components.units import Units
@@ -301,7 +301,8 @@ class PDBParser:
 
     def __init__(self, source: Union[str, Path], units: Optional[Units] = None,
                  fetch_from_pdb: bool = False, file_format: str = 'mmcif',
-                 workspace_manager: Optional[WorkspaceManager] = None):
+                 workspace_manager: Optional[WorkspaceManager] = None,
+                 concat_all_frames=True, max_frames=None):
         """Initialize parser with PDB/mmCIF file or PDB ID for fetching.
 
         Args:
@@ -317,6 +318,12 @@ class PDBParser:
         self.pdb_id: Optional[str] = None
         self.filepath: Optional[Path] = None
         self.workspace_manager = workspace_manager
+
+        # Dealing with PDB with multiple frames
+        self.concat_all_frames = concat_all_frames
+        self.max_frames = max_frames
+        self.frames = {}  # Store multiple frames: {frame_num: structure_data}
+        self.frame_count = 0
 
         # Handle source - either file path or PDB ID
         if fetch_from_pdb or self._looks_like_pdb_id(str(source)):
@@ -471,44 +478,45 @@ class PDBParser:
     def _parse_structure(self) -> None:
         """Parse PDB or mmCIF file using appropriate BioPython parser."""
         if not self.filepath or not self.filepath.exists():
-            raise FileNotFoundError(
-                f"Structure file not found: {self.filepath}")
+            raise FileNotFoundError(f"Structure file not found: {self.filepath}")
 
         if self.workspace_manager:
-            self.workspace_manager.logger.info(
-                f"Parsing structure file: {self.filepath.name}")
+            self.workspace_manager.logger.info(f"Parsing structure file: {self.filepath.name}")
 
         try:
             if self.filepath.suffix.lower() in ['.pdb', '.ent']:
                 parser = BioPDBParser(QUIET=True)
-                self.structure = parser.get_structure(
-                    'structure', self.filepath)
+                self.structure = parser.get_structure('structure', self.filepath)
             elif self.filepath.suffix.lower() in ['.cif', '.mmcif']:
                 parser = MMCIFParser(QUIET=True)
-                self.structure = parser.get_structure(
-                    'structure', self.filepath)
+                self.structure = parser.get_structure('structure', self.filepath)
             else:
                 # Try to guess format from content or use mmCIF as default for downloaded files
                 if self.pdb_id:
                     # Assume mmCIF for downloaded files
                     parser = MMCIFParser(QUIET=True)
-                    self.structure = parser.get_structure(
-                        'structure', self.filepath)
+                    self.structure = parser.get_structure('structure', self.filepath)
                 else:
-                    raise ValueError(
-                        f"Unsupported file format: {self.filepath.suffix}")
+                    raise ValueError(f"Unsupported file format: {self.filepath.suffix}")
+
+            # Handle frame concatenation if requested
+            if self.concat_all_frames:
+                self._concatenate_all_frames()
 
             if self.workspace_manager:
-                self.workspace_manager.logger.info(
-                    "Structure parsed successfully")
+                if self.concat_all_frames:
+                    models = list(self.structure.get_models())
+                    total_models = len(models)
+                    self.workspace_manager.logger.info(
+                        f"Structure parsed successfully - concatenated {total_models} frames into single frame")
+                else:
+                    self.workspace_manager.logger.info("Structure parsed successfully")
 
         except Exception as e:
             if self.workspace_manager:
-                self.workspace_manager.logger.error(
-                    f"Failed to parse structure: {str(e)}")
-            raise ValueError(
-                f"Failed to parse structure file {self.filepath}: {str(e)}") from e
-
+                self.workspace_manager.logger.error(f"Failed to parse structure: {str(e)}")
+            raise ValueError(f"Failed to parse structure file {self.filepath}: {str(e)}") from e
+    
     def _extract_chain_data(self) -> None:
         """Extract and process chain data from parsed structure."""
         if not self.structure:
@@ -668,6 +676,7 @@ class PDBParser:
             return str(peptides[0].get_sequence())
         return ""
 
+
     def get_chain_ids(self) -> List[str]:
         """Get sorted list of valid chain IDs.
 
@@ -676,11 +685,11 @@ class PDBParser:
         """
         return list(self.chain_data.keys())
 
-    def get_chain_data(self, chain_id: str) -> dict:
-        """Get processed data for a specific chain.
+    def get_chain_data(self, chain_id: str) -> Dict[str, Any]:
+        """Get data for a specific chain.
 
         Args:
-            chain_id: Chain identifier.
+            chain_id: Chain identifier (may include frame suffix like 'A_f2').
 
         Returns:
             Dictionary containing chain data.
@@ -688,6 +697,9 @@ class PDBParser:
         Raises:
             KeyError: If chain_id not found.
         """
+        if chain_id not in self.chain_data:
+            raise KeyError(f"Chain {chain_id} not found. Available chains: {list(self.chain_data.keys())}")
+        
         return self.chain_data[chain_id]
 
     def get_pdb_id(self) -> Optional[str]:
@@ -735,3 +747,61 @@ class PDBParser:
         """
         return distance_nm * 10.0
 
+    # --------------------------------------------
+    # Process Multi-frame PDBs
+    # --------------------------------------------
+    def _concatenate_all_frames(self) -> None:
+        """Concatenate all MODEL frames into a single frame with unique chain IDs."""
+        
+        models = list(self.structure.get_models())
+        
+        if len(models) <= 1:
+            # No concatenation needed for single model
+            return
+        
+        # Apply max_frames limit if specified
+        if self.max_frames:
+            models = models[:self.max_frames]
+            if self.workspace_manager:
+                self.workspace_manager.logger.info(
+                    f"Concatenating first {len(models)} models (max_frames={self.max_frames})")
+        
+        # Use the first model as the base
+        base_model = models[0]
+        
+        # Collect all chains from all models with frame-aware naming
+        frame_chain_count = {}  # Track chains per frame for naming
+        
+        for frame_idx, model in enumerate(models, 1):
+            frame_chain_count[frame_idx] = 0
+            
+            for chain in model:
+                chain_id = chain.get_id()
+                
+                # Create frame-aware chain ID for subsequent frames
+                new_chain_id = f"{chain_id}F{frame_idx}"
+                
+                # Clone the chain with new ID and add to base model
+                if frame_idx > 1:
+                    new_chain = chain.copy()
+                    new_chain.id = new_chain_id
+                    base_model.add(new_chain)
+                    frame_chain_count[frame_idx] += 1
+        
+        # Remove all other models, keeping only the concatenated base model
+        models_to_remove = [model.get_id() for model in models[1:]]
+        for model_id in models_to_remove:
+            self.structure.detach_child(model_id)
+        
+        if self.workspace_manager:
+            total_chains = sum(len(list(model.get_chains())) for model in models)
+            self.workspace_manager.logger.info(
+                f"Concatenated {len(models)} frames into single frame with {total_chains} chains")
+            
+            # Log chain naming details
+            for frame_idx, count in frame_chain_count.items():
+                if frame_idx == 1:
+                    original_count = len(list(models[0].get_chains()))
+                    self.workspace_manager.logger.debug(f"Frame 1: {original_count} chains (original IDs)")
+                else:
+                    self.workspace_manager.logger.debug(f"Frame {frame_idx}: {count} chains (with _f{frame_idx} suffix)")
