@@ -159,9 +159,22 @@ class System:
         # Get system data with NumPy types converted
         system_data = self.to_dict()
 
-        # Write to JSON file
+        class SystemJSONEncoder(json.JSONEncoder):
+            def default(self, obj):
+                if isinstance(obj, np.ndarray):
+                    return obj.tolist()
+                elif hasattr(obj, 'to_dict'):
+                    return obj.to_dict()
+                elif isinstance(obj, set):
+                    return list(obj)
+                else:
+                    return super().default(obj)
+        
+        system_data = self.to_dict()
+        
         with open(filepath, 'w', encoding='utf-8') as f:
-            json.dump(system_data, f, indent=2, ensure_ascii=False)
+            json.dump(system_data, f, indent=2, ensure_ascii=False, cls=SystemJSONEncoder)
+
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "System":
