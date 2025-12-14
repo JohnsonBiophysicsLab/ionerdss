@@ -1,63 +1,6 @@
 """
 ionerdss.model.components.instances
 
-Concrete molecular instances for simulation runtime.
-
-This module provides the runtime instance classes that represent actual molecules
-and interfaces during simulation execution. While the `types` module defines
-templates and blueprints, this module contains the concrete realizations with
-current positions, orientations, and binding states.
-
-Classes:
-    InterfaceInstance: A specific binding site instance on a molecule with
-        current coordinates and binding state.
-    MoleculeInstance: A specific molecule instance in the simulation with
-        current position, orientation, and interface states.
-
-Functions:
-    _replace_underscore_with_dash: Helper function to sanitize molecule names
-        by replacing underscores with dashes to avoid conflicts with interface
-        naming conventions.
-
-Architecture Overview:
-    The instance classes follow a template pattern where:
-    - MoleculeType -> MoleculeInstance (template -> concrete)
-    - InterfaceType -> InterfaceInstance (template -> concrete)
-    
-    Each instance maintains references to its template type and tracks runtime
-    state including spatial coordinates, binding partners, and dynamic properties.
-
-Naming Conventions:
-    - Interface names follow the format: "{mol}_{partner}_{index}"
-    - Molecule names cannot contain underscores (automatically converted to dashes)
-    - Instance identifiers should be unique within their simulation context
-
-Serialization:
-    Both classes support dictionary serialization via `to_dict()` and `from_dict()`
-    methods for persistence and data exchange. Coordinate arrays are automatically
-    converted between numpy arrays and lists during serialization.
-
-Example:
-    ```python
-    # Create molecule instances from types
-    mol_type_A = MoleculeType(name="ProteinA", ...)
-    mol_instance = MoleculeInstance(
-        name="ProteinA_001",
-        molecule_type=mol_type_A,
-        com=np.array([0.0, 0.0, 0.0]),
-        norm=np.array([0.0, 0.0, 1.0])
-    )
-    
-    # Create interface instances
-    interface = InterfaceInstance(
-        this_mol_name="ProteinA",
-        partner_mol_name="ProteinB", 
-        interface_index=1,
-        this_mol=mol_instance,
-        absolute_coord=np.array([1.0, 2.0, 3.0])
-    )
-    ```
-
 Dependencies:
     - numpy: For coordinate arrays and mathematical operations
     - ionerdss.model.components.types: Template classes (MoleculeType, InterfaceType)
@@ -186,6 +129,7 @@ class InterfaceInstance:
     def to_dict(self) -> dict:
         """Convert the InterfaceInstance to a dictionary representation."""
         data = {
+            "name": self.get_name(),
             "type": self.interface_type.get_name() if self.interface_type else "unknown",
             "coord": self.absolute_coord,
             "residues": list(self.residues) if hasattr(self, 'residues') else [],
@@ -265,6 +209,8 @@ class MoleculeInstance:
     # Required fields first (no defaults)
     name: str
     norm: np.ndarray
+    ref1: np.ndarray
+    ref2: np.ndarray
     com: np.ndarray # absolute coord
 
     # Optional fields with defaults
@@ -307,6 +253,9 @@ class MoleculeInstance:
             "name": self.name,
             "type": self.molecule_type.name if self.molecule_type else "unknown",
             "com": self.com,
+            "norm": self.norm,
+            "ref1": self.ref1,
+            "ref2": self.ref2,
             "interfaces": interfaces_list
         }
         return self._convert_numpy_types(data)
@@ -323,6 +272,8 @@ class MoleculeInstance:
         return cls(
             name=_replace_underscore_with_dash(d.get("name", "unnamed")),
             norm=np.array(d.get("norm", [0.0, 0.0, 1.0])),
+            ref1=np.array(d.get("ref1", [1.0, 0.0, 0.0])),
+            ref2=np.array(d.get("ref2", [0.0, 0.0, -1.0])),
             com=np.array(d.get("coord", [0.0, 0.0, 0.0])),
             molecule_type=d.get("molecule_type", None),
             interfaces_neighbors_map={}  # Will be rebuilt by system
