@@ -95,8 +95,8 @@ class TestCoarseGrainer(unittest.TestCase):
 
         # Create hyperparameters
         self.hyperparams = PDBModelHyperparameters(
-            distance_cutoff=5.0,  # nm
-            residue_cutoff=3
+            interface_detect_distance_cutoff=5.0,  # nm
+            interface_detect_n_residue_cutoff=3
         )
 
         # Mock chain data
@@ -569,8 +569,8 @@ class TestCoarseGrainerIntegration(unittest.TestCase):
         mock_parser.convert_distance_to_angstrom.side_effect = lambda x: x * 10.0
 
         hyperparams = PDBModelHyperparameters(
-            distance_cutoff=1.0,  # 10 Å cutoff
-            residue_cutoff=3
+            interface_detect_distance_cutoff=1.0,  # 10 Å cutoff
+            interface_detect_n_residue_cutoff=3
         )
 
         # Create coarse grainer

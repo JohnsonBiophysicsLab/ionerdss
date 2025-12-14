@@ -53,9 +53,9 @@ class TestChainGrouper(unittest.TestCase):
 
         # Create hyperparameters
         self.hyperparams = PDBModelHyperparameters(
-            matching_mode="default",
-            seq_threshold=0.8,
-            rmsd_threshold=2.0
+            chain_grouping_matching_mode="default",
+            chain_grouping_seq_threshold=0.8,
+            chain_grouping_rmsd_threshold=2.0
         )
 
         # Mock aligner
@@ -63,7 +63,7 @@ class TestChainGrouper(unittest.TestCase):
         mock_alignment = Mock()
         mock_alignment.score = 80
         mock_aligner.align.return_value = mock_alignment
-        self.hyperparams.custom_aligner = mock_aligner
+        self.hyperparams.chain_grouping_custom_aligner = mock_aligner
 
     def test_header_based_grouping_success(self):
         """Test successful header-based grouping."""
@@ -123,7 +123,7 @@ class TestChainGrouper(unittest.TestCase):
     def test_sequence_based_grouping(self):
         """Test sequence-based grouping."""
         # Set hyperparameters for sequence grouping
-        self.hyperparams.matching_mode = "sequence"
+        self.hyperparams.chain_grouping_matching_mode = "sequence"
 
         # Mock chain data
         chain_data = {
@@ -143,7 +143,7 @@ class TestChainGrouper(unittest.TestCase):
                 mock_alignment.score = 0  # No match
             return mock_alignment
 
-        self.hyperparams.custom_aligner.align.side_effect = mock_align
+        self.hyperparams.chain_grouping_custom_aligner.align.side_effect = mock_align
 
         # Create grouper
         with patch.object(ChainGrouper, '_ensure_all_chains_grouped'):
@@ -165,8 +165,8 @@ class TestChainGrouper(unittest.TestCase):
     def test_structure_based_grouping(self):
         """Test structure-based grouping."""
         # Set hyperparameters for structure grouping
-        self.hyperparams.matching_mode = "structure"
-        self.hyperparams.rmsd_threshold = 1.0
+        self.hyperparams.chain_grouping_matching_mode = "structure"
+        self.hyperparams.chain_grouping_rmsd_threshold = 1.0
 
         # Mock chain data with coordinates
         coords_similar = np.array([[0, 0, 0], [1, 0, 0], [2, 0, 0]])
@@ -350,7 +350,7 @@ class TestChainGrouper(unittest.TestCase):
 
     def test_invalid_matching_mode(self):
         """Test handling of invalid matching mode."""
-        self.hyperparams.matching_mode = "invalid_mode"
+        self.hyperparams.chain_grouping_matching_mode = "invalid_mode"
 
         with self.assertRaises(ValueError) as context:
             ChainGrouper(self.mock_parser,
@@ -360,7 +360,7 @@ class TestChainGrouper(unittest.TestCase):
 
     def test_sequence_grouping_with_alignment_errors(self):
         """Test sequence grouping handles alignment errors gracefully."""
-        self.hyperparams.matching_mode = "sequence"
+        self.hyperparams.chain_grouping_matching_mode = "sequence"
 
         # Mock chain data
         chain_data = {
@@ -371,7 +371,7 @@ class TestChainGrouper(unittest.TestCase):
         self.mock_parser.get_chain_ids.return_value = ["A", "B"]
 
         # Mock aligner to raise exception
-        self.hyperparams.custom_aligner.align.side_effect = Exception(
+        self.hyperparams.chain_grouping_custom_aligner.align.side_effect = Exception(
             "Alignment failed")
 
         # Should handle the error gracefully
@@ -421,7 +421,7 @@ class TestChainGrouperIntegration(unittest.TestCase):
             "3": ["D"]        # Entity 3: chain D
         }
 
-        hyperparams = PDBModelHyperparameters(matching_mode="default")
+        hyperparams = PDBModelHyperparameters(chain_grouping_matching_mode="default")
 
         # Create grouper
         grouper = ChainGrouper(mock_parser, mock_coarse_grainer, hyperparams)
