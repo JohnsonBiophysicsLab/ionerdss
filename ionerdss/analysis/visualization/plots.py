@@ -35,6 +35,10 @@ def plot_free_energy(
     if ax is None:
         fig, ax = plt.subplots()
     
+    if df.empty:
+        ax.text(0.5, 0.5, 'No data available', ha='center', va='center', transform=ax.transAxes)
+        return ax
+    
     defaults = PlotStyle.get_default_kwargs()
     defaults.update(kwargs)
     
@@ -66,6 +70,10 @@ def plot_size_distribution(
     """
     if ax is None:
         fig, ax = plt.subplots()
+    
+    if df.empty:
+        ax.text(0.5, 0.5, 'No data available', ha='center', va='center', transform=ax.transAxes)
+        return ax
         
     defaults = PlotStyle.get_default_kwargs()
     defaults.update(kwargs)
@@ -95,6 +103,10 @@ def plot_growth_probabilities(
     """
     if ax is None:
         fig, ax = plt.subplots()
+    
+    if df.empty:
+        ax.text(0.5, 0.5, 'No data available', ha='center', va='center', transform=ax.transAxes)
+        return ax
         
     defaults = PlotStyle.get_default_kwargs()
     defaults.update(kwargs)
@@ -123,6 +135,10 @@ def plot_heatmap(
     """
     if ax is None:
         fig, ax = plt.subplots()
+    
+    if matrix.size == 0:
+        ax.text(0.5, 0.5, 'No data available', ha='center', va='center', transform=ax.transAxes)
+        return ax
         
     if log_scale:
         # Log scale handling: add small epsilon or mask zeros

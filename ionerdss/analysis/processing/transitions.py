@@ -58,13 +58,13 @@ def compute_free_energy(size_dist: pd.DataFrame, temperature: float = 1.0) -> pd
     df = size_dist.copy()
     
     # Avoid log(0)
-    probs = df['probability'].values
+    probs = df['probability'].values.astype(np.float64)
     with np.errstate(divide='ignore'):
         fe = -np.log(probs) * temperature
         
-    df['free_energy'] = fe
     # Replace inf with NaN for cleaner plotting
-    df.loc[np.isinf(df['free_energy']), 'free_energy'] = np.nan
+    fe = np.where(np.isinf(fe), np.nan, fe)
+    df['free_energy'] = fe
     
     return df
 
@@ -81,7 +81,7 @@ def compute_transition_probabilities(transition_matrix: np.ndarray, symmetric: b
         pd.DataFrame: DataFrame with columns ['size', 'growth_prob', 'shrink_prob'].
     """
     if transition_matrix.size == 0:
-        return pd.DataFrame()
+        return pd.DataFrame(columns=['size', 'growth_prob', 'shrink_prob'])
 
     n_sizes = transition_matrix.shape[0]
     growth_probs = []
