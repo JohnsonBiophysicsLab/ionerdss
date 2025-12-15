@@ -200,6 +200,65 @@ class PDBModelBuilder:
                     self.workspace_manager.logger.info(
                         "Generated NERDSS file %s: %s", file_type, file_path)
 
+            # Step 7.5: Run ODE pipeline (if enabled)
+            if hyperparams.ode_enabled:
+                step_num_ode = 8 if hyperparams.generate_nerdss_files else 7
+                self.workspace_manager.logger.info(
+                    "Step %d: Running ODE pipeline...", step_num_ode)
+                
+                try:
+                    # Import ODE pipeline module and new System-compatible generator
+                    from ionerdss.ode_pipeline import run_ode_pipeline, ODEPipelineConfig
+                    from ionerdss.system_ode_generator import generate_ode_model_from_system
+                    
+                    # Generate complex reaction system using new System-compatible function
+                    complex_list, complex_reaction_system = generate_ode_model_from_system(system)
+                    
+                    self.workspace_manager.logger.info(
+                        "Generated %d complexes and %d reactions for ODE",
+                        len(complex_list), len(complex_reaction_system.reactions))
+                    
+                    if len(complex_list) == 0:
+                        raise ValueError("No complexes generated from system")
+                    if len(complex_reaction_system.reactions) == 0:
+                        self.workspace_manager.logger.warning("No reactions generated, ODE will have trivial dynamics")
+                    
+                    # Create ODE configuration from hyperparameters
+                    ode_config = ODEPipelineConfig(
+                        t_span=hyperparams.ode_time_span,
+                        solver_method=hyperparams.ode_solver_method,
+                        atol=hyperparams.ode_atol,
+                        plot=hyperparams.ode_plot,
+                        save_csv=hyperparams.ode_save_csv,
+                        initial_concentrations=hyperparams.ode_initial_concentrations
+                    )
+                    
+                    # Create ODE output directory
+                    ode_output_dir = self.workspace_manager.workspace_path / "ode_results"
+                    
+                    # Run ODE pipeline
+                    time, concentrations, species_names, saved_files = run_ode_pipeline(
+                        complex_reaction_system,
+                        ode_output_dir,
+                        config=ode_config,
+                        filename_prefix="ode_solution"
+                    )
+                    
+                    self.workspace_manager.logger.info(
+                        "ODE pipeline completed. Found %d species, solved for %d time points",
+                        len(species_names), len(time))
+                    
+                    for file_type, file_path in saved_files.items():
+                        self.workspace_manager.logger.info(
+                            "Generated ODE %s: %s", file_type, file_path)
+                            
+                except Exception as ode_error:
+                    self.workspace_manager.logger.warning(
+                        "ODE pipeline failed (continuing with normal workflow): %s", str(ode_error))
+                    import traceback
+                    self.workspace_manager.logger.debug(traceback.format_exc())
+
+
             # Step 8: Save system and generate reports
             step_num = 8 if hyperparams.generate_nerdss_files else 7
             self.workspace_manager.logger.info(

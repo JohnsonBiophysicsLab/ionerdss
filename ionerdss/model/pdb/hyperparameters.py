@@ -147,8 +147,22 @@ class PDBModelHyperparameters:
     # NERDSS file options
     generate_nerdss_files: bool = True
     
+    # ProAffinity binding energy prediction options
+    predict_affinity: bool = False  # Enable ProAffinity-GNN prediction
+    adfr_path: Optional[str] = None  # Path to ADFR prepare_receptor tool
+    
+    # ODE pipeline options
+    ode_enabled: bool = False
+    ode_time_span: tuple = (0.0, 10.0)  # (start, end) in seconds
+    ode_solver_method: str = "BDF"  # Solver method for stiff systems
+    ode_atol: float = 1e-4  # Absolute tolerance
+    ode_plot: bool = True  # Generate plots
+    ode_save_csv: bool = True  # Save results to CSV
+    ode_initial_concentrations: Optional[dict] = None  # Custom initial concentrations
+    
     # units
     units = Units()
+
     
 
     def __post_init__(self):

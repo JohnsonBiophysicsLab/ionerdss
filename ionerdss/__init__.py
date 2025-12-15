@@ -105,6 +105,9 @@ submodules = {
     'convert_simularium': ['.simularium_converter.simularium_converter', 'convert_simularium'],
     'Simulation': ['.nerdss_simulation', 'Simulation'],
     'Analyzer': ['.analysis', 'Analyzer'],
+    'ODEPipelineConfig': ['.ode_pipeline', 'ODEPipelineConfig'],
+    'calculate_ode_solution': ['.ode_pipeline', 'calculate_ode_solution'],
+    'run_ode_pipeline': ['.ode_pipeline', 'run_ode_pipeline'],
 }
 
 __all__ = list(submodules.keys()) + [
