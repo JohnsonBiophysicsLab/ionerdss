@@ -190,6 +190,11 @@ class PDBModelBuilder:
                         molecule_counts[mol_type.name] = 10
 
                 # Export NERDSS files
+                # Add hyperparameters to parms_overrides for transition matrix config
+                if nerdss_params is None:
+                    nerdss_params = {}
+                nerdss_params['hyperparams'] = hyperparams
+                
                 nerdss_files = system_builder.export_nerdss_files(
                     molecule_counts=molecule_counts,
                     box_nm=box_nm,

@@ -19,8 +19,8 @@ logger = logging.getLogger(__name__)
 # Compiled regex patterns for performance
 # Matches: "time: 0.123" or "Time (s): 0.123"
 TIME_PATTERN = re.compile(r"(?:time|Time\s*\(s\)):\s*([\d\.]+)")
-# Matches: "transion matrix for each mol type:" (handling typo)
-TRANSITION_HEADER_PATTERN = re.compile(r"transion\s+matrix\s+for\s+each\s+mol\s+type:", re.IGNORECASE)
+# Matches: "transition matrix for each mol type:"
+TRANSITION_HEADER_PATTERN = re.compile(r"transition\s+matrix\s+for\s+each\s+mol\s+type:", re.IGNORECASE)
 # Matches: "lifetime for each mol type:"
 LIFETIME_HEADER_PATTERN = re.compile(r"lifetime\s+for\s+each\s+mol\s+type:", re.IGNORECASE)
 # Matches: "size of the cluster: 5"

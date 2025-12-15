@@ -160,6 +160,11 @@ class PDBModelHyperparameters:
     ode_save_csv: bool = True  # Save results to CSV
     ode_initial_concentrations: Optional[dict] = None  # Custom initial concentrations
     
+    # Transition matrix output options
+    count_transition: bool = False  # Enable transition matrix tracking
+    transition_matrix_size: int = 500  # Size of transition matrix
+    transition_write: Optional[int] = None  # Interval to write transition matrix (defaults to nItr/10)
+    
     # units
     units = Units()
 

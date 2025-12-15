@@ -319,7 +319,7 @@ class NERDSSExporter:
 
         # Export .mol files for each molecule type (this builds the mapping)
         for mol_type in self.system.molecule_types:
-            mol_file_path = self._write_mol_file(mol_type)
+            mol_file_path = self._write_mol_file(mol_type, parms_overrides.get('hyperparams') if parms_overrides else None)
             output_files[f"{mol_type.name}_mol"] = mol_file_path
 
         # after the loop that calls _write_mol_file(...) for all mol types
@@ -1007,7 +1007,7 @@ class NERDSSExporter:
 
         return True
 
-    def _write_mol_file(self, mol_type: MoleculeType) -> Path:
+    def _write_mol_file(self, mol_type: MoleculeType, hyperparams=None) -> Path:
         mol_file_path = self.output_dir / f"{mol_type.name}.mol"
 
         # Get the representative instance for this molecule type
@@ -1065,6 +1065,12 @@ class NERDSSExporter:
         with open(mol_file_path, 'w', encoding='utf-8') as f:
             f.write(f"Name = {mol_type.name}\n\n")
             f.write("checkOverlap = true\n")
+            
+            # Write transition matrix parameters if hyperparameters provided
+            if hyperparams:
+                count_trans = str(hyperparams.count_transition).lower()
+                f.write(f"countTransition = {count_trans}\n")
+                f.write(f"transitionMatrixSize = {hyperparams.transition_matrix_size}\n")
             
             D_t = mol_type.D_t_nm2_us; D_r = mol_type.D_r_rad2_us
             f.write("# translational diffusion constants\n")
@@ -1687,6 +1693,12 @@ class NERDSSExporter:
             'overlapSepLimit': 2.0,
             'scaleMaxDisplace': 100.0,
         }
+        
+        # Add transitionWrite from hyperparams if provided
+        if parms_overrides and 'hyperparams' in parms_overrides:
+            hyperparams = parms_overrides['hyperparams']
+            if hasattr(hyperparams, 'transition_write') and hyperparams.transition_write is not None:
+                params['transitionWrite'] = hyperparams.transition_write
 
         # Apply overrides
         if parms_overrides:
