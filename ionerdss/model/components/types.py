@@ -281,8 +281,8 @@ class MoleculeType:
     # ref1_local: Primary reference axis (default X-axis)
     # ref2_local: Secondary reference axis (default Z-axis)  
     # These define the molecule's intrinsic orientation for angle calculations
-    ref1_local: Optional[np.ndarray] = np.array([1.0, 0.0, 0.0])  # X-axis (primary)
-    ref2_local: Optional[np.ndarray] = np.array([0.0, 0.0, 1.0])  # Z-axis (secondary)
+    ref1_local: Optional[np.ndarray] = field(default_factory=lambda: np.array([1.0, 0.0, 0.0]))  # X-axis (primary)
+    ref2_local: Optional[np.ndarray] = field(default_factory=lambda: np.array([0.0, 0.0, 1.0]))  # Z-axis (secondary)
 
     
     def set_diffusion_constants_from_radius(self) -> None:

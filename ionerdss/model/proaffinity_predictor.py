@@ -265,7 +265,7 @@ def pdb_to_pdbqt(pdbfile: str, adfr_path: str = '', ph: float = 7.4, verbose=Fal
 Download from: https://ccsb.scripps.edu/adfr/downloads/
 
 ```bash
-# Example installation
+# Example installation on Linux:
 wget https://ccsb.scripps.edu/adfr/download/1038/
 tar -xzvf ADFRsuite_x86_64Linux_1.0.tar.gz
 cd ADFRsuite_x86_64Linux_1.0
@@ -276,7 +276,9 @@ export ADFR_PATH="/path/to/ADFRsuite/bin/prepare_receptor"
 ```
                 """
             )
-    elif not adfr_path.endswith('prepare_receptor'):
+    
+    # Normalize the path if it doesn't end with 'prepare_receptor'
+    if not adfr_path.endswith('prepare_receptor'):
         # check if the path ends with /bin/
         # remove the trailing slash if exists
         adfr_path = adfr_path.rstrip('/')

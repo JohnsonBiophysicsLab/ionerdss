@@ -630,6 +630,10 @@ class CoarseGrainer:
         print("\n" + "="*80)
         print("NOTE: Using ProAffinity-GNN for binding energy prediction")
         print("="*80)
+        print("This is an easy-to-use version that skips sequence alignment with")
+        print("canonical FASTA sequences. For better accuracy and advanced options,")
+        print("please visit: https://github.com/legendzzy/ProAffinity-GNN")
+        print("="*80 + "\n")
         print(f"Predicting energies for {len(affinity_prediction_pairs)} interfaces...")
         print("="*80 + "\n")
         

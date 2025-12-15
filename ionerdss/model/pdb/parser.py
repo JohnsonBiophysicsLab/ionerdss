@@ -409,8 +409,8 @@ class PDBParser:
         temp_dir = Path(tempfile.mkdtemp(prefix=f"pdb_download_{pdb_id}_"))
 
         try:
-            # Initialize PDB downloader
-            pdb_list = PDBList()
+            # Initialize PDB downloader with HTTPS server (more reliable than FTP)
+            pdb_list = PDBList(server='https://files.rcsb.org')
 
             if file_format.lower() == 'mmcif':
                 # Download mmCIF file
@@ -427,14 +427,35 @@ class PDBParser:
                     file_format='pdb'
                 )
 
+            # The downloaded file path returned by BioPython may not exist
+            # Check what was actually downloaded in the temp directory
             downloaded_path = Path(downloaded_file)
-
+            
             if not downloaded_path.exists():
-                raise ValueError(f"Failed to download PDB structure {pdb_id}")
+                # BioPython may download with different naming (e.g., assembly files)
+                # Search for any file in temp_dir that matches the pattern
+                if file_format.lower() == 'mmcif':
+                    pattern = f"{pdb_id.lower()}*.cif"
+                else:
+                    pattern = f"{pdb_id.lower()}*.pdb"
+                
+                matching_files = list(temp_dir.glob(pattern))
+                
+                if matching_files:
+                    # Use the first matching file
+                    downloaded_path = matching_files[0]
+                    if self.workspace_manager:
+                        self.workspace_manager.logger.info(
+                            f"Found downloaded file: {downloaded_path.name}")
+                else:
+                    raise ValueError(
+                        f"Failed to download PDB structure {pdb_id}. "
+                        f"Expected file not found in {temp_dir}")
 
             # Move downloaded file to workspace
             target_path.parent.mkdir(parents=True, exist_ok=True)
-            downloaded_path.rename(target_path)
+            # Use shutil.move instead of rename to handle cross-filesystem moves
+            shutil.move(str(downloaded_path), str(target_path))
 
             # Clean up temp directory
             shutil.rmtree(temp_dir, ignore_errors=True)
