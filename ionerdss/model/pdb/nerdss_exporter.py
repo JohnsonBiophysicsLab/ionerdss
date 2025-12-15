@@ -1672,6 +1672,8 @@ class NERDSSExporter:
         parms_path = self.output_dir / "parms.inp"
 
         # Default parameters
+        # NOTE: onRate3Dka and offRatekb are now calculated per-reaction based on interface energies
+        # The values below are only used as fallback defaults if energy data is unavailable
         params = {
             'nItr': 1e5,
             'timestep': 0.5,
@@ -1680,8 +1682,8 @@ class NERDSSExporter:
             'restartWrite': 1e5,
             'checkPoint': 1e5,
             'pdbWrite': 1e5,
-            'onRate3Dka': 100.0,
-            'offRatekb': 1000.028,
+            'onRate3Dka': 1200.0,  # Default diffusion-limited (nm³/μs)
+            'offRatekb': 1000.0,   # Default fallback (s⁻¹)
             'overlapSepLimit': 2.0,
             'scaleMaxDisplace': 100.0,
         }
@@ -1736,8 +1738,38 @@ class NERDSSExporter:
                     norm1_local = np.array([0.0, 0.0, 1.0])
                     norm2_local = np.array([0.0, 0.0, 1.0])
 
-                # Determine onRate3Dka based on cross-reaction
-                base_on_rate = params['onRate3Dka']
+                # Calculate interface-specific rates based on binding energy
+                # kon: Fixed diffusion-limited rate (nm³/μs)
+                # koff: Energy-dependent dissociation rate (s⁻¹)
+                
+                # Try to get energy from interface types for this reaction
+                interface_energy = -1.0  # Default if not found
+                
+                if i < len(self.reaction_metadata):
+                    metadata = self.reaction_metadata[i]
+                    mol1_name = metadata.get('mol1')
+                    mol2_name = metadata.get('mol2')
+                    site1 = metadata.get('site1')
+                    site2 = metadata.get('site2')
+                    
+                    # Look up interface type to get energy
+                    # Search through system interface types
+                    for iface_type in self.system.interface_types:
+                        iface_name = iface_type.get_name()
+                        # Match interface by molecule and site correspondence
+                        if ((iface_type.this_mol_type_name == mol1_name and 
+                             iface_type.partner_mol_type_name == mol2_name) or
+                            (iface_type.this_mol_type_name == mol2_name and 
+                             iface_type.partner_mol_type_name == mol1_name)):
+                            # Found a matching interface type
+                            if iface_type.energy is not None and iface_type.energy != -1.0:
+                                interface_energy = iface_type.energy
+                                break
+                
+                # Calculate kon (fixed diffusion-limited)
+                base_on_rate = 1200.0  # nm³/μs (diffusion-limited)
+                
+                # Apply cross-reaction multiplier if needed
                 if i < len(self.reaction_metadata):
                     if self.reaction_metadata[i]['is_cross_reaction']:
                         on_rate = base_on_rate * 2.0
@@ -1745,9 +1777,23 @@ class NERDSSExporter:
                         on_rate = base_on_rate
                 else:
                     on_rate = base_on_rate
+                
+                # Calculate koff from binding energy using: koff = (7.4 × 10⁸ s⁻¹) * exp(ΔG/RT)
+                import math
+                R = 0.008314  # Gas constant in kJ/(mol·K)
+                T = 298.0     # Temperature in K
+                
+                if interface_energy == -1.0:
+                    # Use default energy: -16RT in kJ/mol
+                    delta_G = -16 * R * T
+                else:
+                    delta_G = interface_energy  # kJ/mol from ProAffinity or default
+                
+                # koff = (7.4 × 10⁸ s⁻¹) * exp(ΔG/RT)
+                koff = 7.4e8 * math.exp(delta_G / (R * T))
 
                 f.write(f"    onRate3Dka = {on_rate}\n")
-                f.write(f"    offRatekb = {params['offRatekb']}\n")
+                f.write(f"    offRatekb = {koff}\n")
 
                 # Write calculated normal vectors
                 f.write(

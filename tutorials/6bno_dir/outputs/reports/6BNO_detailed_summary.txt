@@ -1,0 +1,45 @@
+Detailed Pipeline Summary
+==============================
+
+PDB ID: 6BNO
+Source: ../workspace_6BNO/structures/downloaded/6BNO.cif
+Workspace: /Users/yueying/Workspace/ionerdss/tutorials/6bno_dir
+
+Coarse-graining Results:
+  num_chains: 8
+  num_interfaces: 13
+  chains: ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H']
+  interface_pairs: [('A', 'B'), ('A', 'C'), ('B', 'C'), ('B', 'D'), ('C', 'D'), ('C', 'E'), ('D', 'E'), ('D', 'F'), ('E', 'F'), ('E', 'G'), ('F', 'G'), ('F', 'H'), ('G', 'H')]
+  total_interface_residues: 676
+  amino_acid_composition: {'ARG': 39, 'HIS': 22, 'GLY': 64, 'THR': 57, 'TYR': 38, 'LYS': 30, 'ILE': 49, 'LEU': 65, 'GLU': 27, 'SER': 42, 'VAL': 31, 'ALA': 39, 'PHE': 19, 'MET': 36, 'PRO': 39, 'ASN': 14, 'ASP': 35, 'GLN': 21, 'CYS': 9}
+  average_interface_size: 26.0
+
+Chain Grouping Results:
+  num_groups: 1
+  grouping_method: default
+  groups: [{'representative': 'A', 'members': ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'], 'size': 8, 'method': 'sequence'}]
+
+Template Building Results:
+  num_molecule_templates: 1
+  num_interface_templates: 4
+  molecule_templates: ['A']
+  interface_templates: ['A_A_1f', 'A_A_1b', 'A_A_2f', 'A_A_2b']
+  interface_type_counts_by_molecule_pair: {('A', 'A'): 4}
+  group_to_template_mapping: {'A': 'A'}
+  chain_name_mapping: {'A': 'A', 'B': 'A', 'C': 'A', 'D': 'A', 'E': 'A', 'F': 'A', 'G': 'A', 'H': 'A'}
+  template_naming_strategy: signature_based
+
+Final System Summary:
+  workspace_path: /Users/yueying/Workspace/ionerdss/tutorials/6bno_dir
+  pdb_id: 6BNO
+  units: {'coords': 'nm', 'binding_radius': 'nm', 'diffusion_translation': 'nm^2/µs', 'diffusion_rotation': 'rad^2/µs'}
+  molecule_types_count: 1
+  molecule_instances_count: 8
+  interface_types_count: 4
+  interface_instances_count: 26
+  molecule_type_names: ['A']
+  interface_type_names: ['A_A_1f', 'A_A_1b', 'A_A_2f', 'A_A_2b']
+
+NERDSS Export:
+  Molecule counts: {'A': 10}
+  Box size (nm): (100.0, 100.0, 100.0)

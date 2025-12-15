@@ -42,7 +42,14 @@ tar -xzvf ADFRsuite_x86_64Linux_1.0.tar.gz
 cd ADFRsuite_x86_64Linux_1.0
 ./install.sh
 
+## If you are on a mac, you can use the following command to install ADFR:
+
+chmod +x ./examples/install_ADFR.sh
+./examples/install_ADFR.sh
+
 # Set ADFR_PATH environment variable
+# A script cannot permanently modify your shell’s PATH just by echoing export PATH=... inside itself
+# Because each script runs in its own subshell, and environment changes do not propagate back to your interactive terminal.
 export ADFR_PATH="/path/to/ADFRsuite/bin/prepare_receptor"
 ```
 

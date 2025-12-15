@@ -1,0 +1,12 @@
+TIME(s)	'A,A'	Nloops	nOverlapPartner	nOverlapSystem	nOverlapSpanBox	nDisplace2D	nDisplace3D	nDisplace3Dto2D	nAssocSuccess
+0	0	0	0	0	0	0	0	0	0
+0.005	10	1	3	0	0	0	0	0	10
+0.01	11	2	5	0	0	0	0	0	13
+0.015	11	2	5	0	0	0	0	0	18
+0.02	11	2	5	0	0	0	0	0	21
+0.025	12	3	5	0	0	0	0	0	22
+0.03	12	3	5	0	0	0	0	0	23
+0.035	12	3	5	0	0	0	0	0	23
+0.04	12	3	5	0	0	0	0	0	23
+0.045	13	4	5	0	0	0	0	0	25
+0.0499995	13	4	5	0	0	0	0	0	25

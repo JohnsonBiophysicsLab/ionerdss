@@ -292,6 +292,58 @@ class InterfaceString:
         }
         return conversion.get(three_letter.upper(), 'X')
 
+    def calculate_kon(self) -> float:
+        """Calculate association rate constant.
+        
+        Returns fixed diffusion-limited association rate based on:
+        kon = 4*k_B*T / (15*η) ≈ 1.2 × 10³ nm³/μs
+        
+        Returns:
+            float: Association rate constant in nm³/μs
+        """
+        return 1200.0  # nm³/μs (diffusion-limited)
+
+    def calculate_koff(self, temperature: float = 298.0) -> float:
+        """Calculate dissociation rate constant from binding energy.
+        
+        Uses thermodynamic relationship:
+        koff = (7.4 × 10⁸ s⁻¹) * exp(ΔG/RT)
+        
+        where ΔG is the binding free energy from ProAffinity or default.
+        
+        Args:
+            temperature: Temperature in Kelvin (default: 298K)
+        
+        Returns:
+            float: Dissociation rate constant in s⁻¹
+        """
+        import math
+        
+        R = 0.008314  # Gas constant in kJ/(mol·K)
+        
+        # Use binding energy (ΔG in kJ/mol)
+        if self.energy == -1.0:
+            # Use default energy if not predicted by ProAffinity
+            delta_G = -16 * R * temperature  # -16RT in kJ/mol
+        else:
+            delta_G = self.energy  # kJ/mol from ProAffinity
+        
+        # Calculate koff using: koff = (7.4 × 10⁸ s⁻¹) * exp(ΔG/RT)
+        koff = 7.4e8 * math.exp(delta_G / (R * temperature))
+        
+        return koff  # s⁻¹
+
+    def get_rates(self, temperature: float = 298.0) -> tuple:
+        """Get both association and dissociation rate constants.
+        
+        Args:
+            temperature: Temperature in Kelvin (default: 298K)
+        
+        Returns:
+            tuple: (kon, koff) where kon is in nm³/μs and koff is in s⁻¹
+        """
+        return (self.calculate_kon(), self.calculate_koff(temperature))
+
 
 @dataclass
 class CoarseGrainedChain:
@@ -379,6 +431,10 @@ class CoarseGrainer:
 
         # Detect interfaces between all chain pairs
         self._detect_all_interfaces()
+        
+        # Run ProAffinity batch prediction if enabled
+        if self.hyperparams.predict_affinity:
+            self._predict_interface_energies()
 
         # Build partner mapping
         self._build_partner_mapping()
@@ -552,6 +608,63 @@ class CoarseGrainer:
             # Increment counters
             chain_partner_counts[interface.chain_i] += 1
             chain_partner_counts[interface.chain_j] += 1
+
+    def _predict_interface_energies(self) -> None:
+        """Predict binding energies for all interfaces using ProAffinity-GNN.
+        
+        Runs batch prediction for all detected interfaces and updates
+        their energy values. Falls back to default energy if prediction fails.
+        """
+        if not self.interfaces:
+            return
+        
+        # Prepare batch prediction data
+        affinity_prediction_pairs = []
+        for interface in self.interfaces:
+            affinity_prediction_pairs.append({
+                'pdb_file': str(self.parser.filepath),
+                'chains': f"{interface.chain_i},{interface.chain_j}",
+                'interface': interface  # Store reference to update later
+            })
+        
+        print("\n" + "="*80)
+        print("NOTE: Using ProAffinity-GNN for binding energy prediction")
+        print("="*80)
+        print(f"Predicting energies for {len(affinity_prediction_pairs)} interfaces...")
+        print("="*80 + "\n")
+        
+        try:
+            # Import here to avoid dependency issues if not used
+            from ..proaffinity_predictor import predict_proaffinity_binding_energy_batch
+            
+            # Run batch predictions
+            binding_energies = predict_proaffinity_binding_energy_batch(
+                predictions_list=affinity_prediction_pairs,
+                adfr_path=self.hyperparams.adfr_path,
+                verbose=True
+            )
+            
+            # Update interface energies
+            for pair_info, binding_energy in zip(affinity_prediction_pairs, binding_energies):
+                interface = pair_info['interface']
+                if np.isnan(binding_energy):
+                    # Fall back to default
+                    R = 0.008314  # kJ/(mol·K)
+                    T = 298.0
+                    interface.energy = -16 * R * T  # -16RT
+                    print(f"Warning: ProAffinity prediction failed for {interface.chain_i}-{interface.chain_j}, using default energy")
+                else:
+                    interface.energy = binding_energy
+                    print(f"Predicted energy for {interface.chain_i}-{interface.chain_j}: {binding_energy:.2f} kJ/mol")
+                    
+        except Exception as e:
+            print(f"Warning: Batch affinity prediction failed: {e}")
+            print("Using default energies for all interfaces")
+            # Set default energies
+            R = 0.008314
+            T = 298.0
+            for interface in self.interfaces:
+                interface.energy = -16 * R * T
 
     def get_coarse_grained_chains(self) -> Dict[str, CoarseGrainedChain]:
         """Get all coarse-grained chain representations.

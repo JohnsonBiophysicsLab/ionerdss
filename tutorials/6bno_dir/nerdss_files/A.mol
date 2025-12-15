@@ -1,0 +1,22 @@
+Name = A
+
+checkOverlap = true
+# translational diffusion constants
+D = [111.203, 111.203, 111.203]
+
+# rotational diffusion constants
+Dr = [17.13, 17.13, 17.13]
+
+# Coordinates
+COM   0.0000000   0.0000000   0.0000000
+aa1b  0.3008547   1.0547549   -0.9103383
+aa1f  -0.5745096   1.2819913   1.4966832
+aa2b  -0.4032253   -0.1370945   -2.1235999
+aa2f  0.3901304   0.0883430   2.6554277
+
+# bonds
+bonds = 4
+com aa1b
+com aa1f
+com aa2b
+com aa2f
