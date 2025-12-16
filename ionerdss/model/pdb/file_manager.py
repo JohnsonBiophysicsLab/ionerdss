@@ -375,9 +375,9 @@ class WorkspaceManager:
             log_file, mode='w', encoding='utf-8')
         file_handler.setLevel(logging.INFO)
 
-        # Console handler
+        # Console handler - WARNING level to reduce output verbosity
         console_handler = logging.StreamHandler()
-        console_handler.setLevel(logging.INFO)
+        console_handler.setLevel(logging.WARNING)
 
         # Formatter
         formatter = logging.Formatter(
