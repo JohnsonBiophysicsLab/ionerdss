@@ -363,7 +363,7 @@ class WorkspaceManager:
         # Create logger
         logger_name = f"ionerdss.pdb.{self.pdb_id}"
         logger = logging.getLogger(logger_name)
-        logger.setLevel(logging.INFO)
+        logger.setLevel(logging.WARNING)
 
         # Remove existing handlers to avoid duplicates
         for handler in logger.handlers[:]:

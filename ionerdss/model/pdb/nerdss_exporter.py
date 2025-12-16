@@ -204,15 +204,15 @@ class NERDSSExporter:
         th1s, th2s = [], []
         ph1s, ph2s, ws = [], [], []
 
-        print("\n=== DEBUG: Averaging pairs for "
+        workspace_manager.logger.info("\n=== DEBUG: Averaging pairs for "
             f"{mol1}({site1}) + {mol2}({site2}) ===")
 
         header = ("idx  |  sigma   "
                 "|  n1(local)              n2(local)              "
                 "|  n1f(global)              n2f(global)             "
                 "|  theta1   theta2   phi1      phi2      omega")
-        print(header)
-        print("-" * len(header))
+        workspace_manager.logger.info(header)
+        workspace_manager.logger.info("-" * len(header))
 
         for k, (m1, m2, intf1, intf2) in enumerate(pairs, start=1):
             com1, com2 = m1.com, m2.com
@@ -238,7 +238,7 @@ class NERDSSExporter:
             def vfmt(v):
                 return f"[{v[0]: .6f},{v[1]: .6f},{v[2]: .6f}]"
 
-            print(f"{k:>3d}  | {sigma: .6f} "
+            workspace_manager.logger.info(f"{k:>3d}  | {sigma: .6f} "
                 f"| {vfmt(n1_local)} {vfmt(n2_local)} "
                 f"| {vfmt(n1f)} {vfmt(n2f)} "
                 f"| {th1: .6f} {th2: .6f} {ph1: .6f} {ph2: .6f} {w: .6f}")
@@ -262,15 +262,6 @@ class NERDSSExporter:
         phi1_mean, phi1_std = self._circular_mean_std(ph1s) if ph1s else (0.0, 0.0)
         phi2_mean, phi2_std = self._circular_mean_std(ph2s) if ph2s else (0.0, 0.0)
         w_mean, w_std       = self._circular_mean_std(ws)   if ws   else (0.0, 0.0)
-
-        print("\n--- SUMMARY (means ± std) ---")
-        print(f"sigma : {sigma_mean: .9f} ± {sigma_std: .9f}")
-        print(f"theta1: {theta1_mean: .9f} ± {theta1_std: .9f}")
-        print(f"theta2: {theta2_mean: .9f} ± {theta2_std: .9f}")
-        print(f"phi1  : {phi1_mean: .9f} ± {phi1_std: .9f}   (circular)")
-        print(f"phi2  : {phi2_mean: .9f} ± {phi2_std: .9f}   (circular)")
-        print(f"omega : {w_mean: .9f} ± {w_std: .9f}         (circular)")
-        print("=============================================\n")
 
         # Return the means that will be used downstream
         return sigma_mean, (theta1_mean, theta2_mean, phi1_mean, phi2_mean, w_mean)
@@ -1320,16 +1311,6 @@ class NERDSSExporter:
                 sigma_list.append(sigma); angles_list.append(angles)
                 continue
 
-            # --- DEBUG PRINT HEADER ---
-            print("\n=== DEBUG: Averaging pairs for "
-                f"{mol1}({site1})[{type1}] + {mol2}({site2})[{type2}] ===")
-            header = ("idx  |  sigma     "
-                    "|  n1(local)                n2(local)                "
-                    "|  n1f(global)                n2f(global)               "
-                    "|  theta1     theta2     phi1        phi2        omega")
-            print(header)
-            print("-" * len(header))
-
             # Compute per-pair params, then average
             sigmas = []
             angles_acc = []  # list of (theta1, theta2, phi1, phi2, omega)
@@ -1845,17 +1826,16 @@ class NERDSSExporter:
         representative = self._get_representative_instance(mol_name)
         
         if not representative:
-            print(f"DEBUG REPRESENTATIVE: No representative found for {mol_name}")
+            workspace_manager.logger.info(f"DEBUG REPRESENTATIVE: No representative found for {mol_name}")
             return
+        workspace_manager.logger.info(f"DEBUG REPRESENTATIVE INSTANCE for {mol_name}:")
+        workspace_manager.logger.info(f"=" * 60)
+        workspace_manager.logger.info(f"Instance ID: {id(representative)}")
+        workspace_manager.logger.info(f"COM (absolute): {representative.com}")
+        workspace_manager.logger.info(f"Number of interfaces: {len(representative.interfaces_neighbors_map)}")
+        workspace_manager.logger.info()
         
-        print(f"DEBUG REPRESENTATIVE INSTANCE for {mol_name}:")
-        print(f"=" * 60)
-        print(f"Instance ID: {id(representative)}")
-        print(f"COM (absolute): {representative.com}")
-        print(f"Number of interfaces: {len(representative.interfaces_neighbors_map)}")
-        print()
-        
-        print("INTERFACES AND BINDING PARTNERS:")
+        workspace_manager.logger.info("INTERFACES AND BINDING PARTNERS:")
         for i, (interface, partner) in enumerate(representative.interfaces_neighbors_map.items(), 1):
             interface_type_name = interface.interface_type.get_name()
             interface_absolute_coord = interface.absolute_coord
@@ -1868,13 +1848,13 @@ class NERDSSExporter:
                     site_label = label
                     break
             
-            print(f"  Interface {i}:")
-            print(f"    Type: {interface_type_name}")
-            print(f"    Site label: {site_label}")
-            print(f"    Absolute coord: {interface_absolute_coord}")
-            print(f"    Local coord (relative to COM): {interface_local_coord}")
-            print(f"    Partner molecule ID: {id(partner)}")
-            print(f"    Partner molecule COM: {partner.com}")
+            workspace_manager.logger.info(f"  Interface {i}:")
+            workspace_manager.logger.info(f"    Type: {interface_type_name}")
+            workspace_manager.logger.info(f"    Site label: {site_label}")
+            workspace_manager.logger.info(f"    Absolute coord: {interface_absolute_coord}")
+            workspace_manager.logger.info(f"    Local coord (relative to COM): {interface_local_coord}")
+            workspace_manager.logger.info(f"    Partner molecule ID: {id(partner)}")
+            workspace_manager.logger.info(f"    Partner molecule COM: {partner.com}")
             
             # Find the partner's interface that connects back
             partner_interface = None
@@ -1895,23 +1875,23 @@ class NERDSSExporter:
                         partner_site_label = label
                         break
                 
-                print(f"    Partner interface type: {partner_type_name}")
-                print(f"    Partner site label: {partner_site_label}")
-                print(f"    Partner interface absolute coord: {partner_absolute_coord}")
-                print(f"    Partner interface local coord: {partner_local_coord}")
-                print(f"    Bond length: {np.linalg.norm(interface_absolute_coord - partner_absolute_coord):.6f}")
+                workspace_manager.logger.info(f"    Partner interface type: {partner_type_name}")
+                workspace_manager.logger.info(f"    Partner site label: {partner_site_label}")
+                workspace_manager.logger.info(f"    Partner interface absolute coord: {partner_absolute_coord}")
+                workspace_manager.logger.info(f"    Partner interface local coord: {partner_local_coord}")
+                workspace_manager.logger.info(f"    Bond length: {np.linalg.norm(interface_absolute_coord - partner_absolute_coord):.6f}")
             else:
-                print(f"    ERROR: Could not find partner interface!")
+                workspace_manager.logger.info(f"    ERROR: Could not find partner interface!")
             
-            print()
+            workspace_manager.logger.info()
         
-        print("INTERFACE-TO-SITE MAPPING:")
-        print("Interface type -> Site label:")
+        workspace_manager.logger.info("INTERFACE-TO-SITE MAPPING:")
+        workspace_manager.logger.info("Interface type -> Site label:")
         for key, site_label in self.interface_to_site_map.items():
-            print(f"  {key} -> {site_label}")
-        print()
+            workspace_manager.logger.info(f"  {key} -> {site_label}")
+        workspace_manager.logger.info()
         
-        print("EXPECTED REACTIONS (based on interface types):")
+        workspace_manager.logger.info("EXPECTED REACTIONS (based on interface types):")
         interface_types = [intf.interface_type.get_name()
                            for intf in representative.interfaces_neighbors_map.keys()]
         # f/b complementary preview (homodimeric heterotypic)
@@ -1923,11 +1903,11 @@ class NERDSSExporter:
                     if partner in interface_types:
                         s1 = self._get_site_label_for_interface_type(t)
                         s2 = self._get_site_label_for_interface_type(partner)
-                        print(f"  {mol_name}({s1}) + {mol_name}({s2}) <-> {mol_name}({s1}!1).{mol_name}({s2}!1)")
+                        workspace_manager.logger.info(f"  {mol_name}({s1}) + {mol_name}({s2}) <-> {mol_name}({s1}!1).{mol_name}({s2}!1)")
             except Exception:
                 continue
         
-        print("=" * 60)
+        workspace_manager.logger.info("=" * 60)
 
     def _get_site_label_for_interface_type(self, interface_type_name: str) -> str:
         """Get site label for a given interface type name."""
