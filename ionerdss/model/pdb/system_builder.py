@@ -1343,12 +1343,13 @@ class SystemBuilder:
         """
         exporter = NERDSSExporter(self.system, self.workspace_manager)
         for mol_instance in self.system.molecule_instances:
-            print("======================")
-            print(mol_instance.name)
-            print(mol_instance.com)
-            print(type(mol_instance.interfaces_neighbors_map))
-            for (intf, neighbor) in mol_instance.interfaces_neighbors_map.items():
-                print(f"{intf.get_name()}:{neighbor.name}, {intf.absolute_coord}")
+            if self.workspace_manager:
+                self.workspace_manager.logger.info("======================")
+                self.workspace_manager.logger.info(mol_instance.name)
+                self.workspace_manager.logger.info(mol_instance.com)
+                self.workspace_manager.logger.info(type(mol_instance.interfaces_neighbors_map))
+                for (intf, neighbor) in mol_instance.interfaces_neighbors_map.items():
+                    self.workspace_manager.logger.info(f"{intf.get_name()}:{neighbor.name}, {intf.absolute_coord}")
         return exporter.export_all(
             molecule_counts=molecule_counts,
             box_nm=box_nm,

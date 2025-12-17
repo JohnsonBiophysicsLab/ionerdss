@@ -116,7 +116,7 @@ class NERDSSExporter:
         if workspace_manager:
             self.output_dir = workspace_manager.workspace_path / 'nerdss_files'
             self.output_dir.mkdir(exist_ok=True)
-            workspace_manager.logger.info(
+            self.workspace_manager.logger.info(
                 "Created NERDSS export directory: %s", self.output_dir)
         else:
             self.output_dir = Path("nerdss_files")
@@ -204,15 +204,15 @@ class NERDSSExporter:
         th1s, th2s = [], []
         ph1s, ph2s, ws = [], [], []
 
-        workspace_manager.logger.info("\n=== DEBUG: Averaging pairs for "
+        self.workspace_manager.logger.info("\n=== DEBUG: Averaging pairs for "
             f"{mol1}({site1}) + {mol2}({site2}) ===")
 
         header = ("idx  |  sigma   "
                 "|  n1(local)              n2(local)              "
                 "|  n1f(global)              n2f(global)             "
                 "|  theta1   theta2   phi1      phi2      omega")
-        workspace_manager.logger.info(header)
-        workspace_manager.logger.info("-" * len(header))
+        self.workspace_manager.logger.info(header)
+        self.workspace_manager.logger.info("-" * len(header))
 
         for k, (m1, m2, intf1, intf2) in enumerate(pairs, start=1):
             com1, com2 = m1.com, m2.com
@@ -238,7 +238,7 @@ class NERDSSExporter:
             def vfmt(v):
                 return f"[{v[0]: .6f},{v[1]: .6f},{v[2]: .6f}]"
 
-            workspace_manager.logger.info(f"{k:>3d}  | {sigma: .6f} "
+            self.workspace_manager.logger.info(f"{k:>3d}  | {sigma: .6f} "
                 f"| {vfmt(n1_local)} {vfmt(n2_local)} "
                 f"| {vfmt(n1f)} {vfmt(n2f)} "
                 f"| {th1: .6f} {th2: .6f} {ph1: .6f} {ph2: .6f} {w: .6f}")
@@ -526,14 +526,15 @@ class NERDSSExporter:
             for intf, partner in inst.interfaces_neighbors_map.items():
                 rows.append((intf.interface_type.get_name(), partner.name, tuple(intf.absolute_coord)))
             rows.sort()
-            for r in rows:
-                print(r)
+            if self.workspace_manager:
+                self.workspace_manager.logger.info("Interface map for %s: %s", mol_name, rows)
             # Count by family and f/b:
             from collections import Counter
             fam = [name[:-1] if name[-1] in ("f","b") else name for (name,_,_) in rows]
             ends = [name[-1] if name[-1] in ("f","b") else "-" for (name,_,_) in rows]
-            print("By family:", Counter(fam))
-            print("Ends f/b:", Counter(ends))
+            if self.workspace_manager:
+                self.workspace_manager.logger.info("By family:", Counter(fam))
+                self.workspace_manager.logger.info("Ends f/b:", Counter(ends))
             
         dump_map(representative_instance)
         
@@ -1826,16 +1827,15 @@ class NERDSSExporter:
         representative = self._get_representative_instance(mol_name)
         
         if not representative:
-            workspace_manager.logger.info(f"DEBUG REPRESENTATIVE: No representative found for {mol_name}")
+            self.workspace_manager.logger.debug(f"DEBUG REPRESENTATIVE: No representative found for {mol_name}")
             return
-        workspace_manager.logger.info(f"DEBUG REPRESENTATIVE INSTANCE for {mol_name}:")
-        workspace_manager.logger.info(f"=" * 60)
-        workspace_manager.logger.info(f"Instance ID: {id(representative)}")
-        workspace_manager.logger.info(f"COM (absolute): {representative.com}")
-        workspace_manager.logger.info(f"Number of interfaces: {len(representative.interfaces_neighbors_map)}")
-        workspace_manager.logger.info()
+        self.workspace_manager.logger.debug(f"DEBUG REPRESENTATIVE INSTANCE for {mol_name}:")
+        self.workspace_manager.logger.debug(f"=" * 60)
+        self.workspace_manager.logger.debug(f"Instance ID: {id(representative)}")
+        self.workspace_manager.logger.debug(f"COM (absolute): {representative.com}")
+        self.workspace_manager.logger.debug(f"Number of interfaces: {len(representative.interfaces_neighbors_map)}")
         
-        workspace_manager.logger.info("INTERFACES AND BINDING PARTNERS:")
+        self.workspace_manager.logger.debug("INTERFACES AND BINDING PARTNERS:")
         for i, (interface, partner) in enumerate(representative.interfaces_neighbors_map.items(), 1):
             interface_type_name = interface.interface_type.get_name()
             interface_absolute_coord = interface.absolute_coord
@@ -1848,13 +1848,13 @@ class NERDSSExporter:
                     site_label = label
                     break
             
-            workspace_manager.logger.info(f"  Interface {i}:")
-            workspace_manager.logger.info(f"    Type: {interface_type_name}")
-            workspace_manager.logger.info(f"    Site label: {site_label}")
-            workspace_manager.logger.info(f"    Absolute coord: {interface_absolute_coord}")
-            workspace_manager.logger.info(f"    Local coord (relative to COM): {interface_local_coord}")
-            workspace_manager.logger.info(f"    Partner molecule ID: {id(partner)}")
-            workspace_manager.logger.info(f"    Partner molecule COM: {partner.com}")
+            self.workspace_manager.logger.debug(f"  Interface {i}:")
+            self.workspace_manager.logger.debug(f"    Type: {interface_type_name}")
+            self.workspace_manager.logger.debug(f"    Site label: {site_label}")
+            self.workspace_manager.logger.debug(f"    Absolute coord: {interface_absolute_coord}")
+            self.workspace_manager.logger.debug(f"    Local coord (relative to COM): {interface_local_coord}")
+            self.workspace_manager.logger.debug(f"    Partner molecule ID: {id(partner)}")
+            self.workspace_manager.logger.debug(f"    Partner molecule COM: {partner.com}")
             
             # Find the partner's interface that connects back
             partner_interface = None
@@ -1875,23 +1875,20 @@ class NERDSSExporter:
                         partner_site_label = label
                         break
                 
-                workspace_manager.logger.info(f"    Partner interface type: {partner_type_name}")
-                workspace_manager.logger.info(f"    Partner site label: {partner_site_label}")
-                workspace_manager.logger.info(f"    Partner interface absolute coord: {partner_absolute_coord}")
-                workspace_manager.logger.info(f"    Partner interface local coord: {partner_local_coord}")
-                workspace_manager.logger.info(f"    Bond length: {np.linalg.norm(interface_absolute_coord - partner_absolute_coord):.6f}")
+                self.workspace_manager.logger.debug(f"    Partner interface type: {partner_type_name}")
+                self.workspace_manager.logger.debug(f"    Partner site label: {partner_site_label}")
+                self.workspace_manager.logger.debug(f"    Partner interface absolute coord: {partner_absolute_coord}")
+                self.workspace_manager.logger.debug(f"    Partner interface local coord: {partner_local_coord}")
+                self.workspace_manager.logger.debug(f"    Bond length: {np.linalg.norm(interface_absolute_coord - partner_absolute_coord):.6f}")
             else:
-                workspace_manager.logger.info(f"    ERROR: Could not find partner interface!")
-            
-            workspace_manager.logger.info()
+                self.workspace_manager.logger.error(f"    ERROR: Could not find partner interface!")
         
-        workspace_manager.logger.info("INTERFACE-TO-SITE MAPPING:")
-        workspace_manager.logger.info("Interface type -> Site label:")
+        self.workspace_manager.logger.debug("INTERFACE-TO-SITE MAPPING:")
+        self.workspace_manager.logger.debug("Interface type -> Site label:")
         for key, site_label in self.interface_to_site_map.items():
-            workspace_manager.logger.info(f"  {key} -> {site_label}")
-        workspace_manager.logger.info()
+            self.workspace_manager.logger.debug(f"  {key} -> {site_label}")
         
-        workspace_manager.logger.info("EXPECTED REACTIONS (based on interface types):")
+        self.workspace_manager.logger.debug("EXPECTED REACTIONS (based on interface types):")
         interface_types = [intf.interface_type.get_name()
                            for intf in representative.interfaces_neighbors_map.keys()]
         # f/b complementary preview (homodimeric heterotypic)
@@ -1903,11 +1900,11 @@ class NERDSSExporter:
                     if partner in interface_types:
                         s1 = self._get_site_label_for_interface_type(t)
                         s2 = self._get_site_label_for_interface_type(partner)
-                        workspace_manager.logger.info(f"  {mol_name}({s1}) + {mol_name}({s2}) <-> {mol_name}({s1}!1).{mol_name}({s2}!1)")
+                        self.workspace_manager.logger.info(f"  {mol_name}({s1}) + {mol_name}({s2}) <-> {mol_name}({s1}!1).{mol_name}({s2}!1)")
             except Exception:
                 continue
         
-        workspace_manager.logger.info("=" * 60)
+        self.workspace_manager.logger.info("=" * 60)
 
     def _get_site_label_for_interface_type(self, interface_type_name: str) -> str:
         """Get site label for a given interface type name."""
