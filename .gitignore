@@ -148,4 +148,5 @@ repro_serialization.py
 ref_angles.py
 reconstruction_test.py
 verify_angles*
-test.py
+#test.py
+tutorials/6bno_dir/
