@@ -132,6 +132,7 @@ def generate_ode_model_from_system(system: System, max_complex_size: int = None)
     # Format: "A + A -> A_A", "A + A_A -> A_A_A", etc.
     
     # Association reactions between all pairs
+    reaction_idx = 0  # Counter for unique rate constant names
     for i, (name1, graph1) in enumerate(zip(complex_names, complex_graphs)):
         size1 = len(graph1.nodes())
         for j, (name2, graph2) in enumerate(zip(complex_names, complex_graphs)):
@@ -143,19 +144,22 @@ def generate_ode_model_from_system(system: System, max_complex_size: int = None)
                 # Find product in our list (complex with combined size)
                 product_name = "_".join([mol_type_name] * product_size)
                 if product_name in complex_names:
+                    # Create unique rate constant name for this reaction
+                    rate_const_name = f"k_on_{reaction_idx}"
                     # Create reaction
-                    reaction_expr = f"{name1} + {name2} -> {product_name}, k_on"
+                    reaction_expr = f"{name1} + {name2} -> {product_name}, {rate_const_name}"
                     
                     class SimpleReaction:
-                        def __init__(self, expression, rate=1.0):
+                        def __init__(self, expression, rate=1.0, rate_name=None):
                             self.expression = expression
                             self.rate = rate
-                            self.rate_name = "k_on"
+                            self.rate_name = rate_name if rate_name else "k_on"
                     
-                    reaction = SimpleReaction(reaction_expr, rate=1.0)
+                    reaction = SimpleReaction(reaction_expr, rate=1.0, rate_name=rate_const_name)
                     
                     # Avoid duplicates (A+B->C is same as B+A->C)
                     if reaction not in reaction_system.reactions:
                         reaction_system.reactions.append(reaction)
+                        reaction_idx += 1  # Increment only when reaction is added
     
     return complex_names, reaction_system
