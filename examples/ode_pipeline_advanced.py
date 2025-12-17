@@ -8,22 +8,18 @@ for more customized analysis and visualization.
 import numpy as np
 import matplotlib.pyplot as plt
 from ionerdss import ParseComplexes, ODEPipelineConfig, calculate_ode_solution
-from ionerdss.model.pdb.main import PDBModelBuilder
-from ionerdss.model.pdb.hyperparameters import PDBModelHyperparameters
+from ionerdss.model import pdb
 
 # Build the system (without automatic ODE calculation)
-model = PDBModelBuilder(source="6bno")
-hyperparams = PDBModelHyperparameters(
+model = pdb.PDBModelBuilder(source="6bno")
+model.set_hyperparameters(
     interface_detect_distance_cutoff=1.0,
     ring_regularization_mode="off",
     generate_nerdss_files=True,
     ode_enabled=False  # We'll run ODE manually
 )
 
-system = model.build_system(
-    workspace_path="6bno_advanced",
-    hyperparams=hyperparams
-)
+system = model.build_system(workspace_path="6bno_advanced")
 
 # Generate complex reaction system using ParseComplexes
 print("Generating complex reaction network...")
