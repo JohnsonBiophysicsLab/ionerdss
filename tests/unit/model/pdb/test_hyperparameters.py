@@ -27,11 +27,12 @@ class TestPDBModelHyperparameters(unittest.TestCase):
         self.assertEqual(params.chain_grouping_matching_mode, "default")
         self.assertEqual(params.steric_clash_mode, "off")
         self.assertEqual(params.signature_precision, 6)
-        self.assertEqual(params.homodimer_distance_threshold, 0.1)
-        self.assertEqual(params.homodimer_angle_threshold, 0.1)
+        self.assertEqual(params.homodimer_distance_threshold, 0.5)
+        self.assertEqual(params.homodimer_angle_threshold, 0.5)
         self.assertEqual(params.ring_regularization_mode, "uniform")
         self.assertEqual(params.ring_geometry, "cylinder")
         self.assertEqual(params.min_ring_size, 3)
+        self.assertEqual(params.pdb_file_format, "bioassembly1")
 
         # Check that custom_aligner is created
         self.assertIsInstance(params.chain_grouping_custom_aligner, PairwiseAligner)
@@ -103,16 +104,16 @@ class TestPDBModelHyperparameters(unittest.TestCase):
         result = params.to_dict()
 
         # Check basic fields
-        self.assertEqual(result['distance_cutoff'], 0.6)
-        self.assertEqual(result['residue_cutoff'], 3)
-        self.assertEqual(result['rmsd_threshold'], 2.0)
-        self.assertEqual(result['seq_threshold'], 0.5)
-        self.assertEqual(result['matching_mode'], "default")
+        self.assertEqual(result['interface_detect_distance_cutoff'], 0.6)
+        self.assertEqual(result['interface_detect_n_residue_cutoff'], 3)
+        self.assertEqual(result['chain_grouping_rmsd_threshold'], 2.0)
+        self.assertEqual(result['chain_grouping_seq_threshold'], 0.5)
+        self.assertEqual(result['chain_grouping_matching_mode'], "default")
         self.assertEqual(result['steric_clash_mode'], "off")
 
         # Check aligner serialization
-        self.assertIn('custom_aligner', result)
-        aligner_dict = result['custom_aligner']
+        self.assertIn('chain_grouping_custom_aligner', result)
+        aligner_dict = result['chain_grouping_custom_aligner']
         self.assertEqual(aligner_dict['mode'], 'global')
         self.assertEqual(aligner_dict['match_score'], 1.0)
         self.assertEqual(aligner_dict['mismatch_score'], 0.0)
@@ -131,14 +132,36 @@ class TestPDBModelHyperparameters(unittest.TestCase):
         params.chain_grouping_matching_mode = "default"
         params.steric_clash_mode = "off"
         params.signature_precision = 6
-        params.homodimer_distance_threshold = 0.1
-        params.homodimer_angle_threshold = 0.1
+        params.homodimer_distance_threshold = 0.5
+        params.homodimer_angle_threshold = 0.5
+        params.homotypic_detection = "auto"
+        params.homotypic_detection_residue_similarity_threshold = 0.7
+        params.homotypic_detection_interface_radius = 8.0
         params.ring_regularization_mode = "uniform"
         params.ring_geometry = "cylinder"
         params.min_ring_size = 3
+        params.template_regularization_strength = 0.0
+        params.generate_visualizations = True
+        params.generate_nerdss_files = True
+        params.nerdss_water_box = [100.0, 100.0, 100.0]
+        params.predict_affinity = False
+        params.adfr_path = None
+        params.pdb_file_format = "bioassembly1"
+        params.ode_enabled = False
+        params.ode_time_span = (0.0, 10.0)
+        params.ode_solver_method = "BDF"
+        params.ode_atol = 1e-4
+        params.ode_plot = True
+        params.ode_save_csv = True
+        params.ode_initial_concentrations = None
+        params.count_transition = False
+        params.transition_matrix_size = 500
+        params.transition_write = None
+        from ionerdss.model.components.units import Units
+        params.units = Units()
 
         result = params.to_dict()
-        self.assertIsNone(result['custom_aligner'])
+        self.assertIsNone(result['chain_grouping_custom_aligner'])
 
     def test_to_dict_with_custom_aligner(self):
         """Test to_dict method with custom aligner."""
@@ -151,7 +174,7 @@ class TestPDBModelHyperparameters(unittest.TestCase):
         result = params.to_dict()
 
         # Check custom aligner serialization
-        aligner_dict = result['custom_aligner']
+        aligner_dict = result['chain_grouping_custom_aligner']
         self.assertEqual(aligner_dict['mode'], 'local')
         self.assertEqual(aligner_dict['match_score'], 2.0)
         self.assertEqual(aligner_dict['mismatch_score'], -1.0)
@@ -176,11 +199,11 @@ class TestPDBModelHyperparameters(unittest.TestCase):
     def test_from_dict_basic_fields(self):
         """Test from_dict with basic field values."""
         data = {
-            'distance_cutoff': 0.8,
-            'residue_cutoff': 5,
-            'rmsd_threshold': 1.5,
-            'seq_threshold': 0.8,
-            'matching_mode': 'sequence',
+            'interface_detect_distance_cutoff': 0.8,
+            'interface_detect_n_residue_cutoff': 5,
+            'chain_grouping_rmsd_threshold': 1.5,
+            'chain_grouping_seq_threshold': 0.8,
+            'chain_grouping_matching_mode': 'sequence',
             'steric_clash_mode': 'auto',
             'signature_precision': 4
         }
@@ -198,8 +221,8 @@ class TestPDBModelHyperparameters(unittest.TestCase):
     def test_from_dict_with_aligner_dict(self):
         """Test from_dict with aligner dictionary."""
         data = {
-            'distance_cutoff': 0.7,
-            'custom_aligner': {
+            'interface_detect_distance_cutoff': 0.7,
+            'chain_grouping_custom_aligner': {
                 'mode': 'local',
                 'match_score': 2.0,
                 'mismatch_score': -1.0,
@@ -221,8 +244,8 @@ class TestPDBModelHyperparameters(unittest.TestCase):
     def test_from_dict_with_none_aligner(self):
         """Test from_dict with None aligner."""
         data = {
-            'distance_cutoff': 0.7,
-            'custom_aligner': None
+            'interface_detect_distance_cutoff': 0.7,
+            'chain_grouping_custom_aligner': None
         }
 
         params = PDBModelHyperparameters.from_dict(data)
@@ -234,7 +257,7 @@ class TestPDBModelHyperparameters(unittest.TestCase):
     def test_from_dict_unknown_fields(self):
         """Test from_dict ignores unknown fields."""
         data = {
-            'distance_cutoff': 0.8,
+            'interface_detect_distance_cutoff': 0.8,
             'unknown_field': 'should_be_ignored',
             'another_unknown': 123
         }
@@ -425,7 +448,7 @@ class TestPDBModelHyperparameters(unittest.TestCase):
         params_dict = params.to_dict()
 
         # Should handle missing attributes gracefully
-        aligner_dict = params_dict['custom_aligner']
+        aligner_dict = params_dict['chain_grouping_custom_aligner']
         self.assertEqual(aligner_dict['mode'], 'local')
         # Missing attributes should get default values from getattr
         # Default from getattr
@@ -440,7 +463,7 @@ class TestPDBModelHyperparameters(unittest.TestCase):
     def test_from_dict_invalid_aligner_params(self):
         """Test from_dict with invalid aligner parameters."""
         data = {
-            'custom_aligner': {
+            'chain_grouping_custom_aligner': {
                 'mode': 'local',
                 'invalid_param': 'should_be_ignored',
                 'match_score': 2.0
