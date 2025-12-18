@@ -90,8 +90,10 @@ class PDBModelBuilder:
         self.pdb_id = pdb_id
 
         try:
-            # Create hyperparameters
-            if PDBModelHyperparameters is None:
+            # Get hyperparameters: use provided, then builder's, then default
+            if hyperparams is None:
+                hyperparams = self.hyperparams
+            if hyperparams is None:
                 hyperparams = PDBModelHyperparameters()
 
             self.workspace_manager.logger.info(
@@ -372,3 +374,75 @@ class PDBModelBuilder:
         """Context manager exit with workspace cleanup."""
         if self.workspace_manager:
             self.workspace_manager.__exit__(exc_type, exc_val, exc_tb)
+
+    def set_hyperparameters(self, **kwargs) -> PDBModelHyperparameters:
+        """Set or update hyperparameters for this builder instance.
+        
+        Convenience method that wraps the API function. See the API function
+        documentation for complete parameter descriptions.
+        
+        Args:
+            **kwargs: Hyperparameter field names and values to set or update.
+        
+        Returns:
+            The updated PDBModelHyperparameters instance.
+        
+        Examples:
+            >>> builder = PDBModelBuilder("1ABC")
+            >>> builder.set_hyperparameters(
+            ...     interface_detect_distance_cutoff=0.8,
+            ...     ode_enabled=True
+            ... )
+        """
+        from .api import set_hyperparameters as _set_hyperparameters
+        return _set_hyperparameters(self, **kwargs)
+    
+    def export_hyperparameters(self, filepath: str):
+        """Export builder's hyperparameters to JSON file.
+        
+        Convenience method that wraps the API function.
+        
+        Args:
+            filepath: Path to save JSON file.
+        
+        Examples:
+            >>> builder = PDBModelBuilder("1ABC")
+            >>> builder.set_hyperparameters(interface_detect_distance_cutoff=0.8)
+            >>> builder.export_hyperparameters("config.json")
+        """
+        from .api import export_hyperparameters as _export_hyperparameters
+        return _export_hyperparameters(self, filepath)
+    
+    def import_hyperparameters(self, filepath: str) -> PDBModelHyperparameters:
+        """Import hyperparameters from JSON file and set on this builder.
+        
+        Convenience method that wraps the API function.
+        
+        Args:
+            filepath: Path to JSON file containing hyperparameters.
+        
+        Returns:
+            The loaded PDBModelHyperparameters instance.
+        
+        Examples:
+            >>> builder = PDBModelBuilder("1ABC")
+            >>> builder.import_hyperparameters("config.json")
+        """
+        from .api import import_hyperparameters as _import_hyperparameters
+        return _import_hyperparameters(self, filepath)
+    
+    def print_hyperparameters(self) -> str:
+        """Print builder's hyperparameters in a human-readable format.
+        
+        Convenience method that wraps the API function.
+        
+        Returns:
+            String representation of hyperparameters.
+        
+        Examples:
+            >>> builder = PDBModelBuilder("1ABC")
+            >>> builder.set_hyperparameters()
+            >>> print(builder.print_hyperparameters())
+        """
+        from .api import print_hyperparameters as _print_hyperparameters
+        return _print_hyperparameters(self)

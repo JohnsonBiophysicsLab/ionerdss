@@ -8,8 +8,7 @@ The ODE pipeline predicts concentration time courses based on reaction
 kinetics, which can be compared with particle-based NERDSS results.
 """
 
-from ionerdss.model.pdb.main import PDBModelBuilder
-from ionerdss.model.pdb.hyperparameters import PDBModelHyperparameters
+from ionerdss.model import pdb
 import subprocess
 import os
 
@@ -20,10 +19,10 @@ pdb_id = "6bno"
 cif_path = "workspace_6BNO/structures/downloaded/6BNO.cif"
 
 # Create model builder
-model = PDBModelBuilder(source=cif_path)
+model = pdb.PDBModelBuilder(source=cif_path)
 
 # Configure hyperparameters with ODE pipeline enabled
-hyperparams = PDBModelHyperparameters(
+model.set_hyperparameters(
     # Interface detection parameters
     interface_detect_distance_cutoff=1.0,
     ring_regularization_mode="off",
@@ -48,10 +47,8 @@ hyperparams = PDBModelHyperparameters(
 # 5. Generate NERDSS files
 # 6. Calculate ODE solution (NEW!)
 # 7. Save all results
-system = model.build_system(
-    workspace_path="6bno_dir",
-    hyperparams=hyperparams
-)
+# Hyperparameters are automatically used from builder!
+system = model.build_system(workspace_path="6bno_dir")
 
 print("\n" + "="*60)
 print("ODE Pipeline Completed!")

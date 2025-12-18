@@ -48,12 +48,27 @@ from .template_builder import TemplateBuilder
 from .system_builder import SystemBuilder
 from .main import PDBModelBuilder
 
+# Import high-level API functions
+from .api import (
+    set_hyperparameters,
+    export_hyperparameters,
+    import_hyperparameters,
+    print_hyperparameters,
+)
+
 __all__ = [
+    # Core classes
     'PDBModelHyperparameters',
     'PDBParser', 
     'CoarseGrainer',
     'ChainGrouper',
     'TemplateBuilder',
     'SystemBuilder',
-    'PDBModelBuilder'
+    'PDBModelBuilder',
+    
+    # High-level API functions
+    'set_hyperparameters',
+    'export_hyperparameters',
+    'import_hyperparameters',
+    'print_hyperparameters',
 ]

@@ -111,62 +111,158 @@ class PDBModelHyperparameters:
     """
 
     # Core detection parameters
-    interface_detect_distance_cutoff: float = 0.6  # nm
-    interface_detect_n_residue_cutoff: int = 3
+    interface_detect_distance_cutoff: float = field(
+        default=0.6,
+        metadata={"description": "Contact search radius per atom pair for interface detection", "unit": "nm"}
+    )
+    interface_detect_n_residue_cutoff: int = field(
+        default=3,
+        metadata={"description": "Minimum number of contacting residues (on each chain) to accept an interface", "unit": "residues"}
+    )
 
     # Chain grouping parameters
-    chain_grouping_rmsd_threshold: float = 2.0  # A
-    chain_grouping_seq_threshold: float = 0.5
-    chain_grouping_custom_aligner: Optional[PairwiseAligner] = field(default=None)
-    chain_grouping_matching_mode: Literal["default", "sequence", "structure"] = "default"
+    chain_grouping_rmsd_threshold: float = field(
+        default=2.0,
+        metadata={"description": "RMSD threshold for structure superposition to determine repeated chains", "unit": "Å"}
+    )
+    chain_grouping_seq_threshold: float = field(
+        default=0.5,
+        metadata={"description": "Sequence identity threshold for sequence alignment to determine repeated chains (0.5 = 50%)"}
+    )
+    chain_grouping_custom_aligner: Optional[PairwiseAligner] = field(
+        default=None,
+        metadata={"description": "Custom Bio.Align.PairwiseAligner for sequence alignment (None uses default settings)"}
+    )
+    chain_grouping_matching_mode: Literal["default", "sequence", "structure"] = field(
+        default="default",
+        metadata={"description": "Mode for determining repeated chains: 'default' (mmCIF header with sequence fallback), 'sequence' (sequence-based), 'structure' (structure-based)"}
+    )
 
     # Steric clash detection
-    steric_clash_mode: Literal["off", "auto", "custom"] = "off"
+    steric_clash_mode: Literal["off", "auto", "custom"] = field(
+        default="off",
+        metadata={"description": "Mode for detecting steric clashes: 'off' (disabled), 'auto' (automatic Cα clash detection), 'custom' (user-provided lists)"}
+    )
 
     # Template building parameters
-    signature_precision: int = 6
-    homodimer_distance_threshold: float = 0.5  # nm
-    homodimer_angle_threshold: float = 0.5  # radians
+    signature_precision: int = field(
+        default=6,
+        metadata={"description": "Number of decimal places for geometric signature normalization to avoid floating-point errors", "unit": "decimal places"}
+    )
+    homodimer_distance_threshold: float = field(
+        default=0.5,
+        metadata={"description": "Distance threshold for homodimer detection", "unit": "nm"}
+    )
+    homodimer_angle_threshold: float = field(
+        default=0.5,
+        metadata={"description": "Angle threshold for homodimer detection", "unit": "radians"}
+    )
 
     # Enhanced homotypic detection parameters
-    homotypic_detection: Literal["auto", "signature", "off"] = "auto"
-    homotypic_detection_residue_similarity_threshold: float = 0.7  # 70% similarity
-    homotypic_detection_interface_radius: float = 8.0  # A
+    homotypic_detection: Literal["auto", "signature", "off"] = field(
+        default="auto",
+        metadata={"description": "Mode for homotypic binding detection: 'auto', 'signature', or 'off'"}
+    )
+    homotypic_detection_residue_similarity_threshold: float = field(
+        default=0.7,
+        metadata={"description": "Residue similarity threshold for homotypic detection (0.7 = 70% similarity)"}
+    )
+    homotypic_detection_interface_radius: float = field(
+        default=8.0,
+        metadata={"description": "Interface detection radius for homotypic binding", "unit": "Å"}
+    )
 
     # Ring regularizer parameters
-    ring_regularization_mode: str = "uniform"  # "off", "separate", "uniform"
-    ring_geometry: str = "cylinder"  # "cylinder", "sphere"
-    min_ring_size: int = 3
+    ring_regularization_mode: str = field(
+        default="uniform",
+        metadata={"description": "Ring structure regularization mode: 'off' (disabled), 'separate' (individual ring fitting), 'uniform' (single fit for all rings)"}
+    )
+    ring_geometry: str = field(
+        default="cylinder",
+        metadata={"description": "Target geometry for ring regularization: 'cylinder' or 'sphere'"}
+    )
+    min_ring_size: int = field(
+        default=3,
+        metadata={"description": "Minimum number of subunits required to form a ring", "unit": "subunits"}
+    )
 
     # Chain regularizer parameters
-    template_regularization_strength: float = 0.0
+    template_regularization_strength: float = field(
+        default=0.0,
+        metadata={"description": "Regularization strength for template fitting"}
+    )
 
     # Visualizer options
-    generate_visualizations: bool = True
+    generate_visualizations: bool = field(
+        default=True,
+        metadata={"description": "Generate visualization outputs"}
+    )
 
     # NERDSS file options
-    generate_nerdss_files: bool = True
+    generate_nerdss_files: bool = field(
+        default=True,
+        metadata={"description": "Generate NERDSS simulation files"}
+    )
     
     # ProAffinity binding energy prediction options
-    predict_affinity: bool = False  # Enable ProAffinity-GNN prediction
-    adfr_path: Optional[str] = None  # Path to ADFR prepare_receptor tool
+    predict_affinity: bool = field(
+        default=False,
+        metadata={"description": "Enable ProAffinity-GNN binding affinity prediction"}
+    )
+    adfr_path: Optional[str] = field(
+        default=None,
+        metadata={"description": "Path to ADFR prepare_receptor tool (optional, will auto-detect if not provided)"}
+    )
     
     # ODE pipeline options
-    ode_enabled: bool = False
-    ode_time_span: tuple = (0.0, 10.0)  # (start, end) in seconds
-    ode_solver_method: str = "BDF"  # Solver method for stiff systems
-    ode_atol: float = 1e-4  # Absolute tolerance
-    ode_plot: bool = True  # Generate plots
-    ode_save_csv: bool = True  # Save results to CSV
-    ode_initial_concentrations: Optional[dict] = None  # Custom initial concentrations
+    ode_enabled: bool = field(
+        default=False,
+        metadata={"description": "Enable ODE pipeline for kinetic modeling"}
+    )
+    ode_time_span: tuple = field(
+        default=(0.0, 10.0),
+        metadata={"description": "Time span for ODE solving (start, end)", "unit": "seconds"}
+    )
+    ode_solver_method: str = field(
+        default="BDF",
+        metadata={"description": "Solver method for stiff ODE systems (e.g., 'BDF', 'LSODA')"}
+    )
+    ode_atol: float = field(
+        default=1e-4,
+        metadata={"description": "Absolute tolerance for ODE solver"}
+    )
+    ode_plot: bool = field(
+        default=True,
+        metadata={"description": "Generate plots from ODE results"}
+    )
+    ode_save_csv: bool = field(
+        default=True,
+        metadata={"description": "Save ODE results to CSV file"}
+    )
+    ode_initial_concentrations: Optional[dict] = field(
+        default=None,
+        metadata={"description": "Custom initial concentrations for ODE (dict of species: concentration)"}
+    )
     
     # Transition matrix output options
-    count_transition: bool = False  # Enable transition matrix tracking
-    transition_matrix_size: int = 500  # Size of transition matrix
-    transition_write: Optional[int] = None  # Interval to write transition matrix (defaults to nItr/10)
+    count_transition: bool = field(
+        default=False,
+        metadata={"description": "Enable transition matrix tracking during NERDSS simulation"}
+    )
+    transition_matrix_size: int = field(
+        default=500,
+        metadata={"description": "Size of transition matrix"}
+    )
+    transition_write: Optional[int] = field(
+        default=None,
+        metadata={"description": "Interval to write transition matrix (defaults to nItr/10)"}
+    )
     
     # units
-    units = Units()
+    units: Units = field(
+        default_factory=Units,
+        metadata={"description": "Unit system for the model (internal use, not serialized)"}
+    )
 
     
 
@@ -205,7 +301,7 @@ class PDBModelHyperparameters:
             field_value = getattr(self, field_name)
 
             # Handle special cases
-            if field_name == 'custom_aligner':
+            if field_name == 'chain_grouping_custom_aligner':
                 if field_value is not None:
                     # Serialize aligner parameters
                     result[field_name] = {
@@ -217,6 +313,9 @@ class PDBModelHyperparameters:
                     }
                 else:
                     result[field_name] = None
+            elif field_name == 'units':
+                # Skip units field for JSON serialization
+                continue
             else:
                 # Regular field - just copy the value
                 result[field_name] = field_value
@@ -243,7 +342,7 @@ class PDBModelHyperparameters:
         filtered_data = {}
         for key, value in data.items():
             if key in valid_fields:
-                if key == 'custom_aligner' and value is not None:
+                if key == 'chain_grouping_custom_aligner' and value is not None:
                     # Reconstruct aligner from parameters
                     aligner = PairwiseAligner()
                     if isinstance(value, dict):
@@ -251,6 +350,9 @@ class PDBModelHyperparameters:
                             if hasattr(aligner, param):
                                 setattr(aligner, param, param_value)
                     filtered_data[key] = aligner
+                elif key == 'ode_time_span' and isinstance(value, list):
+                    # Convert list back to tuple (JSON serialization converts tuples to lists)
+                    filtered_data[key] = tuple(value)
                 else:
                     filtered_data[key] = value
 
