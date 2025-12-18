@@ -31,6 +31,8 @@ class TestInterfaceString(unittest.TestCase):
             coord_j=coord_j,
             residues_i=residues_i,
             residues_j=residues_j,
+            residue_details_i=[],  # Empty list for test
+            residue_details_j=[],  # Empty list for test
             energy=-2.5
         )
 
@@ -50,7 +52,9 @@ class TestInterfaceString(unittest.TestCase):
             coord_i=np.array([0, 0, 0]),
             coord_j=np.array([1, 1, 1]),
             residues_i={1},
-            residues_j={2}
+            residues_j={2},
+            residue_details_i=[],  # Empty list for test
+            residue_details_j=[]   # Empty list for test
         )
 
         self.assertEqual(interface.energy, -1.0)
@@ -303,12 +307,16 @@ class TestCoarseGrainer(unittest.TestCase):
         interface1 = InterfaceString(
             chain_i="A", chain_j="B",
             coord_i=np.array([0, 0, 0]), coord_j=np.array([1, 1, 1]),
-            residues_i={1}, residues_j={2}
+            residues_i={1}, residues_j={2},
+            residue_details_i=[],  # Empty list for test
+            residue_details_j=[]   # Empty list for test
         )
         interface2 = InterfaceString(
             chain_i="A", chain_j="C",
             coord_i=np.array([0, 0, 0]), coord_j=np.array([2, 2, 2]),
-            residues_i={1}, residues_j={3}
+            residues_i={1}, residues_j={3},
+            residue_details_i=[],  # Empty list for test
+            residue_details_j=[]   # Empty list for test
         )
         grainer.interfaces = [interface1, interface2]
 
@@ -369,7 +377,9 @@ class TestCoarseGrainer(unittest.TestCase):
                 chain_i="A", chain_j="B",
                 coord_i=np.array([2.0, 0.0, 0.0]),
                 coord_j=np.array([4.0, 0.0, 0.0]),
-                residues_i={3, 4}, residues_j={5, 6}
+                residues_i={3, 4}, residues_j={5, 6},
+                residue_details_i=[],  # Empty list for test
+                residue_details_j=[]   # Empty list for test
             )
 
             def detect_side_effect(chain_i, chain_j):
