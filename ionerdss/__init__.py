@@ -108,6 +108,7 @@ submodules = {
     'ODEPipelineConfig': ['.ode_pipeline', 'ODEPipelineConfig'],
     'calculate_ode_solution': ['.ode_pipeline', 'calculate_ode_solution'],
     'run_ode_pipeline': ['.ode_pipeline', 'run_ode_pipeline'],
+    'build_system_from_pdb': ['.api', 'build_system_from_pdb'],
 }
 
 __all__ = list(submodules.keys()) + [

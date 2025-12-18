@@ -1127,11 +1127,11 @@ class NERDSSExporter:
 
         # Apply formatting rules
         if len(mol1_name) == 1 and len(mol2_name) == 1:
-            # Both single character: A_A_1 -> aa1
+            # Homodimeric labels (mol1 == mol2): use format like aa0ac11
             site_label = f"{mol1_lower}{mol2_lower}{index}"
         else:
-            # At least one is multi-character: AH_Q_1 -> ah_q1
-            site_label = f"{mol1_lower}_{mol2_lower}{index}"
+            # Heterodimeric labels (mol1 != mol2): use format like aa0ab01 (no underscore)
+            site_label = f"{mol1_lower}{mol2_lower}{index}"
 
         if self.workspace_manager:
             self.workspace_manager.logger.info(

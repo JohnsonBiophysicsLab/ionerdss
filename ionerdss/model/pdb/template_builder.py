@@ -1081,8 +1081,8 @@ class TemplateBuilder:
         self.interface_type_counters[tuple(sorted(template_pair))] = next_index
 
         # Construct names (A_A_#f / A_A_#b)
-        name_f = f"{template_name}_{template_name}_{next_index}f"
-        name_b = f"{template_name}_{template_name}_{next_index}b"
+        name_f = f"{template_name}{template_name}{next_index}f"
+        name_b = f"{template_name}{template_name}{next_index}b"
 
         # Build both sides (reuse nm conversion)
         chain_i_data = self.coarse_grainer.get_coarse_grained_chains()[interface.chain_i]
@@ -1749,7 +1749,7 @@ class TemplateBuilder:
             Name of created interface template.
         """
         # Generate interface name using index
-        interface_name = f"{template_name}_{template_name}_{interface_index}"
+        interface_name = f"{template_name}{template_name}{interface_index}"
 
         # Convert coordinates to nanometers and calculate local coordinates
         chain_i_data = self.coarse_grainer.get_coarse_grained_chains()[interface.chain_i]
@@ -1836,8 +1836,8 @@ class TemplateBuilder:
 
         if is_homodimeric_heterotypic:
             # For homodimeric heterotypic: create A_A_1 and A_A_2 (complementary interface types)
-            interface_name_i = f"{template_i}_{template_j}_{interface_index}f"        # A_A_1f (e.g., barbed end)
-            interface_name_j = f"{template_i}_{template_j}_{interface_index}b"        # A_A_1b (e.g., pointed end)
+            interface_name_i = f"{template_i}{template_j}{interface_index}f"        # AA0AA01f (e.g., barbed end)
+            interface_name_j = f"{template_i}{template_j}{interface_index}b"        # AA0AA01b (e.g., pointed end)
             
             # Update the counter to account for using two indices
             template_pair = tuple(sorted([template_i, template_j]))
@@ -1845,8 +1845,8 @@ class TemplateBuilder:
             
         else:
             # For true heterotypic: create A_B_1 and B_A_1 (bidirectional)
-            interface_name_i = f"{template_i}_{template_j}_{interface_index}"        # A_B_1
-            interface_name_j = f"{template_j}_{template_i}_{interface_index}"        # B_A_1
+            interface_name_i = f"{template_i}{template_j}{interface_index}"        # AA0AB01
+            interface_name_j = f"{template_j}{template_i}{interface_index}"        # AB0AA01
 
         # Create interface template for side i
         chain_i_data = self.coarse_grainer.get_coarse_grained_chains()[interface.chain_i]

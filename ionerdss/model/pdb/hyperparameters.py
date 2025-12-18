@@ -203,6 +203,10 @@ class PDBModelHyperparameters:
         default=True,
         metadata={"description": "Generate NERDSS simulation files"}
     )
+    nerdss_water_box: list = field(
+        default_factory=lambda: [100.0, 100.0, 100.0],
+        metadata={"description": "Water box dimensions for NERDSS simulation", "unit": "nm"}
+    )
     
     # ProAffinity binding energy prediction options
     predict_affinity: bool = field(

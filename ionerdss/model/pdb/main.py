@@ -197,9 +197,12 @@ class PDBModelBuilder:
                     nerdss_params = {}
                 nerdss_params['hyperparams'] = hyperparams
                 
+                # Use water box size from hyperparameters
+                box_size = tuple(hyperparams.nerdss_water_box) if hyperparams.nerdss_water_box else box_nm
+                
                 nerdss_files = system_builder.export_nerdss_files(
                     molecule_counts=molecule_counts,
-                    box_nm=box_nm,
+                    box_nm=box_size,
                     parms_overrides=nerdss_params
                 )
 

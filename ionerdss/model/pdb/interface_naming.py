@@ -9,21 +9,22 @@ import re
 from dataclasses import dataclass
 from typing import Optional
 
-PATTERN = re.compile(r"^(?P<m1>[A-Za-z0-9]+)_(?P<m2>[A-Za-z0-9]+)_(?P<idx>\d+)(?P<tag>[fb])?$")
+# NERDSS only supports alphanumeric characters (no underscores)
+PATTERN = re.compile(r"^(?P<m1>[A-Za-z0-9]+)(?P<m2>[A-Za-z0-9]+)(?P<idx>\d+)(?P<tag>[fb])?$")
 
 @dataclass(frozen=True)
 class ParsedName:
     """
     The parsed naming of an interface type
     - heterodimeric interactions ("het"): create two interfaces
-     {this_mol}_{partner_mol}_{index}
-     e.g. A_B_1 and B_A_1, where A_B_1 is the interface on A that
+     {this_mol}{partner_mol}{index}
+     e.g. AB1 and BA1, where AB1 is the interface on A that
      interacts with B.
     - homodimeric heterotypic interactions ("hom_het"): create two interfaces
-     {mol}_{mol}_{index}f and {mol}_{mol}_{index}b.
-      e.g. A_A_1f and A_A_1b
+     {mol}{mol}{index}f and {mol}{mol}{index}b.
+      e.g. AA1f and AA1b
     - homodimeric homotypic interactions ("hom_hom"): create
-     one interface {mol}_{mol}_{index}
+     one interface {mol}{mol}{index}
     """
     this_mol: str
     partner_mol: str
@@ -55,7 +56,8 @@ def parse_interface_name(name: str) -> ParsedName:
     )
 
 def make_interface_name(m1: str, m2: str, idx: int, tag: Optional[str]) -> str:
-    base = f"{m1}_{m2}_{idx}"
+    # No underscores - NERDSS only supports alphanumeric
+    base = f"{m1}{m2}{idx}"
     return base if not tag else f"{base}{tag}"
 
 def are_complementary_homodimeric_heterotypic(a: str, b: str) -> bool:
