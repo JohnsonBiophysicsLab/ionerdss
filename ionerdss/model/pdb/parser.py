@@ -421,7 +421,7 @@ class PDBParser:
         if self.workspace_manager:
             # Use the workspace manager but with a custom filename
             decompressed_filename = f"{pdb_id_lower}-assembly{assembly_num}.cif"
-            target_path = self.workspace_manager.structures_dir / 'downloaded' / decompressed_filename
+            target_path = self.workspace_manager.paths['structures_downloaded'] / decompressed_filename
             target_path.parent.mkdir(parents=True, exist_ok=True)
         else:
             temp_dir = Path(tempfile.mkdtemp(prefix=f"pdb_{pdb_id}_assembly{assembly_num}_"))
