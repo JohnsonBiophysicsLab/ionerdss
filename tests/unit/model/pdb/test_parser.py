@@ -269,6 +269,8 @@ class TestPDBParser(unittest.TestCase):
         parser.units = Units()
         parser.chain_data = {}
         parser.pdb_id = None
+        parser.concat_all_frames = False
+        parser.max_frames = None
 
         # Parse structure
         parser._parse_structure()
@@ -305,6 +307,8 @@ class TestPDBParser(unittest.TestCase):
         parser.units = Units()
         parser.chain_data = {}
         parser.pdb_id = None
+        parser.concat_all_frames = False
+        parser.max_frames = None
 
         # Parse structure
         parser._parse_structure()
