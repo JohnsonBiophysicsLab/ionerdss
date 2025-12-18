@@ -563,16 +563,17 @@ class PDBParser:
             case_groups[canonical].append(chain_id)
         
         # Create rename mapping with systematic numbering
+        # All names are forced to uppercase for consistency
         rename_map = {}
         for canonical, group in case_groups.items():
             if len(group) > 1:
                 # Multiple chains with same case-insensitive name
-                # Number them all: AA0, AA1, AA2, etc.
+                # Number them all: AA0, AA1, AA2, etc. (all uppercase)
                 for i, chain_id in enumerate(group):
-                    rename_map[chain_id] = f"{canonical}{i}"
+                    rename_map[chain_id] = f"{canonical}{i}".upper()
             else:
-                # Single chain, no conflict - keep as uppercase
-                rename_map[group[0]] = canonical
+                # Single chain, no conflict - force to uppercase
+                rename_map[group[0]] = canonical.upper()
         
         return rename_map
     
@@ -598,7 +599,7 @@ class PDBParser:
         for orig_id, new_id in rename_map.items():
             if orig_id != new_id:
                 if self.workspace_manager:
-                    self.workspace_manager.logger.info(
+                    self.workspace_manager.logger.warning(
                         "Renaming chain '%s' to '%s' (case-insensitive conflict resolution)",
                         orig_id, new_id
                     )
