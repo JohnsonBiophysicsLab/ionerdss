@@ -220,8 +220,8 @@ class TestTemplateBuilder(unittest.TestCase):
 
         name = builder._generate_template_name(group)
 
-        self.assertEqual(name, "A_group")
-        self.assertIn("A_group", builder.used_template_names)
+        self.assertEqual(name, "A0")
+        self.assertIn("A0", builder.used_template_names)
 
     def test_generate_template_name_numeric_suffix(self):
         """Test template name generation with numeric suffix."""
@@ -234,8 +234,8 @@ class TestTemplateBuilder(unittest.TestCase):
 
         name = builder._generate_template_name(group)
 
-        self.assertEqual(name, "A_1")
-        self.assertIn("A_1", builder.used_template_names)
+        self.assertEqual(name, "A1")
+        self.assertIn("A1", builder.used_template_names)
 
     def test_build_molecule_template(self):
         """Test molecule template building."""
