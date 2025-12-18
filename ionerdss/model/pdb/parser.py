@@ -272,6 +272,10 @@ from typing import Any, Dict, List, Tuple, Optional, Union
 from pathlib import Path
 import shutil
 import tempfile
+import gzip
+import re
+import urllib.request
+import urllib.error
 
 import numpy as np
 from Bio.PDB import PDBParser as BioPDBParser, MMCIFParser, PDBList
@@ -370,13 +374,109 @@ class PDBParser:
         return (len(source_clean) == 4 and
                 source_clean.isalnum() and
                 not Path(source).exists())  # And file doesn't exist locally
+    
+    def _parse_bioassembly_format(self, file_format: str) -> Optional[int]:
+        """Parse bioassembly format string to extract assembly number.
+        
+        Supports formats like: 'bioassembly1', 'bio-assembly2', 'Biological Assembly 3'
+        (case-insensitive)
+        
+        Args:
+            file_format: Format string to parse.
+            
+        Returns:
+            Assembly number if format is bioassembly, None otherwise.
+        """
+        # Match patterns like bioassembly1, bio-assembly2, biological assembly 3
+        pattern = r'bio(?:logical)?[\s-]*assembly[\s-]*(\d+)'
+        match = re.search(pattern, file_format.lower())
+        if match:
+            return int(match.group(1))
+        return None
 
+    def _download_bioassembly(self, pdb_id: str, assembly_num: int) -> Path:
+        """Download biological assembly file from PDB.
+        
+        Args:
+            pdb_id: 4-character PDB identifier.
+            assembly_num: Assembly number (e.g., 1 for assembly1).
+            
+        Returns:
+            Path to downloaded and decompressed CIF file.
+            
+        Raises:
+            ValueError: If assembly file doesn't exist or download fails.
+        """
+        # Construct URL for biological assembly
+        # Format: https://files.rcsb.org/download/5L93-assembly1.cif.gz
+        pdb_id_lower = pdb_id.lower()
+        filename = f"{pdb_id_lower}-assembly{assembly_num}.cif.gz"
+        url = f"https://files.rcsb.org/download/{filename}"
+        
+        if self.workspace_manager:
+            self.workspace_manager.logger.info(
+                f"Downloading biological assembly {assembly_num} for {pdb_id} from {url}")
+        
+        # Get target path for decompressed file
+        if self.workspace_manager:
+            # Use the workspace manager but with a custom filename
+            decompressed_filename = f"{pdb_id_lower}-assembly{assembly_num}.cif"
+            target_path = self.workspace_manager.structures_dir / 'downloaded' / decompressed_filename
+            target_path.parent.mkdir(parents=True, exist_ok=True)
+        else:
+            temp_dir = Path(tempfile.mkdtemp(prefix=f"pdb_{pdb_id}_assembly{assembly_num}_"))
+            target_path = temp_dir / f"{pdb_id_lower}-assembly{assembly_num}.cif"
+        
+        # Create temporary file for compressed download
+        temp_gz = target_path.parent / f"{target_path.name}.gz"
+        
+        try:
+            # Download the .gz file
+            urllib.request.urlretrieve(url, temp_gz)
+            
+            # Decompress the file
+            with gzip.open(temp_gz, 'rb') as f_in:
+                with open(target_path, 'wb') as f_out:
+                    shutil.copyfileobj(f_in, f_out)
+            
+            # Remove the compressed file
+            temp_gz.unlink()
+            
+            if self.workspace_manager:
+                self.workspace_manager.logger.info(
+                    f"Downloaded and decompressed assembly {assembly_num} to {target_path}")
+            
+            return target_path
+            
+        except urllib.error.HTTPError as e:
+            # Clean up temp file if it exists
+            if temp_gz.exists():
+                temp_gz.unlink()
+            
+            if e.code == 404:
+                raise ValueError(
+                    f"Biological assembly {assembly_num} not found for PDB ID {pdb_id}. "
+                    f"This assembly may not exist for this structure. "
+                    f"Please check https://www.rcsb.org/structure/{pdb_id} for available assemblies."
+                ) from e
+            else:
+                raise ValueError(
+                    f"Failed to download assembly {assembly_num} for {pdb_id}: HTTP {e.code}"
+                ) from e
+        except Exception as e:
+            # Clean up temp file if it exists
+            if temp_gz.exists():
+                temp_gz.unlink()
+            raise ValueError(
+                f"Failed to download/decompress assembly {assembly_num} for {pdb_id}: {str(e)}"
+            ) from e
+    
     def _fetch_structure(self, pdb_id: str, file_format: str = 'mmcif') -> Path:
         """Fetch structure from Protein Data Bank.
 
         Args:
             pdb_id: 4-character PDB identifier.
-            file_format: Format to download ('pdb' or 'mmcif').
+            file_format: Format to download ('pdb', 'mmcif', 'bioassembly1', etc.).
 
         Returns:
             Path to downloaded file in workspace.
@@ -387,7 +487,14 @@ class PDBParser:
         if len(pdb_id) != 4 or not pdb_id.isalnum():
             raise ValueError(
                 f"Invalid PDB ID: {pdb_id}. Must be 4 alphanumeric characters.")
+        
+        # Check if this is a bioassembly request
+        assembly_num = self._parse_bioassembly_format(file_format)
+        if assembly_num is not None:
+            # Download biological assembly
+            return self._download_bioassembly(pdb_id, assembly_num)
 
+        # Standard PDB/mmCIF download using BioPython
         # Log download attempt
         if self.workspace_manager:
             self.workspace_manager.logger.info(
@@ -400,7 +507,7 @@ class PDBParser:
         else:
             # Fallback to temp directory if no workspace manager
             temp_dir = Path(tempfile.mkdtemp(prefix=f"pdb_{pdb_id}_"))
-            if file_format.lower() == 'mmcif':
+            if file_format.lower() in ['mmcif', 'cif']:
                 target_path = temp_dir / f"{pdb_id.lower()}.cif"
             else:
                 target_path = temp_dir / f"{pdb_id.lower()}.pdb"

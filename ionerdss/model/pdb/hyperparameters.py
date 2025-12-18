@@ -29,6 +29,9 @@ distance cutoffs, thresholds, and algorithmic choices.
 | `ring_regularization_mode` | Ring structure regularization mode: "off" (disabled), "separate" (individual ring fitting), "uniform" (single fit for all rings) | "uniform" |
 | `ring_geometry` | Target geometry for ring regularization: "cylinder" or "sphere" | "cylinder" |
 | `min_ring_size` | Minimum number of subunits required to form a ring | 3 subunits |
+| **PDB File Format Parameters** |
+| `pdb_file_format` | Format for PDB file download: 'pdb', 'cif', 'mmcif', 'bioassembly1', 'bioassembly2', etc. (case-insensitive) | "bioassembly1" |
+
 
 ## Usage Examples
 
@@ -216,6 +219,12 @@ class PDBModelHyperparameters:
     adfr_path: Optional[str] = field(
         default=None,
         metadata={"description": "Path to ADFR prepare_receptor tool (optional, will auto-detect if not provided)"}
+    )
+    
+    # PDB file format options
+    pdb_file_format: str = field(
+        default="bioassembly1",
+        metadata={"description": "Format for PDB file download: 'pdb', 'cif', 'mmcif', 'bioassembly1', 'bioassembly2', etc. (case-insensitive)"}
     )
     
     # ODE pipeline options

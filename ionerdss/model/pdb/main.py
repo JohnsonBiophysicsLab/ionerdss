@@ -35,16 +35,17 @@ class PDBModelBuilder:
         parser: PDB parser instance (created during build).
     """
 
-    def __init__(self, source: Union[str, Path], fetch_format: str = 'mmcif',
+    def __init__(self, source: Union[str, Path], fetch_format: str = None,
                  hyperparams: PDBModelHyperparameters = None,):
         """Initialize PDB model builder.
 
         Args:
             source: PDB ID (4 characters) or path to PDB/mmCIF file.
-            fetch_format: Format for downloading ('pdb' or 'mmcif'). Default 'mmcif'.
+            fetch_format: Format for downloading. If None, uses hyperparams.pdb_file_format. 
+                          Kept for backwards compatibility.
         """
         self.source = source # set source from either PDB ID or local path
-        self.fetch_format = fetch_format # format = either mmcif or pdb
+        self.fetch_format = fetch_format # format, can be None to use hyperparameter
         self.workspace_manager: Optional[WorkspaceManager] = None
         self.pdb_id: Optional[str] = None # pdb_id to be set from source
         self.parser: Optional[PDBParser] = None
@@ -107,10 +108,14 @@ class PDBModelBuilder:
             # Step 1: Parse PDB file or fetch from database
             self.workspace_manager.logger.info(
                 "Step 1: Processing structure source: %s", self.source)
+            
+            # Determine file format: use fetch_format if provided, otherwise use hyperparameter
+            file_format = self.fetch_format if self.fetch_format is not None else hyperparams.pdb_file_format
+            
             self.parser = PDBParser(
                 source=self.source,
                 units=units,
-                file_format=self.fetch_format,
+                file_format=file_format,
                 workspace_manager=self.workspace_manager
             )
             self.pdb_id = self.parser.get_pdb_id() or pdb_id
