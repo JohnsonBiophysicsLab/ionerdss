@@ -538,6 +538,44 @@ class PDBParser:
                 self.workspace_manager.logger.error(f"Failed to parse structure: {str(e)}")
             raise ValueError(f"Failed to parse structure file {self.filepath}: {str(e)}") from e
     
+    def _detect_case_conflicts(self, chain_ids: List[str]) -> Dict[str, str]:
+        """Detect chain IDs that conflict when case is ignored and create systematic rename mapping.
+        
+        Groups chains by case-insensitive name and assigns systematic numeric suffixes.
+        All chains in a case-conflict group get numbered (0, 1, 2, ...) to ensure uniqueness
+        on case-insensitive filesystems.
+        
+        Args:
+            chain_ids: List of original chain IDs from PDB structure.
+            
+        Returns:
+            Dictionary mapping original chain ID to renamed (case-safe) chain ID.
+            
+        Examples:
+            ['AA', 'Aa', 'aa', 'BB'] -> {'AA': 'AA0', 'Aa': 'AA1', 'aa': 'AA2', 'BB': 'BB'}
+        """
+        # Group chains by uppercase version (canonical form)
+        case_groups = {}
+        for chain_id in chain_ids:
+            canonical = chain_id.upper()
+            if canonical not in case_groups:
+                case_groups[canonical] = []
+            case_groups[canonical].append(chain_id)
+        
+        # Create rename mapping with systematic numbering
+        rename_map = {}
+        for canonical, group in case_groups.items():
+            if len(group) > 1:
+                # Multiple chains with same case-insensitive name
+                # Number them all: AA0, AA1, AA2, etc.
+                for i, chain_id in enumerate(group):
+                    rename_map[chain_id] = f"{canonical}{i}"
+            else:
+                # Single chain, no conflict - keep as uppercase
+                rename_map[group[0]] = canonical
+        
+        return rename_map
+    
     def _extract_chain_data(self) -> None:
         """Extract and process chain data from parsed structure."""
         if not self.structure:
@@ -549,12 +587,35 @@ class PDBParser:
         # Get first model (most PDB files have only one)
         model = self.structure[0]
 
-        # Process each chain
+        # Get all valid chain IDs  
+        valid_chain_ids = [chain.get_id() for chain in model if self._is_valid_chain(chain)]
+        
+        # Detect and resolve case conflicts
+        rename_map = self._detect_case_conflicts(valid_chain_ids)
+        
+        # Log any renamings
+        renamed_count = 0
+        for orig_id, new_id in rename_map.items():
+            if orig_id != new_id:
+                if self.workspace_manager:
+                    self.workspace_manager.logger.info(
+                        "Renaming chain '%s' to '%s' (case-insensitive conflict resolution)",
+                        orig_id, new_id
+                    )
+                renamed_count += 1
+        
+        # Process each chain with renamed IDs
         valid_chains = 0
         for chain in model:
             if self._is_valid_chain(chain):
-                chain_id = chain.get_id()
-                self.chain_data[chain_id] = self._process_chain(chain)
+                original_id = chain.get_id()
+                renamed_id = rename_map.get(original_id, original_id)
+                
+                # Process chain and store with renamed ID
+                chain_data = self._process_chain(chain)
+                chain_data['original_chain_id'] = original_id  # Keep original for reference
+                chain_data['id'] = renamed_id  # Update to renamed ID
+                self.chain_data[renamed_id] = chain_data
                 valid_chains += 1
 
         # Sort chain IDs for deterministic ordering
@@ -562,7 +623,11 @@ class PDBParser:
 
         if self.workspace_manager:
             self.workspace_manager.logger.info(
-                f"Processed {valid_chains} valid chains: {list(self.chain_data.keys())}")
+                "Processed %d valid chains%s: %s",
+                valid_chains,
+                f" ({renamed_count} renamed)" if renamed_count > 0 else "",
+                list(self.chain_data.keys())
+            )
 
     def _is_valid_chain(self, chain: Chain) -> bool:
         """Check if chain contains at least one standard amino acid.

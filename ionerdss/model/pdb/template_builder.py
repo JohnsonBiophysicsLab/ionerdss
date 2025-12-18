@@ -1278,10 +1278,9 @@ class TemplateBuilder:
         Returns:
             Unique template name.
         """
-        # Start with the representative chain name and force uppercase
-        # This prevents filesystem collisions on case-insensitive systems (macOS)
-        # where AA.mol and Aa.mol would be treated as the same file
-        representative_name = group.representative.upper()
+        # Start with the representative chain name (already normalized by parser)
+        # Parser handles case-insensitive conflict resolution (AA/Aa → AA0/AA1)
+        representative_name = group.representative
 
         # Check if the representative name is already used
         if representative_name not in self.used_template_names:
@@ -1294,7 +1293,7 @@ class TemplateBuilder:
         # For groups with multiple members, try adding suffix
         if len(group.members) > 1:
             # Try adding "group" suffix (no underscore)
-            candidate = f"{base_name}group"
+            candidate = f"{base_name}0"
             if candidate not in self.used_template_names:
                 self.used_template_names.add(candidate)
                 return candidate

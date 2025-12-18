@@ -1706,8 +1706,31 @@ class NERDSSExporter:
 
             # Molecules section
             f.write("start molecules\n")
+            
+            # Filter molecule_counts to only include molecules that:
+            # 1. Have corresponding molecule types in the system
+            # 2. Have at least one instance (so a .mol file was created)
+            mol_type_names = {mol_type.name for mol_type in self.system.molecule_types}
             for mol_name, count in molecule_counts.items():
+                if mol_name not in mol_type_names:
+                    if self.workspace_manager:
+                        self.workspace_manager.logger.warning(
+                            "Skipping molecule '%s' in parms.inp - no corresponding molecule type found (may have been renamed)",
+                            mol_name
+                        )
+                    continue
+                
+                # Check if this molecule has a representative instance (i.e., .mol file was created)
+                if self._get_representative_instance(mol_name) is None:
+                    if self.workspace_manager:
+                        self.workspace_manager.logger.warning(
+                            "Skipping molecule '%s' in parms.inp - no instances found (no .mol file created)",
+                            mol_name
+                        )
+                    continue
+                    
                 f.write(f"    {mol_name} : {count}\n")
+            
             f.write("end molecules\n\n")
 
             # Reactions section
