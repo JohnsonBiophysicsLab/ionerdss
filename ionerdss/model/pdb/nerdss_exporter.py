@@ -1566,50 +1566,81 @@ class NERDSSExporter:
         # t1 = unit(cross(v, sigma))
         # t2 = unit(cross(v, n))
         # phi = acos( t1 . t2 )
-        t1_1 = unit(np.cross(v1, sigma1))
-        t2_1 = unit(np.cross(v1, n1))
-        t1_2 = unit(np.cross(v2, sigma2))
-        t2_2 = unit(np.cross(v2, n2))
+        # For linear molecules: if molecule has only 1 interface, phi is undefined (set to NaN)
         
-        phi1 = math.acos(np.clip(np.dot(t1_1, t2_1), -1.0, 1.0))
-        phi2 = math.acos(np.clip(np.dot(t1_2, t2_2), -1.0, 1.0))
+        # Check if molecules have only 1 interface (linear molecule case)
+        # Get the molecule instances to check their interface count
+        mol1_instance = self._find_instance_from_coordinates(mol1_name, com1, intf1)
+        mol2_instance = self._find_instance_from_coordinates(mol2_name, com2, intf2)
+        
+        # Count interfaces for each molecule type (excluding reference vectors)
+        mol1_interface_count = len(mol1_instance.molecule_type.interfaces_neighbors_map) if mol1_instance and mol1_instance.molecule_type else 0
+        mol2_interface_count = len(mol2_instance.molecule_type.interfaces_neighbors_map) if mol2_instance and mol2_instance.molecule_type else 0
+        
+        # Calculate phi1
+        if mol1_interface_count == 1:
+            # Molecule has only 1 interface - phi1 is physically meaningless for linear molecules
+            phi1 = float('nan')
+            if self.workspace_manager:
+                self.workspace_manager.logger.info(
+                    f"Linear molecule detected for {mol1_name}({site1}): only 1 interface, setting phi1=NaN")
+        else:
+            t1_1 = unit(np.cross(v1, sigma1))
+            t2_1 = unit(np.cross(v1, n1))
+            phi1 = math.acos(np.clip(np.dot(t1_1, t2_1), -1.0, 1.0))
+        
+        # Calculate phi2
+        if mol2_interface_count == 1:
+            # Molecule has only 1 interface - phi2 is physically meaningless for linear molecules
+            phi2 = float('nan')
+            if self.workspace_manager:
+                self.workspace_manager.logger.info(
+                    f"Linear molecule detected for {mol2_name}({site2}): only 1 interface, setting phi2=NaN")
+        else:
+            t1_2 = unit(np.cross(v2, sigma2))
+            t2_2 = unit(np.cross(v2, n2))
+            phi2 = math.acos(np.clip(np.dot(t1_2, t2_2), -1.0, 1.0))
 
         # 5. Determine sign of phi
         # Project n and sigma onto plane perpendicular to v
+        # Skip this for linear molecules where phi is NaN
         v1_uni = unit(v1)
         v2_uni = unit(v2)
         
-        n1_proj = n1 - v1_uni * np.dot(v1_uni, n1)
-        sigma1_proj = sigma1 - v1_uni * np.dot(v1_uni, sigma1)
+        # Only calculate sign for non-NaN phi values
+        if not np.isnan(phi1):
+            n1_proj = n1 - v1_uni * np.dot(v1_uni, n1)
+            sigma1_proj = sigma1 - v1_uni * np.dot(v1_uni, sigma1)
+            phi1_dir = unit(np.cross(sigma1_proj, n1_proj))
+            
+            # Determine sign of phi - using full 3D vector comparison (robust for arbitrary orientations)
+            # Check if v_uni and phi_dir are parallel (dot ≈ 1) or anti-parallel (dot ≈ -1)
+            tol_sign = 1e-6
+            dot_v1_phi1 = np.dot(v1_uni, phi1_dir)
+            if abs(dot_v1_phi1 - 1.0) < tol_sign:  # parallel
+                phi1 = -phi1
+            elif abs(dot_v1_phi1 + 1.0) < tol_sign:  # anti-parallel
+                phi1 = phi1
+            else:
+                if self.workspace_manager:
+                    self.workspace_manager.logger.warning(
+                        f"Phi1 sign ambiguous: dot(v1,phi1_dir)={dot_v1_phi1:.6f}")
         
-        n2_proj = n2 - v2_uni * np.dot(v2_uni, n2)
-        sigma2_proj = sigma2 - v2_uni * np.dot(v2_uni, sigma2)
-        
-        phi1_dir = unit(np.cross(sigma1_proj, n1_proj))
-        phi2_dir = unit(np.cross(sigma2_proj, n2_proj))
-        
-        # Determine sign of phi - using full 3D vector comparison (robust for arbitrary orientations)
-        # Check if v_uni and phi_dir are parallel (dot ≈ 1) or anti-parallel (dot ≈ -1)
-        tol_sign = 1e-6
-        dot_v1_phi1 = np.dot(v1_uni, phi1_dir)
-        if abs(dot_v1_phi1 - 1.0) < tol_sign:  # parallel
-            phi1 = -phi1
-        elif abs(dot_v1_phi1 + 1.0) < tol_sign:  # anti-parallel
-            phi1 = phi1
-        else:
-            if self.workspace_manager:
-                self.workspace_manager.logger.warning(
-                    f"Phi1 sign ambiguous: dot(v1,phi1_dir)={dot_v1_phi1:.6f}")
-        
-        dot_v2_phi2 = np.dot(v2_uni, phi2_dir)
-        if abs(dot_v2_phi2 - 1.0) < tol_sign:  # parallel
-            phi2 = -phi2
-        elif abs(dot_v2_phi2 + 1.0) < tol_sign:  # anti-parallel
-            phi2 = phi2
-        else:
-            if self.workspace_manager:
-                self.workspace_manager.logger.warning(
-                    f"Phi2 sign ambiguous: dot(v2,phi2_dir)={dot_v2_phi2:.6f}")
+        if not np.isnan(phi2):
+            n2_proj = n2 - v2_uni * np.dot(v2_uni, n2)
+            sigma2_proj = sigma2 - v2_uni * np.dot(v2_uni, sigma2)
+            phi2_dir = unit(np.cross(sigma2_proj, n2_proj))
+            
+            tol_sign = 1e-6
+            dot_v2_phi2 = np.dot(v2_uni, phi2_dir)
+            if abs(dot_v2_phi2 - 1.0) < tol_sign:  # parallel
+                phi2 = -phi2
+            elif abs(dot_v2_phi2 + 1.0) < tol_sign:  # anti-parallel
+                phi2 = phi2
+            else:
+                if self.workspace_manager:
+                    self.workspace_manager.logger.warning(
+                        f"Phi2 sign ambiguous: dot(v2,phi2_dir)={dot_v2_phi2:.6f}")
 
         # 6. Calculate omega
         # a1 = cross(sigma1, v1)

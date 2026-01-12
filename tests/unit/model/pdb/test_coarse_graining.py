@@ -68,13 +68,11 @@ class TestCoarseGrainedChain(unittest.TestCase):
         com = np.array([1.0, 2.0, 3.0])
         bbox_min = np.array([0.0, 0.0, 0.0])
         bbox_max = np.array([2.0, 4.0, 6.0])
-        interfaces = []
 
         chain = CoarseGrainedChain(
             chain_id="A",
             com=com,
             radius=5.0,
-            interfaces=interfaces,
             sequence="HCGK",
             bbox_min=bbox_min,
             bbox_max=bbox_max
@@ -83,7 +81,6 @@ class TestCoarseGrainedChain(unittest.TestCase):
         self.assertEqual(chain.chain_id, "A")
         np.testing.assert_array_equal(chain.com, com)
         self.assertEqual(chain.radius, 5.0)
-        self.assertEqual(chain.interfaces, interfaces)
         self.assertEqual(chain.sequence, "HCGK")
         np.testing.assert_array_equal(chain.bbox_min, bbox_min)
         np.testing.assert_array_equal(chain.bbox_max, bbox_max)
@@ -118,7 +115,7 @@ class TestCoarseGrainer(unittest.TestCase):
                     [3.0, 0.0, 0.0]
                 ]),
                 "residues": [
-                    {"id": 1}, {"id": 2}, {"id": 3}, {"id": 4}
+                    {"id": 1, "name": "HIS"}, {"id": 2, "name": "CYS"}, {"id": 3, "name": "GLY"}, {"id": 4, "name": "LYS"}
                 ]
             },
             "B": {
@@ -134,7 +131,7 @@ class TestCoarseGrainer(unittest.TestCase):
                     [7.0, 0.0, 0.0]
                 ]),
                 "residues": [
-                    {"id": 5}, {"id": 6}, {"id": 7}, {"id": 8}
+                    {"id": 5, "name": "THR"}, {"id": 6, "name": "GLY"}, {"id": 7, "name": "CYS"}, {"id": 8, "name": "ALA"}
                 ]
             },
             "C": {
@@ -149,7 +146,7 @@ class TestCoarseGrainer(unittest.TestCase):
                     [21.0, 0.0, 0.0]
                 ]),
                 "residues": [
-                    {"id": 9}, {"id": 10}, {"id": 11}
+                    {"id": 9, "name": "ALA"}, {"id": 10, "name": "ALA"}, {"id": 11, "name": "ALA"}
                 ]
             }
         }
@@ -196,7 +193,7 @@ class TestCoarseGrainer(unittest.TestCase):
         self.assertEqual(chain_a.sequence, "HCGK")
         self.assertEqual(chain_a.radius, 2.0)
         np.testing.assert_array_equal(chain_a.com, np.array([0.0, 0.0, 0.0]))
-        self.assertEqual(len(chain_a.interfaces), 0)  # Initially empty
+        # Interfaces are managed separately in grainer.interfaces, not in chain objects
 
     def test_can_chains_interact_true(self):
         """Test _can_chains_interact returns True for nearby chains."""
@@ -361,12 +358,8 @@ class TestCoarseGrainer(unittest.TestCase):
                 # Check that interfaces were detected and added
                 self.assertEqual(len(grainer.interfaces), 1)
                 self.assertEqual(grainer.interfaces[0], mock_interface_ab)
-
-                # Check that interfaces were added to chains
-                self.assertIn(mock_interface_ab,
-                              grainer.chains["A"].interfaces)
-                self.assertIn(mock_interface_ab,
-                              grainer.chains["B"].interfaces)
+                # Note: Interfaces are NO LONGER stored in chain.interfaces
+                # They are stored centrally in grainer.interfaces
 
     def test_full_pipeline(self):
         """Test complete coarse-graining pipeline."""
@@ -451,6 +444,8 @@ class TestCoarseGrainer(unittest.TestCase):
         mock_interface = Mock()
         mock_interface.chain_i = "A"
         mock_interface.chain_j = "B"
+        mock_interface.residue_details_i = [Mock(), Mock()]  # 2 residues
+        mock_interface.residue_details_j = [Mock(), Mock(), Mock()]  # 3 residues
         grainer.interfaces = [mock_interface]
 
         summary = grainer.get_summary()
@@ -552,7 +547,7 @@ class TestCoarseGrainerIntegration(unittest.TestCase):
                     [7.0, 7.0, 7.0],   # Far from B
                     [9.0, 9.0, 9.0]    # Far from B
                 ]),
-                "residues": [{"id": i} for i in range(1, 9)]
+                "residues": [{"id": i, "name": "ALA"} for i in range(1, 9)]
             },
             "B": {
                 "com": np.array([0.0, 0.0, 0.0]),
@@ -570,7 +565,7 @@ class TestCoarseGrainerIntegration(unittest.TestCase):
                     [-7.0, -7.0, -7.0],  # Far from A
                     [-9.0, -9.0, -9.0]  # Far from A
                 ]),
-                "residues": [{"id": i} for i in range(9, 17)]
+                "residues": [{"id": i, "name": "GLY"} for i in range(9, 17)]
             }
         }
 

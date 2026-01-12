@@ -114,10 +114,14 @@ class TestSystemBuilder(unittest.TestCase):
         mol_type_a = Mock(spec=MoleculeType)
         mol_type_a.name = "ProteinA"
         mol_type_a.this_mol_type_name = "ProteinA"  # Add required attribute
+        mol_type_a.ref1_local = np.array([1.0, 0.0, 0.0])  # Add required attribute
+        mol_type_a.norm_local = np.array([0.0, 1.0, 0.0])  # Add required attribute
 
         mol_type_b = Mock(spec=MoleculeType)
         mol_type_b.name = "ProteinB"
         mol_type_b.this_mol_type_name = "ProteinB"  # Add required attribute
+        mol_type_b.ref1_local = np.array([1.0, 0.0, 0.0])  # Add required attribute
+        mol_type_b.norm_local = np.array([0.0, 1.0, 0.0])  # Add required attribute
 
         self.template_builder.get_template_name_for_group.side_effect = lambda group: {
             "A": "ProteinA",
@@ -794,6 +798,8 @@ class TestSystemBuilderIntegration(unittest.TestCase):
         mol_type = Mock(spec=MoleculeType)
         mol_type.name = "ProteinA"
         mol_type.this_mol_type_name = "ProteinA"
+        mol_type.ref1_local = np.array([1.0, 0.0, 0.0])  # Add required attribute
+        mol_type.norm_local = np.array([0.0, 1.0, 0.0])  # Add required attribute
 
         interface_type = Mock(spec=InterfaceType)
         interface_type.get_name.return_value = "A_A_1"

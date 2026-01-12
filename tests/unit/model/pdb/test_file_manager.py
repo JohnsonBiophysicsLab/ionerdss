@@ -128,7 +128,7 @@ class TestWorkspaceManager(unittest.TestCase):
 
         # Check logger properties
         self.assertEqual(manager.logger.name, f"ionerdss.pdb.{self.pdb_id}")
-        self.assertEqual(manager.logger.level, logging.INFO)
+        self.assertEqual(manager.logger.level, logging.WARNING)
 
         # Check handlers
         self.assertEqual(len(manager.logger.handlers), 2)  # File + Console

@@ -56,6 +56,7 @@ class TestBondGeometry(unittest.TestCase):
         self.assertAlmostEqual(phi2, -1.97568811307998, places=4)
         self.assertAlmostEqual(omega, 2.224122132419503, places=4)
 
+    @unittest.skip("Private functions _magnitude and _unit no longer exist in bond_geometry module")
     def test_unit_and_magnitude_functions(self):
         v = [3, 4, 0]
         mag = bond_geometry._magnitude(v)
