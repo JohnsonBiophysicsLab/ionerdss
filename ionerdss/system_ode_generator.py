@@ -113,12 +113,13 @@ def generate_ode_model_from_system(system: System, max_complex_size: int = None)
                 wl_hash = weisfeiler_lehman_graph_hash(subgraph, node_attr="type")
                 if wl_hash not in seen_hashes:
                     seen_hashes.add(wl_hash)
-                    # Name based on size: A_A for dimer, A_A_A for trimer, etc.
-                    complex_name = "_".join([mol_type_name] * size)
+                    # Use graph-based naming for topology-aware names
+                    from ionerdss.model.complex_to_graph import generate_complex_name_from_graph
+                    complex_name = generate_complex_name_from_graph(subgraph, use_hash=True)
                     complex_names.append(complex_name)
                     complex_graphs.append(subgraph.copy())
             except:
-                # Fallback if WL hash fails
+                # Fallback if WL hash fails - use simple concatenation
                 complex_name = "_".join([mol_type_name] * size)
                 if complex_name not in complex_names:
                     complex_names.append(complex_name)
@@ -141,12 +142,17 @@ def generate_ode_model_from_system(system: System, max_complex_size: int = None)
             
             # Check if there's a product of correct size
             if product_size <= max_complex_size:
-                # Find product in our list (complex with combined size)
-                product_name = "_".join([mol_type_name] * product_size)
-                if product_name in complex_names:
+                # Find product in our list by matching size
+                matching_products = [(k, name, graph) for k, (name, graph) in enumerate(zip(complex_names, complex_graphs))
+                                      if len(graph.nodes()) == product_size]
+                
+                if matching_products:
+                    # Use the first matching product (they're isomorphic anyway)
+                    _, product_name, _ = matching_products[0]
+                    
                     # Create unique rate constant name for this reaction
                     rate_const_name = f"k_on_{reaction_idx}"
-                    # Create reaction
+                    # Create reaction using actual graph-based names
                     reaction_expr = f"{name1} + {name2} -> {product_name}, {rate_const_name}"
                     
                     class SimpleReaction:

@@ -1,0 +1,44 @@
+start parameters
+    nItr = 100000.0
+    timestep = 0.5
+    timeWrite = 10000.0
+    trajWrite = 100000.0
+    restartWrite = 100000.0
+    checkPoint = 100000.0
+    pdbWrite = 100000.0
+    onRate3Dka = 1200.0
+    offRatekb = 1000.0
+    overlapSepLimit = 2.0
+    scaleMaxDisplace = 100.0
+    hyperparams = PDBModelHyperparameters(homotypic_detection='auto', residue_similarity_threshold=0.7, distance_cutoff=1.0, residue_cutoff=3, matching_mode='default', steric_clash_mode='off')
+end parameters
+
+start boundaries
+    WaterBox = [500.0, 500.0, 500.0] #nm
+end boundaries
+
+start molecules
+    A : 10
+    E : 10
+end molecules
+
+start reactions
+    
+    # Binding reactions
+    A(ae1) + E(ea1) <-> A(ae1!1).E(ea1!1)
+    onRate3Dka = 1200.0
+    offRatekb = 83.27602929225175
+    norm1 = [0.0, 0.0, 1.0]
+    norm2 = [0.0, 0.0, 1.0]
+    sigma = 0.9538103342056274
+    assocAngles = [3.00458523009935,2.9984124560856142,-2.7329834172813112,1.9958319854260762,0.8734039874180908]
+    
+    A(ae2) + E(ea2) <-> A(ae2!1).E(ea2!1)
+    onRate3Dka = 1200.0
+    offRatekb = 83.27602929225175
+    norm1 = [0.0, 0.0, 1.0]
+    norm2 = [1.0, 0.0, 0.0]
+    sigma = 0.9155738353729248
+    assocAngles = [2.3346343454278546,2.4027362662991782,2.4277583269637386,1.0812630106641232,-0.32140548930291646]
+    
+end reactions

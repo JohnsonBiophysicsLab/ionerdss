@@ -175,31 +175,33 @@ class Complex:
 
     def to_reaction_string(self):
         """
-        Converts the complex to a reaction string representation.
+        Converts the complex to a reaction string representation using graph-based naming.
+        
+        Uses NetworkX graph conversion and Weisfeiler-Lehman hashing for unique,
+        topology-aware complex names.
 
         Returns:
             str: A string representation of the complex suitable for reactions.
         """
-        molecules = self.get_keys()
+        try:
+            from .complex_to_graph import complex_to_networkx, generate_complex_name_from_graph
+            
+            # Convert to NetworkX graph
+            G = complex_to_networkx(self)
+            
+            # Generate topology-aware name
+            return generate_complex_name_from_graph(G, use_hash=True)
+        except Exception as e:
+            # Fallback to simple naming if graph conversion fails
+            molecules = self.get_keys()
+            molecules_names = [molecule.name for molecule in molecules]
+            
+            if len(molecules_names) == 1:
+                return molecules_names[0]
+            else:
+                # Simple concatenation as fallback
+                return "_".join(sorted(molecules_names))
 
-        # convert molecules to molecule names
-        molecules = [molecule.name for molecule in molecules]
-
-        if len(molecules) == 1:
-            return molecules[0]
-
-        # Sort molecules for consistent base representation
-        molecules = sorted(molecules)
-        base_repr = ".".join(molecules)
-
-        # Get general topology type
-        topology = self.get_topology_type()
-
-        # Use a hash of the edge set to uniquely identify the topology
-        signature = self.generate_signature()
-        sig_hash = hash(signature) % 10000  # Keep it reasonably short
-
-        return f"{base_repr}[{topology}-{sig_hash:04d}]"
 
     def __repr__(self):
         molecules = self.get_keys()
@@ -794,7 +796,7 @@ def build_ode_model_from_complexes(complex_list, pdb_model=None, default_associa
     return reaction_system
 
 
-def generate_ode_model_from_pdb(pdb_model, max_complex_size=None):
+def generate_ode_model_from_pdb(pdb_model, max_complex_size=None, use_graph_based_parser=True):
     """
     Generate a complete ODE model from a PDB structure.
 
@@ -806,17 +808,29 @@ def generate_ode_model_from_pdb(pdb_model, max_complex_size=None):
     Args:
         pdb_model: The PDBModel object.
         max_complex_size (int, optional): Maximum number of molecules in a complex.
+        use_graph_based_parser (bool, optional): Use graph-based parser for any topology.
+            If False, uses original algorithm (optimized for linear systems). Defaults to True.
 
     Returns:
         Tuple[List[Complex], ComplexReactionSystem]: The list of complexes and
         the reaction system.
     """
     # Parse all possible complexes
-    all_complexes = parse_complexes_from_pdb_model(pdb_model, max_complex_size)
+    if use_graph_based_parser:
+        try:
+            from .complex_graph_parser import parse_complexes_from_pdb_model_graphbased
+            all_complexes = parse_complexes_from_pdb_model_graphbased(pdb_model, max_complex_size)
+        except Exception as e:
+            print(f"Warning: Graph-based parser failed ({e}), falling back to original algorithm")
+            all_complexes = parse_complexes_from_pdb_model(pdb_model, max_complex_size)
+    else:
+        all_complexes = parse_complexes_from_pdb_model(pdb_model, max_complex_size)
 
-    # assign names to the complexes: C1, C2, ...
-    for i, complex_obj in enumerate(all_complexes):
-        complex_obj.name = f"C{i+1}"
+    # Assign names to the complexes using graph-based naming
+    # The names are generated via to_reaction_string() which uses NetworkX + WL hashing
+    for complex_obj in all_complexes:
+        # Use to_reaction_string() to generate topology-aware name
+        complex_obj.name = complex_obj.to_reaction_string()
 
     # calculate diffusion constants for each complex (Dtot = 1 / (1/D1 + 1/D2 + ...))
     for complex_obj in all_complexes:
@@ -833,6 +847,7 @@ def generate_ode_model_from_pdb(pdb_model, max_complex_size=None):
     reaction_system = build_ode_model_from_complexes(all_complexes, pdb_model)
 
     return all_complexes, reaction_system
+
 
 
 def _micro2macro(ka, kb, s, D):
