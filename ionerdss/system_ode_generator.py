@@ -81,7 +81,16 @@ def generate_ode_model_from_system(system: System, max_complex_size: int = None,
     # Step 2: Generate all unique fully connected subgraphs (species)
     from ionerdss.model.graph_based.complexes.subcomplexes import get_unique_fully_connected_subgraphs
     
-    all_subgraphs = get_unique_fully_connected_subgraphs(G_full)
+    all_subgraphs_sets = get_unique_fully_connected_subgraphs(G_full)
+    
+    # Convert frozensets to NetworkX graphs
+    # get_unique_fully_connected_subgraphs returns frozensets of node IDs, not graph objects
+    import networkx as nx
+    all_subgraphs = []
+    for node_set in all_subgraphs_sets:
+        # Create subgraph from the node set
+        subgraph = G_full.subgraph(node_set).copy()
+        all_subgraphs.append(subgraph)
     
     # Filter by max_complex_size
     subgraphs = [sg for sg in all_subgraphs if len(sg.nodes) <= max_complex_size]
@@ -104,23 +113,31 @@ def generate_ode_model_from_system(system: System, max_complex_size: int = None,
     transformation_pairs = find_all_transformable_subgraph_pairs(G_full, subgraphs=subgraphs)
     
     # Convert graph reactions to reaction strings
-    # Map subgraphs to their names for lookup
-    subgraph_to_name = {}
+    # Map subgraphs to their names using graph structure (node sets) instead of object IDs
+    # because find_all_dimer_reactions creates new graph objects
+    import networkx as nx
+    
+    subgraph_nodeset_to_name = {}
     for i, sg in enumerate(subgraphs):
-        subgraph_to_name[id(sg)] = complex_names[i]
+        node_set = frozenset(sg.nodes())
+        subgraph_nodeset_to_name[node_set] = complex_names[i]
     
     reaction_idx = 0
     
     # Process dimer reactions
     for reaction in dimer_reactions:
-        # reaction format from find_all_dimer_reactions: (G1, G2, G_product)
+        # reaction format from find_all_dimer_reactions: (set1, set2, product_set) - sets not graphs!
         if len(reaction) >= 3:
-            G1, G2, G_product = reaction[0], reaction[1], reaction[2]
+            set1, set2, set_product = reaction[0], reaction[1], reaction[2]
             
-            # Find names for reactants and product
-            name1 = subgraph_to_name.get(id(G1))
-            name2 = subgraph_to_name.get(id(G2))
-            name_product = subgraph_to_name.get(id(G_product))
+            # Convert to frozensets for lookup
+            nodeset1 = frozenset(set1)
+            nodeset2 = frozenset(set2)
+            nodeset_product = frozenset(set_product)
+            
+            name1 = subgraph_nodeset_to_name.get(nodeset1)
+            name2 = subgraph_nodeset_to_name.get(nodeset2)
+            name_product = subgraph_nodeset_to_name.get(nodeset_product)
             
             if name1 and name2 and name_product:
                 rate_const_name = f"k_on_{reaction_idx}"
@@ -138,9 +155,11 @@ def generate_ode_model_from_system(system: System, max_complex_size: int = None,
     
     # Process transformation reactions
     for G1, G2, direction, edges_changed in transformation_pairs:
-        # Find names
-        name1 = subgraph_to_name.get(id(G1))
-        name2 = subgraph_to_name.get(id(G2))
+        # Find names using node sets
+        nodeset1 = frozenset(G1.nodes()) if hasattr(G1, 'nodes') else frozenset(G1)
+        nodeset2 = frozenset(G2.nodes()) if hasattr(G2,  'nodes') else frozenset(G2)
+        name1 = subgraph_nodeset_to_name.get(nodeset1)
+        name2 = subgraph_nodeset_to_name.get(nodeset2)
         
         if name1 and name2:
             rate_const_name = f"k_trans_{reaction_idx}"

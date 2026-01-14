@@ -1010,20 +1010,30 @@ class NERDSSExporter:
                     "No representative instance found for molecule type %s", mol_type.name
                 )
             return mol_file_path
-
         # Initialize dictionaries to collect interface data
         per_type_local: dict[str, np.ndarray] = {}
         per_type_partner_ids: dict[str, int] = {}
 
-
-        # Collect interface coordinates from representative instance only
-        for iface, partner in rep_inst.interfaces_neighbors_map.items():
-            if not iface.interface_type:
-                continue
-            tname = iface.interface_type.get_name()   # e.g., "A_A_1f" or "A_A_2b"
-            # Local (template) coord = absolute - COM for representative instance
-            per_type_local[tname] = iface.absolute_coord - rep_inst.com
-            per_type_partner_ids[tname] = id(partner)
+        # Get ALL interface types for this molecule type (not just from representative instance)
+        mol_interface_types = [it for it in self.system.interface_types if it.this_mol_type_name == mol_type.name]
+        
+        # For each interface type, find coordinates from ANY instance that has it
+        all_instances = [inst for inst in self.system.molecule_instances if inst.molecule_type and inst.molecule_type.name == mol_type.name]
+        
+        for itype in mol_interface_types:
+            tname = itype.get_name()
+            # Find first instance that has this interface type
+            found = False
+            for inst in all_instances:
+                for iface, partner in inst.interfaces_neighbors_map.items():
+                    if iface.interface_type and iface.interface_type.get_name() == tname:
+                        # Found it! Use this instance's coordinates
+                        per_type_local[tname] = iface.absolute_coord - inst.com
+                        per_type_partner_ids[tname] = id(partner) if partner else -1
+                        found = True
+                        break
+                if found:
+                    break
 
         if self.workspace_manager:
             self.workspace_manager.logger.info(
@@ -1226,25 +1236,29 @@ class NERDSSExporter:
                             'interaction_type': 'hom_hom'
                         })
 
+
             else:
-                # Handle true heterotypic cases as before
+                # Handle true heterodimeric cases
+                # Need to find BOTH interface types (type_name and partner_type_name)
                 type_name = interface_types[0].get_name()
+                # Construct partner interface name  
+                partner_type_name = interface_naming.make_interface_name(mol2, mol1, index, None)
                 mol1_sites = []
                 mol2_sites = []
 
-                # Find sites for mol1
+                # Find sites for mol1 - use exact match since no underscores
                 for key, site_label in self.interface_to_site_map.items():
-                    if key.startswith(type_name + "_") or key == type_name:
+                    if key == type_name:
                         if site_label not in mol1_sites:
                             mol1_sites.append(site_label)
 
                 # Find sites for mol2
-                partner_type_name = f"{mol2}_{mol1}_{index}"
                 for key, site_label in self.interface_to_site_map.items():
-                    if key.startswith(partner_type_name + "_") or key == partner_type_name:
+                    if key == partner_type_name:
                         if site_label not in mol2_sites:
                             mol2_sites.append(site_label)
-
+                
+                
                 # Generate all combinations for heterotypic
                 for site1 in mol1_sites:
                     for site2 in mol2_sites:
