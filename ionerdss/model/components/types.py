@@ -148,14 +148,13 @@ class InterfaceType:
         """Return the formatted interface identifier string.
         
         Constructs the interface name using the format:
-        "{this_mol_name}_{partner_mol_name}_{interface_index}"
+        "{this_mol_name}{partner_mol_name}{interface_index}"
+        WITHOUT underscores to match the parser regex pattern.
         
         Returns:
-            The interface identifier string (e.g., "A_B_1").
+            The interface identifier string (e.g., "AB1" or "AA1f").
         """
-        core = self.this_mol_type_name + "_" +\
-            self.partner_mol_type_name + "_" +\
-            str(self.interface_index)
+        core = self.this_mol_type_name + self.partner_mol_type_name + str(self.interface_index)
         return f"{core}{self.tag}" if self.tag else core
 
     def set_name(self, new_name: str) -> None:

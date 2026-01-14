@@ -1723,16 +1723,17 @@ class TemplateBuilder:
             )
 
             if templates_match:
-                # Use more relaxed thresholds for signature matching
-                distance_threshold = 5.0  # 5 Angstroms tolerance
-                angle_threshold = 0.5     # ~30 degrees tolerance
+                # Use hyperparameters for interface type assignment thresholds
+                distance_threshold = self.hyperparams.interface_type_assignment_distance_threshold
+                angle_threshold = self.hyperparams.interface_type_assignment_angle_threshold
 
                 # Check if signatures are similar
                 if signature.is_similar_to(existing_signature, distance_threshold, angle_threshold):
                     if self.workspace_manager:
                         self.workspace_manager.logger.info(
-                            "Found matching interface type %s for signature d_i=%.2f, d_j=%.2f, theta_i=%.3f, theta_j=%.3f",
-                            interface_name, signature.d_i, signature.d_j, signature.theta_i, signature.theta_j
+                            "Found matching interface type %s for signature d_i=%.2f, d_j=%.2f, theta_i=%.3f, theta_j=%.3f (thresholds: dist=%.2f, angle=%.3f)",
+                            interface_name, signature.d_i, signature.d_j, signature.theta_i, signature.theta_j,
+                            distance_threshold, angle_threshold
                         )
                     return interface_name
 

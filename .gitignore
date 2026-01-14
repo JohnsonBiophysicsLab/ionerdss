@@ -131,6 +131,9 @@ test_simularium.ipynb
 # pdb local test cases
 /6bno*
 /8erq*
+/8y7s*
+/1dlh*
+/5l93*
 
 # local verification files
 analyze_filament.py
@@ -148,7 +151,8 @@ repro_serialization.py
 ref_angles.py
 reconstruction_test.py
 verify_angles*
-#test.py
+test.py
+test*
 tutorials/6bno_dir/
 /tutorials/6bno_dir
 /test_debug

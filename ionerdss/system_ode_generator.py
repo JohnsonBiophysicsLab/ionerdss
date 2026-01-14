@@ -1,171 +1,165 @@
 """
-System-compatible ODE model generator with full complex network generation.
+System-compatible ODE model generator using graph_based functions.
 
-This module provides functions to generate ODE models from the new System architecture,
-using graph induction to generate ALL possible subcomplexes (not just dimers).
-
-For a system with 8 A molecules, this will generate: 1A, 2A, 3A, 4A, 5A, 6A, 7A, 8A
-complexes based on connectivity and available binding sites.
+This module generates ODE models from the System architecture using the actual
+graph_based functions for proper species and reaction generation.
 """
 
-import numpy as np
 import networkx as nx
-from typing import List, Tuple, Set
-from itertools import combinations, product
-from collections import defaultdict, deque
+from typing import List, Tuple
 from ionerdss.model.components.system import System
 from ionerdss.model.complex import ComplexReactionSystem
+from ionerdss.model.complex_to_graph import generate_complex_name_from_graph
 
 
-def generate_ode_model_from_system(system: System, max_complex_size: int = None) -> Tuple[List, ComplexReactionSystem]:
+def generate_ode_model_from_system(system: System, max_complex_size: int = None, pdb_model=None, coarse_grainer=None) -> Tuple[List, ComplexReactionSystem]:
     """
-    Generate ODE model from a System object with full complex network.
+    Generate ODE model from a System object using graph_based functions.
     
-    Uses graph induction to generate all possible subcomplexes based on
-    molecule types and interface types in the System.
+    This function:
+    1. Builds the full assembly graph from the PDB model
+    2. Uses get_unique_fully_connected_subgraphs to get all species
+    3. Uses find_all_dimer_reactions and find_all_transformable_subgraph_pairs for reactions
     
     Args:
         system: System object containing molecule_types and interface_types registries
-        max_complex_size: Maximum number of molecules in a complex (default: 8 for octamers)
+        max_complex_size: Maximum number of molecules in a complex (default: 20)
+        pdb_model: PDB model object (optional, for compatibility)
+        coarse_grainer: CoarseGrainer object with coarse-grained model data
     
     Returns:
         Tuple of (complex_names, reaction_system) where complex_names are string identifiers
         and reaction_system contains reactions between complexes
     """
-    # Extract molecule types from system
-    molecule_types = list(system.molecule_types.molecule_types.values())
-    
-    if not molecule_types:
-        raise ValueError("No molecule types found in system")
-    
-    # Build a NetworkX graph representing the full assembly
-    # For homotypic system with 1 molecule type and N instances, we create a fully connected graph
-    # based on the interface types
-    
-    # Step 1: Determine how many instances we need
-    # Count unique interface index combinations to estimate oligomer size
-    interface_indices = set()
-    for iface_type in system.interface_types:
-        interface_indices.add(iface_type.interface_index)
-    
-    # For homotypic systems, the maximum oligomer size is typically related to
-    # the number of unique interfaces. Default to 8 (common for viral capsids)
+    # Set default max size
     if max_complex_size is None:
-        max_complex_size = max(8, len(interface_indices) * 2)
+        max_complex_size = 12
     
-    # Step 2: Build connectivity information from interface types
-    # Map (mol_type, interface_idx) -> (partner_mol_type, partner_interface_idx)
-    connectivity = defaultdict(list)
+    if coarse_grainer is None:
+        raise ValueError("coarse_grainer must be provided to generate ODE")
     
-    for iface_type in system.interface_types:
-        mol_type = iface_type.this_mol_type_name
-        partner_type = iface_type.partner_mol_type_name
-        iface_idx = iface_type.interface_index
-        
-        # For homotypic binding (A-A), track which interfaces can bind
-        connectivity[(mol_type, iface_idx)].append((partner_type, iface_idx))
+    # Step 1: Build the full assembly graph using build_simple_graph
+    from ionerdss.model.graph_based.complexes.graphize import build_simple_graph
     
-    # Step 3: Build a graph representing the maximum assembly
-    # For homotypic A with 2 interface types (e.g., 1f/1b, 2f/2b), build a chain/ring
-    mol_type_name = molecule_types[0].name
+    # Build cg_model from coarse_grainer data
+    chains_data = coarse_grainer.get_coarse_grained_chains()
+    interfaces_data = coarse_grainer.get_interfaces()
     
-    # Create nodes for maximum assembly size
-    G = nx.Graph()
-    for i in range(max_complex_size):
-        G.add_node(i, type=mol_type_name)
+    # Build the cg_model dict expected by build_simple_graph
+    chains = list(chains_data.keys())
     
-    # Add edges based on interface compatibility
-    # For linear/ring assembly, connect sequential nodes
-    # This is a simplified model - in reality, would use actual interface geometry
-    for i in range(max_complex_size - 1):
-        G.add_edge(i, i + 1, type=f"{mol_type_name}_{mol_type_name}")
+    # Build interfaces list: for each chain, list of partner chain IDs
+    interfaces = [[] for _ in chains]
+    chain_to_idx = {cid: i for i, cid in enumerate(chains)}
     
-    # For ring closure (if system supports it), add edge between first and last
-    if len(system.interface_types) >= 4:  # Suggests bidirectional binding
-        G.add_edge(0, max_complex_size - 1, type=f"{mol_type_name}_{mol_type_name}")
+    for iface in interfaces_data:
+        chain_i = iface.chain_i
+        chain_j = iface.chain_j
+        if chain_i in chain_to_idx and chain_j in chain_to_idx:
+            idx_i = chain_to_idx[chain_i]
+            idx_j = chain_to_idx[chain_j]
+            # Add bidirectional connections
+            if chain_j not in interfaces[idx_i]:
+                interfaces[idx_i].append(chain_j)
+            if chain_i not in interfaces[idx_j]:
+                interfaces[idx_j].append(chain_i)
     
-    # Step 4: Generate all unique connected subgraphs
+    cg_model = {
+        'chains': chains,
+        'interfaces': interfaces
+    }
+    
+    G_full = build_simple_graph(cg_model)
+    
+    # Check if full assembly exceeds max_complex_size
+    if len(G_full.nodes) > max_complex_size:
+        raise ValueError(
+            f"Assembly has {len(G_full.nodes)} molecules, exceeding max_complex_size_ode ({max_complex_size}). "
+            f"Skipping ODE generation. Increase max_complex_size_ode parameter if you want to force calculation of ODE for this system, but be aware that this may take a long time."
+        )
+    
+    # Step 2: Generate all unique fully connected subgraphs (species)
+    from ionerdss.model.graph_based.complexes.subcomplexes import get_unique_fully_connected_subgraphs
+    
+    all_subgraphs = get_unique_fully_connected_subgraphs(G_full)
+    
+    # Filter by max_complex_size
+    subgraphs = [sg for sg in all_subgraphs if len(sg.nodes) <= max_complex_size]
+    
+    # Generate names for each subgraph using graph-based naming
     complex_names = []
-    complex_graphs = []
+    for subgraph in subgraphs:
+        name = generate_complex_name_from_graph(subgraph, use_hash=True)
+        complex_names.append(name)
     
-    # Add individual monomers
-    for i in range(max_complex_size):
-        subgraph =  G.subgraph([i])
-        complex_names.append(f"{mol_type_name}")
-        complex_graphs.append(subgraph)
-        break  # Only need one monomer in species list
+    # Step 3: Build reaction system using graph_based functions
+    from ionerdss.model.graph_based.reactions import find_all_dimer_reactions, find_all_transformable_subgraph_pairs
     
-    # Generate all connected subgraphs of increasing size
-    from networkx.algorithms.graph_hashing import weisfeiler_lehman_graph_hash
-    seen_hashes = set()
-    
-    for size in range(2, max_complex_size + 1):
-        # Generate all combinations of nodes of this size
-        for node_subset in combinations(range(max_complex_size), size):
-            subgraph = G.subgraph(node_subset)
-            
-            # Check if connected
-            if not nx.is_connected(subgraph):
-                continue
-            
-            # Use WL hash to avoid duplicates (isomorphic structures)
-            try:
-                wl_hash = weisfeiler_lehman_graph_hash(subgraph, node_attr="type")
-                if wl_hash not in seen_hashes:
-                    seen_hashes.add(wl_hash)
-                    # Use graph-based naming for topology-aware names
-                    from ionerdss.model.complex_to_graph import generate_complex_name_from_graph
-                    complex_name = generate_complex_name_from_graph(subgraph, use_hash=True)
-                    complex_names.append(complex_name)
-                    complex_graphs.append(subgraph.copy())
-            except:
-                # Fallback if WL hash fails - use simple concatenation
-                complex_name = "_".join([mol_type_name] * size)
-                if complex_name not in complex_names:
-                    complex_names.append(complex_name)
-                    complex_graphs.append(subgraph.copy())
-    
-    # Step 5: Build reaction system
-    # Find all reactions: smaller complexes associating to form larger ones
     reaction_system = ComplexReactionSystem()
     
-    # Create simple reaction strings for each association
-    # Format: "A + A -> A_A", "A + A_A -> A_A_A", etc.
+    # Get dimer reactions (A + B -> AB)
+    dimer_reactions = find_all_dimer_reactions(subgraphs, use_multiprocessing=False)
     
-    # Association reactions between all pairs
-    reaction_idx = 0  # Counter for unique rate constant names
-    for i, (name1, graph1) in enumerate(zip(complex_names, complex_graphs)):
-        size1 = len(graph1.nodes())
-        for j, (name2, graph2) in enumerate(zip(complex_names, complex_graphs)):
-            size2 = len(graph2.nodes())
-            product_size = size1 + size2
+    # Get transformation reactions (bond formation/breaking)
+    transformation_pairs = find_all_transformable_subgraph_pairs(G_full, subgraphs=subgraphs)
+    
+    # Convert graph reactions to reaction strings
+    # Map subgraphs to their names for lookup
+    subgraph_to_name = {}
+    for i, sg in enumerate(subgraphs):
+        subgraph_to_name[id(sg)] = complex_names[i]
+    
+    reaction_idx = 0
+    
+    # Process dimer reactions
+    for reaction in dimer_reactions:
+        # reaction format from find_all_dimer_reactions: (G1, G2, G_product)
+        if len(reaction) >= 3:
+            G1, G2, G_product = reaction[0], reaction[1], reaction[2]
             
-            # Check if there's a product of correct size
-            if product_size <= max_complex_size:
-                # Find product in our list by matching size
-                matching_products = [(k, name, graph) for k, (name, graph) in enumerate(zip(complex_names, complex_graphs))
-                                      if len(graph.nodes()) == product_size]
+            # Find names for reactants and product
+            name1 = subgraph_to_name.get(id(G1))
+            name2 = subgraph_to_name.get(id(G2))
+            name_product = subgraph_to_name.get(id(G_product))
+            
+            if name1 and name2 and name_product:
+                rate_const_name = f"k_on_{reaction_idx}"
+                reaction_expr = f"{name1} + {name2} -> {name_product}, {rate_const_name}"
                 
-                if matching_products:
-                    # Use the first matching product (they're isomorphic anyway)
-                    _, product_name, _ = matching_products[0]
-                    
-                    # Create unique rate constant name for this reaction
-                    rate_const_name = f"k_on_{reaction_idx}"
-                    # Create reaction using actual graph-based names
-                    reaction_expr = f"{name1} + {name2} -> {product_name}, {rate_const_name}"
-                    
-                    class SimpleReaction:
-                        def __init__(self, expression, rate=1.0, rate_name=None):
-                            self.expression = expression
-                            self.rate = rate
-                            self.rate_name = rate_name if rate_name else "k_on"
-                    
-                    reaction = SimpleReaction(reaction_expr, rate=1.0, rate_name=rate_const_name)
-                    
-                    # Avoid duplicates (A+B->C is same as B+A->C)
-                    if reaction not in reaction_system.reactions:
-                        reaction_system.reactions.append(reaction)
-                        reaction_idx += 1  # Increment only when reaction is added
+                class SimpleReaction:
+                    def __init__(self, expression, rate=1.0, rate_name=None):
+                        self.expression = expression
+                        self.rate = rate
+                        self.rate_name = rate_name if rate_name else "k_on"
+                
+                rxn = SimpleReaction(reaction_expr, rate=1.0, rate_name=rate_const_name)
+                reaction_system.reactions.append(rxn)
+                reaction_idx += 1
+    
+    # Process transformation reactions
+    for G1, G2, direction, edges_changed in transformation_pairs:
+        # Find names
+        name1 = subgraph_to_name.get(id(G1))
+        name2 = subgraph_to_name.get(id(G2))
+        
+        if name1 and name2:
+            rate_const_name = f"k_trans_{reaction_idx}"
+            
+            if direction == "forming":
+                # Bond formation: G1 -> G2
+                reaction_expr = f"{name1} -> {name2}, {rate_const_name}"
+            else:
+                # Bond breaking: G2 -> G1  
+                reaction_expr = f"{name2} -> {name1}, {rate_const_name}"
+            
+            class SimpleReaction:
+                def __init__(self, expression, rate=1.0, rate_name=None):
+                    self.expression = expression
+                    self.rate = rate
+                    self.rate_name = rate_name if rate_name else "k_trans"
+            
+            rxn = SimpleReaction(reaction_expr, rate=1.0, rate_name=rate_const_name)
+            reaction_system.reactions.append(rxn)
+            reaction_idx += 1
     
     return complex_names, reaction_system

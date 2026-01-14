@@ -226,8 +226,23 @@ class PDBModelBuilder:
                     from ionerdss.ode_pipeline import run_ode_pipeline, ODEPipelineConfig
                     from ionerdss.system_ode_generator import generate_ode_model_from_system
                     
+                    # Check if assembly size exceeds limit
+                    num_molecule_types = len(system.molecule_types.molecule_types)
+                    max_size = hyperparams.max_complex_size_ode
+                    
+                    if num_molecule_types > max_size:
+                        self.workspace_manager.logger.warning(
+                            "Assembly has %d molecule types, exceeding max_complex_size_ode (%d). Skipping ODE generation.",
+                            num_molecule_types, max_size
+                        )
+                        raise ValueError(f"Assembly too large for ODE: {num_molecule_types} > {max_size}")
+                    
                     # Generate complex reaction system using new System-compatible function
-                    complex_list, complex_reaction_system = generate_ode_model_from_system(system)
+                    complex_list, complex_reaction_system = generate_ode_model_from_system(
+                        system, 
+                        max_complex_size=max_size,
+                        coarse_grainer=system_builder.coarse_grainer  # Pass coarse_grainer directly
+                    )
                     
                     self.workspace_manager.logger.info(
                         "Generated %d complexes and %d reactions for ODE",

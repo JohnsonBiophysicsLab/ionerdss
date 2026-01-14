@@ -1102,24 +1102,23 @@ class NERDSSExporter:
         Returns:
             Formatted site label.
         """
-        # Parse interface type name to extract components
-        # Expected format: "MOL1_MOL2_INDEX" (e.g., "A_A_1", "AH_Q_2")
-        parts = interface_type_name.split("_")
-
-        if len(parts) < 3:
+        # Parse interface type name using proper parser
+        try:
+            parsed = interface_naming.parse_interface_name(interface_type_name)
+            mol1_name = parsed.this_mol
+            mol2_name = parsed.partner_mol
+            index = str(parsed.index)
+            if parsed.tag:
+                index += parsed.tag
+        except Exception as e:
             # Fallback for unexpected format
             if self.workspace_manager:
                 self.workspace_manager.logger.warning(
-                    "Unexpected interface type format: %s, using fallback naming",
-                    interface_type_name
+                    "Failed to parse interface type: %s, error: %s, using fallback",
+                    interface_type_name, str(e)
                 )
             initial = mol_name[0].lower() if mol_name else "x"
             return f"{initial}1"
-
-        # Extract molecule names and index
-        mol1_name = parts[0]
-        mol2_name = parts[1]
-        index = parts[2]
 
         # Convert to lowercase
         mol1_lower = mol1_name.lower()
@@ -1189,7 +1188,8 @@ class NERDSSExporter:
                 names_set = set(t for t, _ in parsed)
                 for tname, p in parsed:
                     if p.tag == 'f':
-                        candidate_b = f"{p.this_mol}_{p.partner_mol}_{p.index}b"
+                        # Use make_interface_name to match the new format without underscores
+                        candidate_b = interface_naming.make_interface_name(p.this_mol, p.partner_mol, p.index, 'b')
                         if candidate_b in names_set:
                             fb_pairs.append((tname, candidate_b))
                 # For each f/b pair, map type → site and create reactions
@@ -1204,8 +1204,27 @@ class NERDSSExporter:
                                 'reaction': reaction,
                                 'is_cross_reaction': False,
                                 'mol1': mol1, 'mol2': mol2,
-                                'site1': s1, 'site2': s2,                           'interaction_type': 'hom_het'
-                                    })
+                                'site1': s1, 'site2': s2,
+                                'interaction_type': 'hom_het'
+                            })
+                
+                # Handle homodimeric homotypic (self-binding, tag=None)
+                # These interfaces bind to themselves: A(aa1) + A(aa1) <-> A(aa1!1).A(aa1!1)
+                homotypic_types = [tname for tname, p in parsed if p.tag is None]
+                for type_name in homotypic_types:
+                    # Get the site label for this interface type
+                    sites = [s for (k, s) in self.interface_to_site_map.items() if k == type_name]
+                    for site in sites:
+                        # Self-binding reaction: same site on both sides
+                        reaction = f"{mol1}({site}) + {mol2}({site}) <-> {mol1}({site}!1).{mol2}({site}!1)"
+                        reactions.append(reaction)
+                        self.reaction_metadata.append({
+                            'reaction': reaction,
+                            'is_cross_reaction': False,
+                            'mol1': mol1, 'mol2': mol2,
+                            'site1': site, 'site2': site,
+                            'interaction_type': 'hom_hom'
+                        })
 
             else:
                 # Handle true heterotypic cases as before

@@ -13,7 +13,7 @@ from collections import defaultdict
 from typing import List, Tuple
 from .complex import Complex
 from .complex_to_graph import complex_to_networkx, networkx_to_complex
-from ..graph_based.complexes.subcomplexes import get_unique_fully_connected_subgraphs
+from ionerdss.model.graph_based.complexes.subcomplexes import get_unique_fully_connected_subgraphs
 
 
 def build_pdb_model_graph(pdb_model):

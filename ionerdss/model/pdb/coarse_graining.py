@@ -441,8 +441,21 @@ class CoarseGrainer:
 
     def _initialize_chains(self) -> None:
         """Initialize coarse-grained chain representations."""
+        min_length = getattr(self.hyperparams, 'min_chain_length', 4)
+        
         for chain_id in self.parser.get_chain_ids():
             chain_data = self.parser.get_chain_data(chain_id)
+            
+            # Filter out short chains (small molecules)
+            sequence = chain_data.get('sequence', '')
+            if len(sequence) < min_length:
+                if hasattr(self, 'parser') and hasattr(self.parser, 'workspace_manager'):
+                    if self.parser.workspace_manager:
+                        self.parser.workspace_manager.logger.info(
+                            "Skipping chain %s: only %d residues (min_chain_length=%d)",
+                            chain_id, len(sequence), min_length
+                        )
+                continue
 
             self.chains[chain_id] = CoarseGrainedChain(
                 chain_id=chain_id,

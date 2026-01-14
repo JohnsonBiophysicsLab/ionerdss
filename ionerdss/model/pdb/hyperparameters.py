@@ -122,6 +122,20 @@ class PDBModelHyperparameters:
         default=3,
         metadata={"description": "Minimum number of contacting residues (on each chain) to accept an interface", "unit": "residues"}
     )
+    min_chain_length: int = field(
+        default=4,
+        metadata={"description": "Minimum number of residues for a chain to be included (filters out small molecules)", "unit": "residues"}
+    )
+    
+    # Interface type assignment parameters (for template building)
+    interface_type_assignment_distance_threshold: float = field(
+        default=2.0,
+        metadata={"description": "Distance threshold (Angstroms) for assigning interfaces to the same type during template building. Interfaces within this distance are merged into one type.", "unit": "Å"}
+    )
+    interface_type_assignment_angle_threshold: float = field(
+        default=0.2,
+        metadata={"description": "Angle threshold (radians) for assigning interfaces to the same type during template building. ~11 degrees. More restrictive than the previous 0.5 radians default.", "unit": "radians"}
+    )
 
     # Chain grouping parameters
     chain_grouping_rmsd_threshold: float = field(
@@ -231,6 +245,10 @@ class PDBModelHyperparameters:
     ode_enabled: bool = field(
         default=False,
         metadata={"description": "Enable ODE pipeline for kinetic modeling"}
+    )
+    max_complex_size_ode: int = field(
+        default=12,
+        metadata={"description": "Maximum complex size (number of molecules) for ODE generation. ODE will be skipped if assembly exceeds this."}
     )
     ode_time_span: tuple = field(
         default=(0.0, 10.0),

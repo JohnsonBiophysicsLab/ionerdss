@@ -867,7 +867,8 @@ class PDBParser:
         ppb = PPBuilder()
         peptides = ppb.build_peptides(chain)
         if peptides:
-            return str(peptides[0].get_sequence())
+            # Concatenate all peptides (chains may have breaks/gaps)
+            return ''.join(str(pep.get_sequence()) for pep in peptides)
         return ""
 
 
