@@ -232,7 +232,7 @@ def dihedrals_from_points(p1, p2, p3, p4, tol=1e-8):
     y = np.sum(np.cross(b1_unit, v) * w, axis=1)
 
     # Get the dihedral from angle between two norm vectors
-    dihedrals = np.arctan(y, x)
+    dihedrals = np.arctan2(y, x)
 
     return dihedrals[0] if dihedrals.shape[0] == 1 else dihedrals
 

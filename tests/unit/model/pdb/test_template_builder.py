@@ -106,6 +106,8 @@ class TestTemplateBuilder(unittest.TestCase):
         # Mock hyperparameters
         self.hyperparams.homodimer_distance_threshold = 1.0
         self.hyperparams.homodimer_angle_threshold = 0.2
+        self.hyperparams.interface_type_assignment_distance_threshold = 1.0
+        self.hyperparams.interface_type_assignment_angle_threshold = 0.2
         self.hyperparams.signature_precision = 6
         self.hyperparams.steric_clash_mode = "off"
 
@@ -380,7 +382,10 @@ class TestTemplateBuilder(unittest.TestCase):
         builder = TemplateBuilder.__new__(TemplateBuilder)
         builder.interface_templates = {}
         builder.interface_signatures = {}
+        builder.interface_templates = {}
+        builder.interface_signatures = {}
         builder.workspace_manager = self.workspace_manager
+        builder.hyperparams = self.hyperparams
 
         # Create existing interface template
         existing_template = Mock(spec=InterfaceType)
@@ -404,7 +409,10 @@ class TestTemplateBuilder(unittest.TestCase):
         builder = TemplateBuilder.__new__(TemplateBuilder)
         builder.interface_templates = {}
         builder.interface_signatures = {}
+        builder.interface_templates = {}
+        builder.interface_signatures = {}
         builder.workspace_manager = self.workspace_manager
+        builder.hyperparams = self.hyperparams
 
         test_signature = GeometricSignature(5.0, 6.0, 1.0, 1.2)
 
@@ -731,7 +739,10 @@ class TestTemplateBuilderIntegration(unittest.TestCase):
         hyperparams.homodimer_distance_threshold = 1.0
         hyperparams.homodimer_angle_threshold = 0.2
         hyperparams.signature_precision = 6
+        hyperparams.signature_precision = 6
         hyperparams.steric_clash_mode = "off"
+        hyperparams.template_regularization_strength = 0.5
+        hyperparams.min_chain_length = 4
 
         # Mock coarse-grained chains
         chain_a = Mock(spec=CoarseGrainedChain)
@@ -740,6 +751,7 @@ class TestTemplateBuilderIntegration(unittest.TestCase):
         chain_a.radius = 15.0
 
         coarse_grainer.get_coarse_grained_chains.return_value = {"A": chain_a}
+        coarse_grainer.chains = {"A": chain_a}
 
         # Mock interfaces (self-interaction)
         interface = Mock(spec=InterfaceString)
@@ -752,8 +764,13 @@ class TestTemplateBuilderIntegration(unittest.TestCase):
         interface.energy = -3.0
         interface.residue_details_i = [Mock(id=1, name="ALA"), Mock(id=2, name="GLY")]
         interface.residue_details_j = [Mock(id=3, name="CYS"), Mock(id=4, name="VAL")]
+        interface.get_residue_sequence_i.return_value = "AG"
+        interface.get_residue_sequence_j.return_value = "CV"
+        interface.get_residue_composition_i.return_value = {"ALA": 1, "GLY": 1}
+        interface.get_residue_composition_j.return_value = {"CYS": 1, "VAL": 1}
 
         coarse_grainer.get_interfaces.return_value = [interface]
+        coarse_grainer.interfaces = [interface]
 
         # Mock chain group
         group = Mock(spec=ChainGroup)

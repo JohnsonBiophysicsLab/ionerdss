@@ -177,6 +177,7 @@ class TestCoarseGrainer(unittest.TestCase):
         """Test _initialize_chains method."""
         grainer = CoarseGrainer.__new__(CoarseGrainer)
         grainer.parser = self.mock_parser
+        grainer.hyperparams = self.hyperparams
         grainer.chains = {}
 
         grainer._initialize_chains()
