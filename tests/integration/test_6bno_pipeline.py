@@ -252,12 +252,21 @@ class Test6BNOPipelineIntegration(unittest.TestCase):
                 if line.strip().startswith("D ="):
                     found_D_t = True
                     # Extract and verify it's a number
-                    value = line.split('=')[1].strip().split()[0]
+                    # Find the first '[' and the first ',' after it
+                    start_index = line  .find('[') + 1
+                    end_index = line.find(',', start_index)
+                    if start_index > 0 and end_index != -1:
+                        value = line[start_index:end_index]
                     self.assertGreater(float(value), 0,
                                      f"D_t should be positive for {mol_type.name}")
                 elif line.strip().startswith("Dr ="):
                     found_D_r = True
-                    value = line.split('=')[1].strip().split()[0]
+                    # Extract and verify it's a number
+                    # Find the first '[' and the first ',' after it
+                    start_index = line.find('[') + 1
+                    end_index = line.find(',', start_index)
+                    if start_index > 0 and end_index != -1:
+                        value = line[start_index:end_index]
                     self.assertGreater(float(value), 0,
                                      f"D_r should be positive for {mol_type.name}")
             

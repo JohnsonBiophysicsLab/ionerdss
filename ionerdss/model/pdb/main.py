@@ -9,6 +9,7 @@ the complete pipeline with proper file organization, logging, and NERDSS export.
 
 from typing import Optional, Union, Dict, Any, Tuple
 from pathlib import Path
+import logging
 
 from ionerdss.model.components.system import System
 from ionerdss.model.components.units import Units
@@ -90,6 +91,24 @@ class PDBModelBuilder:
         self.workspace_manager = WorkspaceManager(workspace_path, pdb_id)
         self.pdb_id = pdb_id
 
+        # Define a custom logging level just of this main module
+        # Define a custom level value
+        NOTICE_LEVEL = 25
+
+        # Register the new level name with the logging module
+        logging.addLevelName(NOTICE_LEVEL, "NOTICE")
+
+        # Define a custom logging method for the new level
+        def notice(self, message, *args, **kwargs):
+            if self.isEnabledFor(NOTICE_LEVEL):
+                self._log(NOTICE_LEVEL, message, args, **kwargs)
+
+        # Add the custom method to the Logger class
+        logging.Logger.notice = notice
+
+        # Now you can use the custom level
+        logger = logging.getLogger(__name__)
+
         try:
             # Get hyperparameters: use provided, then builder's, then default
             if hyperparams is None:
@@ -106,7 +125,7 @@ class PDBModelBuilder:
                 units = Units()
 
             # Step 1: Parse PDB file or fetch from database
-            self.workspace_manager.logger.info(
+            logger.notice(
                 "Step 1: Processing structure source: %s", self.source)
             
             # Determine file format: use fetch_format if provided, otherwise use hyperparameter

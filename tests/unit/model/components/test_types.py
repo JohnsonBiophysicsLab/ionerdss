@@ -30,7 +30,7 @@ class TestInterfaceType(unittest.TestCase):
             absolute_coord=self.test_absolute_coord,
             local_coord=self.test_local_coord,
             energy=-5.0,
-            required_free=["A_C_1", "A_D_1"]
+            required_free=["AC1", "AD1"]
         )
 
     def test_init_required_fields(self):
@@ -88,7 +88,7 @@ class TestInterfaceType(unittest.TestCase):
     def test_get_name(self):
         """Test interface name generation."""
         name = self.interface_type.get_name()
-        self.assertEqual(name, "ProteinA_ProteinB_1")
+        self.assertEqual(name, "ProteinAProteinB1")
 
     def test_get_name_different_values(self):
         """Test name generation with different values."""
@@ -101,7 +101,7 @@ class TestInterfaceType(unittest.TestCase):
         )
 
         name = interface.get_name()
-        self.assertEqual(name, "X_Y_42")
+        self.assertEqual(name, "XY42")
 
     def test_set_name_valid(self):
         """Test setting name from valid string."""
@@ -138,7 +138,7 @@ class TestInterfaceType(unittest.TestCase):
         result = interface.to_dict()
 
         expected = {
-            "name": "A_B_1",
+            "name": "AB1",
             "partner_interface_type": None,
             "this_mol_type": None,
             "absolute_coord": [1.0, 2.0, 3.0],
@@ -154,7 +154,7 @@ class TestInterfaceType(unittest.TestCase):
         """Test dictionary serialization with complete data."""
         # Set up mocks
         mock_partner_interface = Mock(spec=InterfaceType)
-        mock_partner_interface.get_name.return_value = "B_A_1"
+        mock_partner_interface.get_name.return_value = "BA1"
 
         mock_this_mol_type = Mock(spec=MoleculeType)
         mock_this_mol_type.name = "MolTypeA"
@@ -164,12 +164,12 @@ class TestInterfaceType(unittest.TestCase):
 
         result = self.interface_type.to_dict()
 
-        self.assertEqual(result["name"], "ProteinA_ProteinB_1")
-        self.assertEqual(result["partner_interface_type"], "B_A_1")
+        self.assertEqual(result["name"], "ProteinAProteinB1")
+        self.assertEqual(result["partner_interface_type"], "BA1")
         self.assertEqual(result["this_mol_type"], "MolTypeA")
         self.assertEqual(result["absolute_coord"], [1.0, 2.0, 3.0])
         self.assertEqual(result["local_coord"], [0.5, 1.0, 1.5])
-        self.assertEqual(result["required_free"], ["A_C_1", "A_D_1"])
+        self.assertEqual(result["required_free"], ["AC1", "AD1"])
         self.assertEqual(result["energy"], -5.0)
         self.assertEqual(result["signature"], {})
 
@@ -432,8 +432,8 @@ class TestIntegration(unittest.TestCase):
         self.assertEqual(interface_B_A.partner_interface_type, interface_A_B)
 
         # Test naming
-        self.assertEqual(interface_A_B.get_name(), "MolA_MolB_1")
-        self.assertEqual(interface_B_A.get_name(), "MolB_MolA_1")
+        self.assertEqual(interface_A_B.get_name(), "MolAMolB1")
+        self.assertEqual(interface_B_A.get_name(), "MolBMolA1")
 
     def test_serialization_roundtrip_molecule(self):
         """Test that molecule serialization and deserialization preserve data."""
@@ -539,14 +539,14 @@ class TestIntegration(unittest.TestCase):
             interface_index=1,
             absolute_coord=np.array([0.0, 0.0, 0.0]),
             local_coord=np.array([1.0, 0.0, 0.0]),
-            required_free=["A_C_1", "A_D_1", "A_E_1"]
+            required_free=["AC1", "AD1", "AE1"]
         )
 
         # Test that required_free is properly stored
         self.assertEqual(len(interface.required_free), 3)
-        self.assertIn("A_C_1", interface.required_free)
-        self.assertIn("A_D_1", interface.required_free)
-        self.assertIn("A_E_1", interface.required_free)
+        self.assertIn("AC1", interface.required_free)
+        self.assertIn("AD1", interface.required_free)
+        self.assertIn("AE1", interface.required_free)
 
     def test_molecule_type_diffusion_integration(self):
         """Test integration of molecule type with diffusion calculations."""
@@ -581,7 +581,7 @@ class TestEdgeCases(unittest.TestCase):
             local_coord=np.array([1.0, 0.0, 0.0])
         )
 
-        self.assertEqual(interface.get_name(), "A_B_0")
+        self.assertEqual(interface.get_name(), "AB0")
 
     def test_interface_negative_energy(self):
         """Test interface with negative energy (favorable binding)."""

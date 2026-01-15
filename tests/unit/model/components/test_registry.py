@@ -307,7 +307,7 @@ class TestInterfaceTypeRegistry(unittest.TestCase):
         """Test adding and retrieving by generated name."""
         self.registry.add(self.interface_type_a)
 
-        name = self.interface_type_a.get_name()  # Should be "A_B_1"
+        name = self.interface_type_a.get_name()  # Should be "AB1"
         self.assertIn(name, self.registry)
 
         retrieved = self.registry.get(name)
@@ -330,7 +330,7 @@ class TestInterfaceTypeRegistry(unittest.TestCase):
 
         self.assertIn("InterfaceTypeRegistry", repr_str)
         self.assertIn("1 types", repr_str)
-        self.assertIn("A_B_1", repr_str)
+        self.assertIn("AB1", repr_str)
 
     def test_duplicate_interface_names(self):
         """Test handling of duplicate interface names."""
@@ -504,7 +504,7 @@ class TestRegistryIteration(unittest.TestCase):
 
         # Test filtering by molecule type
         a_interfaces = [it for it in registry if it.this_mol_type_name == "A"]
-        self.assertEqual(len(a_interfaces), 2)  # A_B_1 and A_C_1
+        self.assertEqual(len(a_interfaces), 2)  # AB1 and AC1
 
         # Test grouping by partner
         partners = set(it.partner_mol_type_name for it in registry)

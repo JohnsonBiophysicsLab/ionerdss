@@ -50,6 +50,7 @@ class TestChainGrouper(unittest.TestCase):
 
         # Create mock coarse grainer
         self.mock_coarse_grainer = Mock()
+        self.mock_coarse_grainer.get_chain_interfaces.return_value = []
 
         # Create hyperparameters
         self.hyperparams = PDBModelHyperparameters(
@@ -412,6 +413,7 @@ class TestChainGrouperIntegration(unittest.TestCase):
         # Create mock objects
         mock_parser = Mock()
         mock_coarse_grainer = Mock()
+        mock_coarse_grainer.get_chain_interfaces.return_value = []
 
         # Setup realistic data
         mock_parser.get_chain_ids.return_value = ["A", "B", "C", "D"]
