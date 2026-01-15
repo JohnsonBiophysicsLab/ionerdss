@@ -5,47 +5,6 @@ NERDSS simulations and analyzing results.
 
 Documentation is available in the docstrings and
 online at https://ionerdss.readthedocs.io/en/
-
-Subpackages
------------
-::
-
- Simulation                   --- Main class for running simulations.
- Analysis                     --- Main class for analyzing simulation data.
- Model                        --- The core model class for defining the system.
- MoleculeType                 --- Defines a type of molecule in the model.
- MoleculeInterface            --- Defines the binding interface for a molecule.
- ReactionType                 --- Defines a type of reaction in the model.
- Coords                       --- Represents 3D coordinates.
- PDBModel                     --- Creates a model from a PDB file.
- DesignModel                  --- A model for designing molecular structures.
- PlatonicSolid                --- Class for generating platonic solid geometries.
- generate_ode_model_from_pdb  --- Generates an ODE model from PDB complexes.
- ParseComplexes               --- Alias for generate_ode_model_from_pdb.
- ReactionStringParser         --- Parses reaction definitions from a string.
- solve_reaction_ode           --- Solves reaction kinetics using Ordinary Differential Equations (ODEs).
- reaction_dydt                --- The rate-of-change function (dy/dt) for the ODE solver.
- calculate_macroscopic_reaction_rates --- Calculates macroscopic reaction rates from microscopic parameters.
- SimpleGillespie              --- Implements the Gillespie stochastic simulation algorithm (SSA).
- AdaptiveRates                --- Implements adaptive rate constants for simulations.
- gui                          --- Launches the main graphical user interface.
- pdb_gui                      --- A specific GUI for PDB file manipulation and viewing.
- cube_face                    --- Component class for a cube face.
- cube_vert                    --- Component class for a cube vertex.
- dode_face                    --- Component class for a dodecahedron face.
- dode_vert                    --- Component class for a dodecahedron vertex.
- icos_face                    --- Component class for an icosahedron face.
- icos_vert                    --- Component class for an icosahedron vertex.
- octa_face                    --- Component class for an octahedron face.
- octa_vert                    --- Component class for an octahedron vertex.
- tetr_face                    --- Component class for a tetrahedron face.
- tetr_vert                    --- Component class for a tetrahedron vertex.
- convert_simularium           --- Converts simulation data to the Simularium format.
- DataIO                       --- Handles reading and writing of simulation data.
-
-Public API in the main ionerdss namespace
------------------------------------------
-::
  
  __version__       --- SciPy version string
 
@@ -74,41 +33,14 @@ import importlib as _importlib
 # Structure:
 #     'PublicAPIName': ['.internal.module.path', 'ClassName']
 submodules = {
-    'Model': ['.model.model', 'Model'],
-    'MoleculeType': ['.model.model', 'MoleculeType'],
-    'MoleculeInterface': ['.model.model', 'MoleculeInterface'],
-    'ReactionType': ['.model.model', 'ReactionType'],
-    'Coords': ['.model.coords', 'Coords'],
-    'PDBModel': ['.model.pdb_model', 'PDBModel'],
-    'DesignModel': ['.model.design_model', 'DesignModel'],
+    'System': ['.model.components.system', 'System'],
     'PlatonicSolid': ['.model.PlatonicSolids', 'PlatonicSolid'],
-    'generate_ode_model_from_pdb': ['.model.complex', 'generate_ode_model_from_pdb'],
-    'ParseComplexes': ['.model.complex', 'generate_ode_model_from_pdb'],
-    'ReactionStringParser': ['.ode_solver.reaction_string_parser', 'ReactionStringParser'],
-    'solve_reaction_ode': ['.ode_solver.reaction_ode_solver', 'solve_reaction_ode'],
-    'reaction_dydt': ['.ode_solver.reaction_ode_solver', 'dydt'],
-    'calculate_macroscopic_reaction_rates': ['.ode_solver.reaction_ode_solver', 'calculate_macroscopic_reaction_rates'],
-    'SimpleGillespie': ['.gillespie_simulation.simple_gillespie', ''],
-    'AdaptiveRates': ['.gillespie_simulation.adaptive_rates', ''],
-    'gui': ['.nerdss_guis.gui', 'gui'],
-    'pdb_gui': ['.nerdss_guis.nerdss', 'nerdss'],
-    'cube_face': ['.model.platonic_solids.cube.cube_face', 'cube_face'],
-    'cube_vert': ['.model.platonic_solids.cube.cube_vert', 'cube_vert'],
-    'dode_face': ['.model.platonic_solids.dode.dode_face', 'dode_face'],
-    'dode_vert': ['.model.platonic_solids.dode.dode_vert', 'dode_vert'],
-    'icos_face': ['.model.platonic_solids.icos.icos_face', 'icos_face'],
-    'icos_vert': ['.model.platonic_solids.icos.icos_vert', 'icos_vert'],
-    'octa_face': ['.model.platonic_solids.octa.octa_face', 'octa_face'],
-    'octa_vert': ['.model.platonic_solids.octa.octa_vert', 'octa_vert'],
-    'tetr_face': ['.model.platonic_solids.tetr.tetr_face', 'tetr_face'],
-    'tetr_vert': ['.model.platonic_solids.tetr.tetr_vert', 'tetr_vert'],
     'convert_simularium': ['.simularium_converter.simularium_converter', 'convert_simularium'],
     'Simulation': ['.nerdss_simulation', 'Simulation'],
     'Analyzer': ['.analysis', 'Analyzer'],
     'ODEPipelineConfig': ['.ode_pipeline', 'ODEPipelineConfig'],
-    'calculate_ode_solution': ['.ode_pipeline', 'calculate_ode_solution'],
     'run_ode_pipeline': ['.ode_pipeline', 'run_ode_pipeline'],
-    'build_system_from_pdb': ['.api', 'build_system_from_pdb'],
+    'build_system_from_pdb': ['.api', 'build_system_from_pdb']
 }
 
 __all__ = list(submodules.keys()) + [
