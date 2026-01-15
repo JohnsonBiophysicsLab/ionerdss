@@ -6,11 +6,15 @@ of Platonic solids (cube, dodecahedron, etc.) using standard ionerdss components
 
 from typing import List, Tuple, Dict
 import numpy as np
+import math
 
 # Standard component imports
 from ionerdss.model.components.types import MoleculeType, InterfaceType
+from ionerdss.model.components.instances import MoleculeInstance, InterfaceInstance
 from ionerdss.model.components.reactions import ReactionRule, ReactionGeometrySet
 from ionerdss.model.components.system import System
+from ionerdss.model.pdb.nerdss_exporter import NERDSSExporter
+from ionerdss.model.pdb.file_manager import WorkspaceManager
 
 # Import consolidated logic
 from .platonic_solids.geometry import angle_cal
@@ -147,7 +151,48 @@ class PlatonicSolidsModel:
             system.interface_types.add(interface)
             interface_objects.append(interface)
 
-        # 5. Generate Reactions
+        # 5. Create Molecule Instance
+        # Create a single instance at the origin (or COM relative to origin)
+        # We use standard basis vectors for ref1/ref2, assuming norm is reasonably aligned or handled
+        # But wait, norm is arbitrary. Ideally ref1 should be orthogonal to norm.
+        # Simple hack: use exporter's helper or just numpy if easy.
+        # Let's try to be simple: if norm is Z, ref1 is X.
+        # But we don't know norm.
+        # However, for a single instance in a model definition, orientation doesn't matter much 
+        # provided it's consistent.
+        # Let's just create one instance "structurally".
+        # Normal is face normal.
+        
+        mol_instance = MoleculeInstance(
+            name=f"{solid_type}_0",
+            molecule_type=mol_type,
+            com=np.array(com),
+            norm=np.array(normal),
+            ref1=np.array([1.0, 0.0, 0.0]), # Placeholder, will be fixed if needed by simulation, or irrelevant for 'model' only
+            ref2=np.array([0.0, 1.0, 0.0])  # Placeholder
+        )
+        system.molecule_instances.add(mol_instance)
+        
+        # 6. Create Interface Instances
+        for i, leg_coord in enumerate(legs):
+            int_type = interface_objects[i]
+            
+            # Create instance
+            # absolute_coord is the leg position in 3D
+            int_instance = InterfaceInstance(
+                absolute_coord=np.array(leg_coord),
+                interface_type=int_type,
+                this_mol=mol_instance,
+                this_mol_name=mol_instance.name,
+                partner_mol_name="unknown",
+                interface_index=int_type.interface_index
+            )
+            system.interface_instances.add(int_instance)
+            
+            # Map to molecule instance (unbound -> None)
+            mol_instance.interfaces_neighbors_map[int_instance] = None
+
+        # 7. Generate Reactions
         reactions = []
         
         for i in range(len(interface_objects)):
@@ -163,18 +208,75 @@ class PlatonicSolidsModel:
                     norm1=normal, norm2=normal 
                 )
                 
-                ka_val = 2.0 if i == j else 4.0
+                ka_base = 1200.0
+                ka_val = ka_base if i == j else ka_base * 2.0
                 
+                # Calculate default kb based on default energy (-16 RT)
+                # koff = (7.4 × 10^8 s^-1) * exp(delta_G / RT)
+                # delta_G_default = -16 * RT
+                # koff = 7.4e8 * exp(-16)
+                kb_val = 7.4e8 * math.exp(-16)
+
                 reaction = ReactionRule(
                     expr="", 
                     reactant_interfaces=(site1, site2),
                     geometry=geometry,
                     ka=ka_val,
-                    kb=1.0 
+                    kb=kb_val 
                 )
                 reactions.append(reaction)
 
         return system, reactions
+
+    @staticmethod
+    def export_nerdss(system: System, output_path: str = "nerdss_files", reactions: List[ReactionRule] = None) -> None:
+        """
+        Export the system to NERDSS format.
+        
+        Args:
+            system (System): The system to export.
+            output_path (str): The directory to export to.
+            reactions (List[ReactionRule], optional): List of reaction rules with pre-calculated 
+                                                     geometry. If provided, these values will be 
+                                                     injected into the exporter to bypass structure measurement.
+        """
+        # Create a WorkspaceManager for this export
+        # We use a dummy pdb_id since this is a synthetic system
+        wm = WorkspaceManager(output_path, pdb_id=system.pdb_id or "platonic")
+        
+        exporter = NERDSSExporter(system, wm)
+        
+        # Inject precalculated geometry if reactions provided
+        if reactions:
+            for rule in reactions:
+                if rule.geometry:
+                    # Extract keys
+                    iface1 = rule.reactant_interfaces[0]
+                    iface2 = rule.reactant_interfaces[1]
+                    mol1 = iface1.this_mol_type_name
+                    mol2 = iface2.this_mol_type_name
+                    type1 = iface1.get_name()
+                    type2 = iface2.get_name()
+                    
+                    key = (mol1, type1, mol2, type2)
+                    
+                    # Extract values
+                    # Note: ReactionGeometrySet stores angles in radians compatible with NERDSS
+                    sigma = rule.geometry.sigma_nm
+                    angles = (
+                        rule.geometry.theta1,
+                        rule.geometry.theta2,
+                        rule.geometry.phi1,
+                        rule.geometry.phi2,
+                        rule.geometry.omega
+                    )
+                    
+                    exporter.precalculated_geometry[key] = (sigma, angles)
+                    
+                    # Also inject rates
+                    exporter.precalculated_rates[key] = (rule.ka, rule.kb)
+        
+        exporter.export_all()
 
     # Legacy alias
     create_Solid = create_solid

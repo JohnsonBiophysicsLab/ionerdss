@@ -2,8 +2,12 @@ import unittest
 import numpy as np
 from ionerdss.model.PlatonicSolids import PlatonicSolidsModel
 from ionerdss.model.components.types import MoleculeType, InterfaceType
+from ionerdss.model.components.instances import MoleculeInstance, InterfaceInstance
 from ionerdss.model.components.reactions import ReactionRule
 from ionerdss.model.components.system import System
+import tempfile
+import os
+import shutil
 
 class TestPlatonicSolidsModel(unittest.TestCase):
     def test_create_solid_cube(self):
@@ -33,9 +37,26 @@ class TestPlatonicSolidsModel(unittest.TestCase):
 
         # Verify Reactions
         # 4 sites combined with replacement: 4 self + 4*3/2 cross = 10 reactions
+        # 4 sites combined with replacement: 4 self + 4*3/2 cross = 10 reactions
         self.assertEqual(len(reactions), 10)
         self.assertIsInstance(reactions[0], ReactionRule)
         self.assertEqual(reactions[0].geometry.sigma_nm, 1.0)
+
+        # Verify Molecule Instances
+        self.assertEqual(len(system.molecule_instances), 1)
+        mol_inst = list(system.molecule_instances)[0]
+        self.assertIsInstance(mol_inst, MoleculeInstance)
+        self.assertEqual(mol_inst.molecule_type, mol_type)
+        self.assertEqual(mol_inst.name, "cube_0")
+        
+        # Verify Interface Instances
+        self.assertEqual(len(system.interface_instances), 4)
+        for ii in system.interface_instances:
+            self.assertIsInstance(ii, InterfaceInstance)
+            self.assertEqual(ii.this_mol, mol_inst)
+            # Check mapping
+            self.assertIn(ii, mol_inst.interfaces_neighbors_map)
+            self.assertIsNone(mol_inst.interfaces_neighbors_map[ii])
 
     def test_create_solid_dode(self):
         """Test creating a dodecahedron solid."""
@@ -69,13 +90,13 @@ class TestPlatonicSolidsModel(unittest.TestCase):
         self.assertTrue(isinstance(reaction.geometry.norm1, np.ndarray))
         
         # Check rate assignment (self vs cross)
-        # First loop i=0, j=0 -> same site -> ka=2.0
-        self.assertEqual(reaction.ka, 2.0)
+        # First loop i=0, j=0 -> same site -> ka=1200.0
+        self.assertEqual(reaction.ka, 1200.0)
         
         # Find a cross reaction (i != j)
         for r in reactions:
             if r.reactant_interfaces[0] != r.reactant_interfaces[1]:
-                self.assertEqual(r.ka, 4.0)
+                self.assertEqual(r.ka, 2400.0)
                 break
 
     def test_coordinates_validity(self):
@@ -86,4 +107,31 @@ class TestPlatonicSolidsModel(unittest.TestCase):
             self.assertIsNotNone(iface.absolute_coord)
             self.assertIsNotNone(iface.local_coord)
             # Ensure they are numpy arrays
+            self.assertIsNotNone(iface.local_coord)
+            # Ensure they are numpy arrays
             self.assertTrue(isinstance(iface.absolute_coord, np.ndarray))
+
+    def test_export_nerdss(self):
+        """Test exporting to NERDSS format (integration test)."""
+        system, reactions = PlatonicSolidsModel.create_solid("cube", radius=5.0, sigma=1.0)
+        
+        # Create temp directory
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            PlatonicSolidsModel.export_nerdss(system, tmp_dir, reactions)
+            
+            # Check for NERDSS files
+            # Expected structure: normal file organization handled by WorkspaceManager inside export_nerdss? 
+            # PlatonicSolids.py: wm = WorkspaceManager(output_path, ...)
+            # WorkspaceManager creates: structures/, outputs/, logs/... and exporter creates nerdss_files?
+            # NerdssExporter: output_dir = workspace_manager.workspace_path / 'nerdss_files'
+            
+            nerdss_dir = os.path.join(tmp_dir, "nerdss_files")
+            self.assertTrue(os.path.exists(nerdss_dir))
+            
+            # Check for .mol file
+            mol_file = os.path.join(nerdss_dir, "cube.mol")
+            self.assertTrue(os.path.exists(mol_file))
+            
+            # Check for parms.inp
+            parms_file = os.path.join(nerdss_dir, "parms.inp")
+            self.assertTrue(os.path.exists(parms_file))
