@@ -1795,7 +1795,7 @@ class NERDSSExporter:
             'restartWrite': 1e5,
             'checkPoint': 1e5,
             'pdbWrite': 1e5,
-            'onRate3Dka': 1200.0,  # Default diffusion-limited (nm³/μs)
+            'onRate3Dka': 120.0,  # Default diffusion-limited (nm³/μs)
             'offRatekb': 1000.0,   # Default fallback (s⁻¹)
             'overlapSepLimit': 2.0,
             'scaleMaxDisplace': 100.0,
@@ -1882,7 +1882,7 @@ class NERDSSExporter:
                     norm2_local = np.array([0.0, 0.0, 1.0])
 
                 # Determine Rates
-                ka_val = 1200.0 # Default
+                ka_val = 120.0 # Default
                 kb_val = 1000.0 # Default
                 
                 # Check precalculated rates
@@ -2003,7 +2003,7 @@ class NERDSSExporter:
                 self.workspace_manager.logger.debug(f"    Partner interface local coord: {partner_local_coord}")
                 self.workspace_manager.logger.debug(f"    Bond length: {np.linalg.norm(interface_absolute_coord - partner_absolute_coord):.6f}")
             else:
-                self.workspace_manager.logger.error(f"    ERROR: Could not find partner interface!")
+                self.workspace_manager.logger.debug(f"    (No connected partner interface found)")
         
         self.workspace_manager.logger.debug("INTERFACE-TO-SITE MAPPING:")
         self.workspace_manager.logger.debug("Interface type -> Site label:")

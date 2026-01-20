@@ -276,6 +276,10 @@ class PlatonicSolidsModel:
                     # Also inject rates
                     exporter.precalculated_rates[key] = (rule.ka, rule.kb)
         
+        # Monkey-patch _local_x_with_degeneracy to force normals to [1,0,0]
+        # This overrides the calculation based on structure, as requested.
+        exporter._local_x_with_degeneracy = lambda mol, site: np.array([1.0, 0.0, 0.0])
+
         exporter.export_all()
 
     # Legacy alias
