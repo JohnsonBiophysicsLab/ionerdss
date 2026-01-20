@@ -208,7 +208,7 @@ class PlatonicSolidsModel:
                     norm1=normal, norm2=normal 
                 )
                 
-                ka_base = 1200.0
+                ka_base = 120.0
                 ka_val = ka_base if i == j else ka_base * 2.0
                 
                 # Calculate default kb based on default energy (-16 RT)

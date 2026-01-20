@@ -1341,7 +1341,7 @@ class PDBModel(Model):
             C0: float = 0.6022 # unit nm^-3 / M
 
             reaction.kd = np.exp(energy / RT) # unit M
-            reaction.ka = 1200 # unit nm^3/us
+            reaction.ka = 120 # unit nm^3/us
             reaction.kb = reaction.kd * reaction.ka * C0 * 1e6 # unit /s
             reaction.energy = energy
 

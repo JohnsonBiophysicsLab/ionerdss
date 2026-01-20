@@ -1801,6 +1801,13 @@ class NERDSSExporter:
             'scaleMaxDisplace': 100.0,
         }
         
+        # Extract default_ka from hyperparams provided in overrides
+        default_ka_val = 120.0
+        if parms_overrides and 'hyperparams' in parms_overrides:
+            hp = parms_overrides['hyperparams']
+            if hasattr(hp, 'default_on_rate_3d_ka'):
+                default_ka_val = hp.default_on_rate_3d_ka
+
         # Add transitionWrite from hyperparams if provided
         if parms_overrides and 'hyperparams' in parms_overrides:
             hyperparams = parms_overrides['hyperparams']
@@ -1809,7 +1816,14 @@ class NERDSSExporter:
 
         # Apply overrides
         if parms_overrides:
-            params.update(parms_overrides)
+            # Create copy to avoid modifying original or injecting objects
+            safe_overrides = parms_overrides.copy()
+            if 'hyperparams' in safe_overrides:
+                del safe_overrides['hyperparams']
+            params.update(safe_overrides)
+            
+        # Update default onRate in params too
+        params['onRate3Dka'] = default_ka_val
 
         # Regex to parse reactions
         reaction_re = re.compile(
@@ -1882,7 +1896,7 @@ class NERDSSExporter:
                     norm2_local = np.array([0.0, 0.0, 1.0])
 
                 # Determine Rates
-                ka_val = 120.0 # Default
+                ka_val = default_ka_val # Default from hyperparams or fallback
                 kb_val = 1000.0 # Default
                 
                 # Check precalculated rates

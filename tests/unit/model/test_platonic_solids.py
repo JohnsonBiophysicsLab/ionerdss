@@ -90,13 +90,13 @@ class TestPlatonicSolidsModel(unittest.TestCase):
         self.assertTrue(isinstance(reaction.geometry.norm1, np.ndarray))
         
         # Check rate assignment (self vs cross)
-        # First loop i=0, j=0 -> same site -> ka=1200.0
-        self.assertEqual(reaction.ka, 1200.0)
+        # First loop i=0, j=0 -> same site -> ka=120.0
+        self.assertEqual(reaction.ka, 120.0)
         
         # Find a cross reaction (i != j)
         for r in reactions:
             if r.reactant_interfaces[0] != r.reactant_interfaces[1]:
-                self.assertEqual(r.ka, 2400.0)
+                self.assertEqual(r.ka, 240.0)
                 break
 
     def test_coordinates_validity(self):
