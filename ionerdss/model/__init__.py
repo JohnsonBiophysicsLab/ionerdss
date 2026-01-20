@@ -1,2 +1,2 @@
 # ionerdss/model/__init__.py
-# This file is purposely left empty to avoid imports at package initialization
+from .PlatonicSolids import PlatonicSolidsModel

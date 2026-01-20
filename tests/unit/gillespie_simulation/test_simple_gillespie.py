@@ -33,7 +33,8 @@ Part of the ioNERDSS modeling framework.
 
 import unittest
 import numpy as np
-from ionerdss import SimpleGillespie, AdaptiveRates
+from ionerdss.gillespie_simulation import simple_gillespie as SimpleGillespie
+from ionerdss.gillespie_simulation import adaptive_rates as AdaptiveRates
 
 class TestReactionGillespie(unittest.TestCase):
 

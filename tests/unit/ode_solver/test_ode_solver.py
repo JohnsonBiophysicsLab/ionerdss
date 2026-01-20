@@ -39,7 +39,11 @@ for molecular complex modeling and reaction network generation.
 
 import unittest
 import numpy as np
-from ionerdss import calculate_macroscopic_reaction_rates, reaction_dydt, solve_reaction_ode
+from ionerdss.ode_solver.reaction_ode_solver import (
+    calculate_macroscopic_reaction_rates, 
+    dydt as reaction_dydt, 
+    solve_reaction_ode
+)
 
 class TestODESolver(unittest.TestCase):
 

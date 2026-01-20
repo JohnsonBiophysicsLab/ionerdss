@@ -154,6 +154,7 @@ reconstruction_test.py
 verify_angles*
 #test.py
 #test*
+nerdss_output/
 tutorials/6bno_dir/
 /tutorials/6bno_dir
 /test_debug

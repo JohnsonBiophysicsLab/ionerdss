@@ -275,6 +275,12 @@ class PDBModelHyperparameters:
         metadata={"description": "Custom initial concentrations for ODE (dict of species: concentration)"}
     )
     
+    # Kinetic parameters
+    default_on_rate_3d_ka: float = field(
+        default=120.0,
+        metadata={"description": "Default 3D association rate (ka) for diffusion-limited reactions", "unit": "nm^3/us"}
+    )
+
     # Transition matrix output options
     count_transition: bool = field(
         default=False,

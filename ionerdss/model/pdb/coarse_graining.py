@@ -292,16 +292,19 @@ class InterfaceString:
         }
         return conversion.get(three_letter.upper(), 'X')
 
-    def calculate_kon(self) -> float:
+    def calculate_kon(self, default_ka: float = 120.0) -> float:
         """Calculate association rate constant.
         
         Returns fixed diffusion-limited association rate based on:
         kon = 4*k_B*T / (15*η) ≈ 1.2 × 10³ nm³/μs
         
+        Args:
+            default_ka: Default association rate in nm³/μs
+        
         Returns:
             float: Association rate constant in nm³/μs
         """
-        return 1200.0  # nm³/μs (diffusion-limited)
+        return default_ka  # nm³/μs (diffusion-limited)
 
     def calculate_koff(self, temperature: float = 298.0) -> float:
         """Calculate dissociation rate constant from binding energy.
