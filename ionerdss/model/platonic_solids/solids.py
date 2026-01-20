@@ -214,35 +214,50 @@ class IcosahedronGenerator(PlatonicSolidGenerator):
         return math.acos(-(5**0.5)/3)
 
     def _get_vertices(self, radius):
-        scaler = radius / (2 * math.sin(2 * math.pi / 5))
-        m = (1 + 5**0.5) / 2
-        coords = [
-            [0, 1, m],     # v0
-            [0, 1, -m],    # v1
-            [0, -1, m],    # v2
-            [0, -1, -m],   # v3
-            [1, m, 0],     # v4
-            [1, -m, 0],    # v5
-            [-1, m, 0],    # v6
-            [-1, -m, 0],   # v7
-            [m, 0, 1],     # v8
-            [m, 0, -1],    # v9
-            [-m, 0, 1],    # v10
-            [-m, 0, -1]    # v11
-        ]
-        return [[c * scaler for c in coord] for coord in coords]
+        phi = (1 + np.sqrt(5)) / 2
+        verts = np.array([
+            [0,  1,  phi],
+            [0, -1,  phi],
+            [0,  1, -phi],
+            [0, -1, -phi],
+            [1,  phi, 0],
+            [-1,  phi, 0],
+            [1, -phi, 0],
+            [-1, -phi, 0],
+            [phi, 0,  1],
+            [-phi, 0,  1],
+            [phi, 0, -1],
+            [-phi, 0, -1],
+        ])
+        return verts * (radius / np.linalg.norm(verts[0]))
 
     def _get_face_indices(self):
         return [
-            (0, 2, 8), (0, 8, 4), (0, 4, 6), (0, 6, 10), (0, 10, 2),
-            (3, 7, 5), (3, 5, 9), (3, 9, 1), (3, 1, 11), (3, 11, 7),
-            (7, 2, 5), (2, 5, 8), (5, 8, 9), (8, 9, 4), (9, 4, 1),
-            (4, 1, 6), (1, 6, 11), (6, 11, 10), (11, 10, 7), (10, 7, 2)
+            (0, 1, 8),
+            (0, 8, 4),
+            (0, 4, 5),
+            (0, 5, 9),
+            (0, 9, 1),
+            (1, 9, 7),
+            (1, 7, 6),
+            (1, 6, 8),
+            (8, 6, 10),
+            (8, 10, 4),
+            (4, 10, 2),
+            (4, 2, 5),
+            (5, 2, 11),
+            (5, 11, 9),
+            (9, 11, 7),
+            (7, 11, 3),
+            (7, 3, 6),
+            (6, 3, 10),
+            (2, 10, 3),
+            (2, 3, 11)
         ]
 
     @property
     def angle_indices(self):
-        return ((0, 0), (0, 1), (1, 0), (1, 1))
+        return ((0, 0), (0, 3), (1, 0), (1, 1))
 
 class OctahedronGenerator(PlatonicSolidGenerator):
     @property
@@ -260,24 +275,33 @@ class OctahedronGenerator(PlatonicSolidGenerator):
         return math.acos(-1/3) 
 
     def _get_vertices(self, radius):
-        scaler = radius
+        r = radius
         # v0..v5
         coords = [
-            [1, 0, 0], [-1, 0, 0],
-            [0, 1, 0], [0, -1, 0],
-            [0, 0, 1], [0, 0, -1]
+            [ r,  0,  0],  # 0
+            [-r,  0,  0],  # 1
+            [ 0,  r,  0],  # 2
+            [ 0, -r,  0],  # 3
+            [ 0,  0,  r],  # 4
+            [ 0,  0, -r],  # 5
         ]
-        return [[c * scaler for c in coord] for coord in coords]
+        return coords
 
     def _get_face_indices(self):
         return [
-            (0, 2, 4), (0, 3, 4), (0, 3, 5), (0, 2, 5),
-            (1, 2, 4), (1, 3, 4), (1, 3, 5), (1, 2, 5)
+            (4, 0, 2),
+            (4, 2, 1),
+            (4, 1, 3),
+            (4, 3, 0),
+            (5, 2, 0),
+            (5, 1, 2),
+            (5, 3, 1),
+            (5, 0, 3),
         ]
 
     @property
     def angle_indices(self):
-        return ((0, 0), (0, 1), (1, 0), (1, 1))
+        return ((0, 0), (0, 3), (1, 0), (1, 1))
 
 class TetrahedronGenerator(PlatonicSolidGenerator):
     @property
@@ -291,18 +315,15 @@ class TetrahedronGenerator(PlatonicSolidGenerator):
         return math.acos(1/3)
 
     def _get_vertices(self, radius):
-        # scaler = radius/(3/8)**0.5/2 = radius / (sqrt(3/8)*2) = radius / sqrt(1.5)
-        # v0..v3
-        s = 1/(2**0.5) # 0.707
-        scaler = radius / ((3.0/8.0)**0.5 * 2.0)
+        s = radius / np.sqrt(3)
         
         coords = [
-            [1, 0, -s],    # v0
-            [-1, 0, -s],   # v1
-            [0, 1, s],     # v2
-            [0, -1, s]     # v3
+            [s,  s,  s],   # v0
+            [s, -s, -s],   # v1
+            [-s, s, -s],   # v2
+            [-s, -s, s]    # v3
         ]
-        return [[c * scaler for c in coord] for coord in coords]
+        return coords
 
     def _get_face_indices(self):
         return [
@@ -311,4 +332,4 @@ class TetrahedronGenerator(PlatonicSolidGenerator):
 
     @property
     def angle_indices(self):
-        return ((0, 0), (0, 1), (1, 0), (1, 1))
+        return ((0, 0), (0, 3), (1, 0), (1, 1))

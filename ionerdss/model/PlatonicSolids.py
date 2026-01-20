@@ -194,7 +194,7 @@ class PlatonicSolidsModel:
 
         # 7. Generate Reactions
         reactions = []
-        
+        print(f"normal = {normal}")
         for i in range(len(interface_objects)):
             for j in range(i, len(interface_objects)):
                 site1 = interface_objects[i]
@@ -275,6 +275,9 @@ class PlatonicSolidsModel:
                     
                     # Also inject rates
                     exporter.precalculated_rates[key] = (rule.ka, rule.kb)
+            
+            normal = reactions[0].geometry.norm1
+            exporter._local_x_with_degeneracy = lambda mol,site: -normal/np.linalg.norm(normal)
         
         # Monkey-patch _local_x_with_degeneracy to force normals to [1,0,0]
         # This overrides the calculation based on structure, as requested.
