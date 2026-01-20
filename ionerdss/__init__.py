@@ -34,7 +34,7 @@ import importlib as _importlib
 #     'PublicAPIName': ['.internal.module.path', 'ClassName']
 submodules = {
     'System': ['.model.components.system', 'System'],
-    'PlatonicSolid': ['.model.PlatonicSolids', 'PlatonicSolid'],
+    'platonic_solids': ['.model.PlatonicSolids', 'platonic_solids'],
     'convert_simularium': ['.simularium_converter.simularium_converter', 'convert_simularium'],
     'Simulation': ['.nerdss_simulation', 'Simulation'],
     'Analyzer': ['.analysis', 'Analyzer'],

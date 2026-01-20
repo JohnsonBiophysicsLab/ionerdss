@@ -12,7 +12,7 @@ Usage:
 """
 
 import os
-from ionerdss.model.PlatonicSolids import PlatonicSolidsModel
+from ionerdss.model import PlatonicSolidsModel
 
 def main():
     # Define output directory
