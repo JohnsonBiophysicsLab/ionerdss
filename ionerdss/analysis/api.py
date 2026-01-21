@@ -21,7 +21,6 @@ class Plotter:
     """
     def __init__(self, analyzer: 'Analyzer'):
         self.analyzer = analyzer
-        config.PlotStyle.set_style()
 
     def free_energy(self, simulation_index: int = 0, ax=None, **kwargs):
         """Plots free energy for a specific simulation."""
