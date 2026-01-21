@@ -10,7 +10,9 @@ import logging
 from pathlib import Path
 from typing import Dict, List, Tuple, Optional, Any
 import numpy as np
+import numpy.typing as npt
 import pandas as pd
+from scipy.sparse import csc_array, lil_array
 
 from ..core.types import TransitionData, LifetimeData
 
@@ -163,12 +165,12 @@ def parse_copy_numbers(file_path: Path) -> pd.DataFrame:
         return pd.DataFrame()
 
 
-def parse_complex_histogram(file_path: Path) -> List[Dict[str, Any]]:
+def parse_complex_histogram(file_path: Path) -> tuple[npt.NDArray[np.float64], list[dict], csc_array]:
     """
-    Parses histogram_complexes_time.dat.
+    Parses histogram_complexes_time.dat into a column-efficient sparse matrix.
     
     Returns:
-        List of dicts: [{'time': t, 'complexes': [{'count': 4, 'composition': {'A': 1}}]}, ...]
+        Tuple (times, compositions, histogram_matrix) of types (np.ndarray, list[dict], scipy.csc_array)
     """
     if not file_path.exists():
         return []
@@ -178,6 +180,7 @@ def parse_complex_histogram(file_path: Path) -> List[Dict[str, Any]]:
         
     parts = TIME_PATTERN.split(content)
     data = []
+    all_comps = [] # for keeping track of every distinct composition seen so far
     
     for i in range(1, len(parts), 2):
         try:
@@ -209,6 +212,8 @@ def parse_complex_histogram(file_path: Path) -> List[Dict[str, Any]]:
                         comp_dict[match.group(1)] = int(match.group(2))
                         
                     complexes.append({'count': count, 'composition': comp_dict})
+                    if comp_dict not in all_comps:
+                        all_comps.append(comp_dict)
                 except ValueError:
                     continue
             
@@ -217,7 +222,23 @@ def parse_complex_histogram(file_path: Path) -> List[Dict[str, Any]]:
                 
         except (ValueError, IndexError):
             continue
-            
-    return data
+    
+    time_dim = len(data)
+    comp_dim = len(all_comps)
+
+    time_values = np.zeros(time_dim)
+
+    # build matrix using LIL, then convert to CSC for better column slicing efficiency
+    hist_matrix = lil_array((time_dim,comp_dim))
+    for i,step in enumerate(data):
+        time_values[i] = step['time']
+        row = np.zeros(comp_dim)
+        for comp in step['complexes']:
+            row[all_comps.index(comp['composition'])] = comp['count']
+        hist_matrix[i,:] = row
+
+    hist_matrix = hist_matrix.tocsc()
+    
+    return time_values, all_comps, hist_matrix
 
 

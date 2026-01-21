@@ -11,6 +11,7 @@ from dataclasses import dataclass
 import numpy as np
 import pandas as pd
 from pathlib import Path
+from scipy.sparse import csc_array
 
 # Use numpy.typing if available, otherwise fallback to Any
 try:
@@ -65,7 +66,10 @@ class SimulationData:
     # Raw dataframes/lists
     copy_numbers: Optional[pd.DataFrame] = None
     complex_histograms: Optional[List[Dict[str, Any]]] = None
-
+    hist_times: Optional[np.ndarray] = None
+    hist_comps: Optional[List[Dict[str, Any]]] = None
+    hist_matrix: Optional[csc_array] = None
+    
     # Optional lazy-loaded DataFrames for caching processed results
     df_free_energy: Optional[pd.DataFrame] = None
     df_size_dist: Optional[pd.DataFrame] = None
