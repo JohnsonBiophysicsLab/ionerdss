@@ -23,17 +23,14 @@ class Test6BNOPipelineIntegration(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         """Set up test fixtures that are expensive to create."""
-        # Use the existing 6bno CIF file
-        cls.cif_path = Path("workspace_6BNO/structures/downloaded/6BNO.cif")
-        
-        if not cls.cif_path.exists():
-            # Fall back to alternative location
-            cls.cif_path = Path("6bno_dir/structures/downloaded/6bno.cif")
+        # Use the local test data copy
+        # This ensures tests run in clean environments (like CI)
+        project_root = Path(__file__).parent.parent.parent
+        cls.cif_path = project_root / "tests/data/test_6BNO.cif"
         
         if not cls.cif_path.exists():
             raise FileNotFoundError(
-                f"6BNO.cif not found. Please ensure the test data exists at "
-                f"workspace_6BNO/structures/downloaded/6BNO.cif"
+                f"test_6BNO.cif not found at {cls.cif_path}. "
             )
         
         # Create temporary workspace for testing
