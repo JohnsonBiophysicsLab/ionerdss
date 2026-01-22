@@ -156,30 +156,48 @@ class Simulation:
         
         return self.data.hist_times, species_ts.squeeze()
 
-    def get_largest_size_time_series_homomer(self, monomer_name, exclude=None):
+    def get_largest_size_time_series(self, include=None, exclude=None, only_count_includes=False):
         """
-        Time series of the size of the largest complex of a particular monomer as found from the histogram file.
+        Time series of the size of the largest size complex as found from the histogram file.
+        
+        The "include" kwarg can be used to only look at complexes containing particular monomers.
+        
         The "exclude" kwarg can be used to ignore complexes containing particular other monomers,
-        e.g. get_largest_size_time_series("A",["B","C"]) will return the time series of the size of
-        the largest A complex that does not containing any B or C molecules.
+        
+        e.g. get_largest_size_time_series(["A","B"],["C","D"]) will return the time series of the size of
+        the largest complex containing both A and B that does not containing any C or D molecules.
+
+        If only_count_includes=True, then the calculated "size" only counts the monomers of "include" species,
+        i.e. a complex A:4.B:1.C:3. with include=["A","B"] would have size 5 if only_count_includes=True and size 8 otherwise.
 
         Returns:
                 time (1D numpy array length N), size (1D array)
         """
+        if include is not None and not isinstance(include,list):
+            include = [include]
+        
         if exclude is None:
             exclude = [] # do NOT put empty list as default parameter value; leads to difficult bugs
         elif not isinstance(exclude,list):
             exclude = [exclude]
-        
-        # restrict to complexes containing desired monomer
-        target_comps = [comp for comp in self.data.hist_comps if monomer_name in comp]
+
+        target_comps = list(self.data.hist_comps) # make a copy that we will modify
+
+        if include is not None:
+            for inc in include:
+                # restrict to complexes containing desired monomer
+                target_comps = [comp for comp in target_comps if inc in comp]
 
         # restrict to complexes which do not contain any of the excluded monomers
         for e in exclude:
             target_comps = [comp for comp in target_comps if e not in comp]
         
         target_indices = [self.data.hist_comps.index(comp) for comp in target_comps]
-        target_sizes = np.array([comp[monomer_name] for comp in target_comps])
+        
+        if only_count_includes:
+            target_sizes = np.array([sum([comp[monomer] for monomer in include]) for comp in target_comps])
+        else:
+            target_sizes = np.array([sum([comp[monomer] for monomer in comp]) for comp in target_comps])
 
         largest_size_ts = np.zeros(len(self.data.hist_times))
         for i,row in enumerate(self.data.hist_matrix):
