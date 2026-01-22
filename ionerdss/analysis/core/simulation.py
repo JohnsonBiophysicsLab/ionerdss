@@ -120,52 +120,52 @@ class Simulation:
                 all_lifetimes.extend(record["lifetimes"][cluster_size])
         return all_lifetimes
 
-    def get_time_series(self, species_name: Union[str, list[str], dict, list[dict]]) -> tuple[npt.NDArray[np.float64], dict[Union[str,dict], npt.NDArray[np.float64]]]:
+    def get_time_series(self, complex_name: Union[str, list[str], dict, list[dict]]) -> tuple[npt.NDArray[np.float64], dict[Union[str,dict], npt.NDArray[np.float64]]]:
         """
-        Time series for counts of given species (compositions) as found in the histogram complexes file.
-        Accepts a single compisition or a list of compositions for species_name.
-        Composition can be specified by string (e.g. "A: 84. c1: 75. L: 84.") or by dictionary (e.g. {"A": 84, "c1": 75, "L": 84}).
+        Time series for counts of given complexes (compositions) as found in the histogram complexes file.
+        Accepts a single compisition or a list of compositions for complex_name.
+        Complex can be specified by string (e.g. "A: 84. c1: 75. L: 84.") or by dictionary (e.g. {"A": 84, "c1": 75, "L": 84}).
 
         Returns:
             time (1D numpy array length N), counts (1D array if single species, or MxN numpy array where M=len(species_name) )
         """
-        if not isinstance(species_name, list):
-            species_name = [species_name]
+        if not isinstance(complex_name, list):
+            complex_name = [complex_name]
 
-        species_ts = np.zeros((len(species_name),len(self.data.hist_times)))
+        complex_ts = np.zeros((len(complex_name),len(self.data.hist_times)))
         
-        for i,species in enumerate(species_name):
-            if isinstance(species,str):
+        for i,comp in enumerate(complex_name):
+            if isinstance(comp,str):
                 # Parse composition: "C: 1. A: 1.", regex finds "Key: Value" pairs
                 comp_dict = {}
-                for match in re.finditer(r"([A-Za-z0-9]+):\s*(\d+)", species):
+                for match in re.finditer(r"([A-Za-z0-9]+):\s*(\d+)", comp):
                     comp_dict[match.group(1)] = int(match.group(2))
                 try:
                     comp_ind = self.data.hist_comps.index(comp_dict)
-                    species_ts[i,:] = self.data.hist_matrix[:,comp_ind].toarray().ravel()
+                    complex_ts[i,:] = self.data.hist_matrix[:,comp_ind].toarray().ravel()
                 except ValueError:
-                    logger.error(f"Complex {species} not found in histogram data for simulation {self.id}")
-            elif isinstance(species, dict):
+                    logger.error(f"Complex {comp} not found in histogram data for simulation {self.id}")
+            elif isinstance(comp, dict):
                 try:
-                    comp_ind = self.data.hist_comps.index(species)
+                    comp_ind = self.data.hist_comps.index(comp)
                     species_ts[i,:] = self.data.hist_matrix[:,comp_ind].toarray().ravel()
                 except ValueError:
-                    logger.error(f"Complex {species} not found in histogram data for simulation {self.id}")
+                    logger.error(f"Complex {comp} not found in histogram data for simulation {self.id}")
             else:
-                logger.error(f"Individual complex compositions must be either str or dict. Received {type(species)}")
+                logger.error(f"Individual complex compositions must be either str or dict. Received {type(comp)}")
         
-        return self.data.hist_times, species_ts.squeeze()
+        return self.data.hist_times, complex_ts.squeeze()
 
     def get_largest_size_time_series(self, include=None, exclude=None, only_count_these=None):
         """
-        Time series of the size of the largest size complex as found from the histogram file.
+        Time series of the size of the largest complex as found from the histogram file.
         
         The "include" kwarg can be used to only look at complexes containing particular monomers.
         
-        The "exclude" kwarg can be used to ignore complexes containing particular other monomers,
+        The "exclude" kwarg can be used to ignore complexes containing particular other monomers.
         
         e.g. get_largest_size_time_series(["A","B"],["C","D"]) will return the time series of the size of
-        the largest complex containing both A and B that does not containing any C or D molecules.
+        the largest complex containing both A and B that does not contain any C or D molecules.
 
         If only_count_these is provided, then the calculated "size" only counts the monomers specified,
         i.e. a complex A:4.B:1.C:3. with include=["A","B"] would have size 5 if only_count_these=["A","B"]
@@ -207,6 +207,61 @@ class Simulation:
             largest_size_ts[i] = np.amax(target_sizes[row[target_indices].toarray()>0])
 
         return self.data.hist_times, largest_size_ts
+
+    def get_average_size_time_series(self, include=None, exclude=None, only_count_these=None):
+        """
+        Time series of the mass-weighted average complex size as found from the histogram file.
+        avg = (... + tot_monomers_in_Nmers * N + ...) / tot_num_monomers
+        
+        The "include" kwarg can be used to only look at complexes containing particular monomers.
+        
+        The "exclude" kwarg can be used to ignore complexes containing particular other monomers.
+        
+        e.g. get_average_size_time_series(["A","B"],["C","D"]) will return the time series of the
+        average size of complexes containing both A and B that does not contain any C or D molecules.
+
+        If only_count_these is provided, then the calculated "size" only counts the monomers specified,
+        i.e. a complex A:4.B:1.C:3. with include=["A","B"] would have size 5 if only_count_these=["A","B"]
+        and size 8 otherwise.
+
+        Returns:
+                time (1D numpy array length N), size (1D array)
+        """
+        if include is not None and not isinstance(include,list):
+            include = [include]
+        
+        if exclude is None:
+            exclude = [] # do NOT put empty list as default parameter value; leads to difficult bugs
+        elif not isinstance(exclude,list):
+            exclude = [exclude]
+
+        target_comps = list(self.data.hist_comps) # make a copy that we will modify
+
+        if include is not None:
+            for inc in include:
+                # restrict to complexes containing desired monomer
+                target_comps = [comp for comp in target_comps if inc in comp]
+
+        # restrict to complexes which do not contain any of the excluded monomers
+        for e in exclude:
+            target_comps = [comp for comp in target_comps if e not in comp]
+        
+        target_indices = [self.data.hist_comps.index(comp) for comp in target_comps]
+        
+        if only_count_these is not None:
+            if not isinstance(only_count_these,list):
+                only_count_these = [only_count_these]
+            target_sizes = np.array([sum([comp[monomer] for monomer in only_count_these]) for comp in target_comps])
+        else:
+            target_sizes = np.array([sum([comp[monomer] for monomer in comp]) for comp in target_comps])
+
+        average_size_ts = np.zeros(len(self.data.hist_times))
+        for i,row in enumerate(self.data.hist_matrix):
+            comp_counts = row[target_indices].toarray()
+            num_monomers = np.sum(comp_counts * target_sizes)
+            average_size_ts[i] = np.sum(target_sizes * comp_counts * target_sizes) / num_monomers
+
+        return self.data.hist_times, average_size_ts
 
     def __repr__(self) -> str:
         return f"<Simulation id={self.id} path={self.path}>"
