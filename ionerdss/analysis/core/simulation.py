@@ -156,7 +156,7 @@ class Simulation:
         
         return self.data.hist_times, species_ts.squeeze()
 
-    def get_largest_size_time_series(self, monomer_name, exclude=None):
+    def get_largest_size_time_series_homomer(self, monomer_name, exclude=None):
         """
         Time series of the size of the largest complex of a particular monomer as found from the histogram file.
         The "exclude" kwarg can be used to ignore complexes containing particular other monomers,
@@ -179,7 +179,7 @@ class Simulation:
             target_comps = [comp for comp in target_comps if e not in comp]
         
         target_indices = [self.data.hist_comps.index(comp) for comp in target_comps]
-        target_sizes = np.array([comp["A"] for comp in target_comps])
+        target_sizes = np.array([comp[monomer_name] for comp in target_comps])
 
         largest_size_ts = np.zeros(len(self.data.hist_times))
         for i,row in enumerate(self.data.hist_matrix):
