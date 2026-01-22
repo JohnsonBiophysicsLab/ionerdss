@@ -292,30 +292,40 @@ class InterfaceString:
         }
         return conversion.get(three_letter.upper(), 'X')
 
-    def calculate_kon(self, default_ka: float = 120.0) -> float:
+    def calculate_kon(self, default_ka: float = None) -> float:
         """Calculate association rate constant.
         
         Returns fixed diffusion-limited association rate based on:
-        kon = 4*k_B*T / (15*η) ≈ 1.2 × 10³ nm³/μs
+        kon = 120 nm³/μs
         
         Args:
-            default_ka: Default association rate in nm³/μs
+            default_ka: Default association rate in nm³/μs. If None, fetches 
+                       from PDBModelHyperparameters default.
         
         Returns:
             float: Association rate constant in nm³/μs
         """
+        if default_ka is None:
+            # Fetch default from hyperparameters class
+            # We instantiate to get the default value defined in field()
+            default_ka = PDBModelHyperparameters().default_on_rate_3d_ka
+            
         return default_ka  # nm³/μs (diffusion-limited)
 
-    def calculate_koff(self, temperature: float = 298.0) -> float:
-        """Calculate dissociation rate constant from binding energy.
+    def calculate_koff(self, temperature: float = 298.0, kon: float = None) -> float:
+        """Calculate dissociation rate constant from binding energy and on-rate.
         
         Uses thermodynamic relationship:
-        koff = (7.4 × 10⁸ s⁻¹) * exp(ΔG/RT)
+        koff = (kon * C0) * exp(ΔG/RT)
         
-        where ΔG is the binding free energy from ProAffinity or default.
+        where:
+        - kon is the association rate (default 120 nm³/μs)
+        - C0 is standard concentration (~0.6022 nm⁻³)
+        - ΔG is the binding free energy
         
         Args:
             temperature: Temperature in Kelvin (default: 298K)
+            kon: Association rate in nm³/μs (optional, uses calculate_kon() default if None)
         
         Returns:
             float: Dissociation rate constant in s⁻¹
@@ -324,6 +334,22 @@ class InterfaceString:
         
         R = 0.008314  # Gas constant in kJ/(mol·K)
         
+        # Get kon if not provided
+        if kon is None:
+            kon = self.calculate_kon()
+            
+        # Standard concentration C0 calculated from 1 Molar
+        # 1 M = 1 mol/L = 6.022e23 particles / 1e24 nm³ = 0.602214 nm⁻³
+        C0 = 0.602214076
+        
+        # Calculate prefactor A = kon * C0
+        # kon is in nm³/μs, C0 is in nm⁻³
+        # A_us = kon * C0 (in μs⁻¹)
+        # A_s = A_us * 1e6 (in s⁻¹)
+        # For kon=120, A_s ≈ 7.22e7 s⁻¹
+        
+        prefactor = kon * C0 * 1e6
+        
         # Use binding energy (ΔG in kJ/mol)
         if self.energy == -1.0:
             # Use default energy if not predicted by ProAffinity
@@ -331,8 +357,9 @@ class InterfaceString:
         else:
             delta_G = self.energy  # kJ/mol from ProAffinity
         
-        # Calculate koff using: koff = (7.4 × 10⁸ s⁻¹) * exp(ΔG/RT)
-        koff = 7.4e8 * math.exp(delta_G / (R * temperature))
+        # Calculate koff using: koff = (kon * C0) * exp(ΔG/RT)
+        
+        koff = prefactor * math.exp(delta_G / (R * temperature))
         
         return koff  # s⁻¹
 

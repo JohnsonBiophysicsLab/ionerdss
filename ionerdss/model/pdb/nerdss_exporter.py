@@ -1896,8 +1896,8 @@ class NERDSSExporter:
                     norm2_local = np.array([0.0, 0.0, 1.0])
 
                 # Determine Rates
-                ka_val = default_ka_val # Default from hyperparams or fallback
-                kb_val = 1000.0 # Default
+                ka_val = default_ka_val # Default from hyperparams or fallback (nm^3/us)
+                kb_val = 1000.0 # Default fallback (s^-1)
                 
                 # Check precalculated rates
                 rate_key = (mol1, site1, mol2, site2)
@@ -1908,14 +1908,50 @@ class NERDSSExporter:
                 elif rate_key_rev in self.precalculated_rates:
                     ka_val, kb_val = self.precalculated_rates[rate_key_rev]
                 else:
-                    # Fallback to energy-based calculation if not precalculated
-                    interface_energy = -1.0
+                    # Calculate from energy if available
+                    # Standard Concentration C0 ~ 0.6022 nm^-3 (1 Molar)
+                    C0 = 0.602214076
                     
-                    if i < len(self.reaction_metadata):
-                        metadata = self.reaction_metadata[i]
-                        # Just used defaults or look up if needed, but for now defaults or legacy logic
-                        # Simplified for robustness:
-                        pass
+                    # Look up energy from interface types
+                    # Resolve sites to types
+                    t1_name = self._site_to_single_interface_type(site1)
+                    # t2_name = self._site_to_single_interface_type(site2) # assumed symmetric energy usually
+                    
+                    # Find InterfaceType object to get energy
+                    delta_G_raw = -1.0 # Default binding energy (kJ/mol if ProAffinity, else flag -1.0)
+                    
+                    found_energy = False
+                    for it in self.system.interface_types:
+                        if it.get_name() == t1_name:
+                            if it.energy is not None:
+                                delta_G_raw = it.energy
+                                found_energy = True
+                            break
+                    
+                    # Calculate kb
+                    # kb = ka * C0 * exp(delta_G/RT)
+                    # ka is in nm^3/us. C0 is nm^-3. Product is 1/us.
+                    # We output kb in s^-1, so multiply by 1e6.
+                    
+                    prefactor_us = ka_val * C0
+
+                    # Convert energy to RT units or handle default
+                    R_kJ = 0.008314
+                    T = 298.0
+                    
+                    if delta_G_raw == -1.0:
+                        # Flag for default strong binding: -16RT
+                        # delta_G / RT = -16
+                        exponent = -16.0
+                    else:
+                        # Assumed explicitly set in kJ/mol (e.g. from ProAffinity)
+                        # Normalize by RT
+                        exponent = delta_G_raw / (R_kJ * T)
+
+                    exp_term = math.exp(exponent)
+                    kb_us = prefactor_us * exp_term # units: us^-1
+                    
+                    kb_val = kb_us * 1e6 # Convert to s^-1
 
                 f.write(f"    onRate3Dka = {ka_val}\n")
                 f.write(f"    offRatekb = {kb_val}\n")

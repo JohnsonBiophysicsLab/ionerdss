@@ -64,12 +64,82 @@ def _system_to_graph(system: System) -> nx.Graph:
                 type2 = iface.partner_interface.interface_type.get_name() if iface.partner_interface.interface_type else "unknown"
                 edge_type = "-".join(sorted([type1, type2]))
                 
+                # Get energy (average of both sides or just take one, assuming consistency)
+                # Default to 0.0 if not specified (though usually negative for binding)
+                e1 = iface.interface_type.energy if iface.interface_type and iface.interface_type.energy is not None else 0.0
+                e2 = iface.partner_interface.interface_type.energy if iface.partner_interface.interface_type and iface.partner_interface.interface_type.energy is not None else 0.0
+                # Use e1 if both present? Or average? 
+                # In standard definition, InterfaceType stores deltaG.
+                # Assuming symmetric definition or consistent typing.
+                bond_energy = e1 
+                
                 edge_key = frozenset([u, v])
                 if edge_key not in added_edges:
-                    G.add_edge(u, v, type=edge_type)
+                    G.add_edge(u, v, type=edge_type, energy=bond_energy)
                     added_edges.add(edge_key)
                     
     return G
+
+def _calculate_reaction_rates(
+    reactants: List[nx.Graph], 
+    products: List[nx.Graph], 
+    default_kon: float = 120.0
+) -> Tuple[float, float]:
+    """
+    Calculate forward and reverse rates for a reaction based on bond energetics.
+    Uses 'energy' attribute on edges (representing deltaG/kT or similar).
+    
+    Formula:
+    - delta_G_reaction = sum(E_bonds_products) - sum(E_bonds_reactants)
+    - Keq = exp(-delta_G_reaction)
+    - If forming bonds: k_fwd = max(kon_i) approx default_kon. k_rev = k_fwd / Keq
+    - If breaking bonds: k_rev = max(kon_i) approx default_kon. k_fwd = k_rev * Keq
+      (Effectively anchoring the association rate)
+    """
+    import numpy as np
+    
+    # Collect edge energies
+    def _sum_energy(graphs):
+        total_E = 0.0
+        edges_seen = set()
+        for G in graphs:
+            for u, v, d in G.edges(data=True):
+                key = frozenset([u, v])
+                if key not in edges_seen:
+                    total_E += d.get('energy', 0.0)
+                    edges_seen.add(key)
+        return total_E, edges_seen
+
+    E_reactants, r_edges = _sum_energy(reactants)
+    E_products, p_edges = _sum_energy(products)
+    
+    # Delta G of reaction (assuming Energy is "Bond Free Energy" which is negative for stable bond)
+    # G_state = sum(E_bonds). 
+    # Delta G = G_final - G_initial
+    delta_G = E_products - E_reactants
+    
+    # Keq = exp(-delta_G)
+    # If Product is more stable (more negative energy), delta_G is negative.
+    # -delta_G is positive. Keq > 1. Correct.
+    Keq = np.exp(-delta_G)
+    
+    # Determine direction dominance (Forming vs Breaking)
+    # Count bonds
+    n_bonds_r = len(r_edges)
+    n_bonds_p = len(p_edges)
+    
+    if n_bonds_p >= n_bonds_r:
+        # Net formation or neutral rearrangement
+        # Anchor forward rate (Association)
+        k_fwd = default_kon
+        k_rev = k_fwd / Keq
+    else:
+        # Net breaking (Dissociation)
+        # Anchor reverse rate (Re-association)
+        k_rev = default_kon
+        k_fwd = k_rev * Keq
+        
+    return k_fwd, k_rev
 
 def _generate_complex_name(graph: nx.Graph) -> str:
     """Generate a unique name for a complex based on its graph topology and types."""
@@ -88,7 +158,7 @@ def _generate_complex_name(graph: nx.Graph) -> str:
     # Use Weisfeiler-Lehman hash to get a canonical graph string/hash
     # 'type' node attribute is used for coloring
     # We use the hash as the unique identifier/name
-    g_hash = weisfeiler_lehman_graph_hash(graph, node_attr="type")
+    g_hash = weisfeiler_lehman_graph_hash(graph, node_attr="type", edge_attr="type")
     
     return f"{composition}_{g_hash}"
 
@@ -96,7 +166,8 @@ def generate_ode_model_from_system(
     system: System, 
     max_complex_size: int = None, 
     pdb_model=None, 
-    coarse_grainer=None
+    coarse_grainer=None,
+    include_transformation_reactions: bool = False
 ) -> Tuple[List[str], ReactionSystem]:
     """
     Generate ODE model from a System object using graph_based functions.
@@ -111,6 +182,7 @@ def generate_ode_model_from_system(
         max_complex_size: Maximum number of molecules in a complex (default: 12)
         pdb_model: Ignored (kept for compatibility)
         coarse_grainer: Ignored (kept for compatibility)
+        include_transformation_reactions: Whether to include bond rearrangement reactions (default: False)
     
     Returns:
         Tuple of (complex_names, reaction_system) where:
@@ -120,6 +192,9 @@ def generate_ode_model_from_system(
     # Set default max size
     if max_complex_size is None:
         max_complex_size = 12
+        
+    # Default kon used when no other rate information is available
+    DEFAULT_KON = 120.0
     
     # Step 1: Build the full assembly graph directly from System
     G_full = _system_to_graph(system)
@@ -157,15 +232,6 @@ def generate_ode_model_from_system(
     # Get dimer reactions (A + B -> AB)
     dimer_reactions = find_all_dimer_reactions(subgraphs, use_multiprocessing=False)
     
-    # Get transformation reactions (bond formation/breaking)
-    transformation_pairs = find_all_transformable_subgraph_pairs(G_full, subgraphs=subgraphs)
-    
-    # Map subgraphs to their names using node sets (frozenset of IDs)
-    subgraph_nodeset_to_name = {}
-    for i, sg in enumerate(subgraphs):
-        node_set = frozenset(sg.nodes())
-        subgraph_nodeset_to_name[node_set] = complex_names[i]
-    
     reaction_idx = 0
     
     # Process dimer reactions
@@ -174,39 +240,76 @@ def generate_ode_model_from_system(
         if len(reaction) >= 3:
             set1, set2, set_product = reaction[0], reaction[1], reaction[2]
             
-            nodeset1 = frozenset(set1)
-            nodeset2 = frozenset(set2)
-            nodeset_product = frozenset(set_product)
+            # Generate names on-the-fly because set1/set2 might not be the exact 
+            # representative node sets stored in 'subgraphs' list, but are isomorphic.
+            sub1 = G_full.subgraph(set1)
+            sub2 = G_full.subgraph(set2)
+            sub_prod = G_full.subgraph(set_product)
             
-            name1 = subgraph_nodeset_to_name.get(nodeset1)
-            name2 = subgraph_nodeset_to_name.get(nodeset2)
-            name_product = subgraph_nodeset_to_name.get(nodeset_product)
+            name1 = _generate_complex_name(sub1)
+            name2 = _generate_complex_name(sub2)
+            name_product = _generate_complex_name(sub_prod)
+            
+            # Note: We don't filter by existence in 'complex_names' because
+            # if the parts are valid induced subgraphs, they represent valid species.
+            # However, we only care about reactions where reactants/products are within max_complex_size.
+            # find_all_dimer_reactions usually ensures this if input subgraphs are filtered?
+            # Actually, set_product is formed by union. If it exceeds max_size, we should skip?
+            # 'subgraphs' input was filtered. 'set_product' is one of the 'subgraphs' (passed as specie).
+            # So product is definitely within size.
+            # Reactants are smaller. So they are within size.
             
             if name1 and name2 and name_product:
-                rate_const_name = f"k_on_{reaction_idx}"
-                reaction_expr = f"{name1} + {name2} -> {name_product}, {rate_const_name}"
+                # Calculate Rates
+                k_on, k_off = _calculate_reaction_rates(
+                    reactants=[sub1, sub2],
+                    products=[sub_prod],
+                    default_kon=DEFAULT_KON
+                )
                 
-                rxn = SimpleReaction(reaction_expr, rate=1.0, rate_name=rate_const_name)
-                reaction_system.reactions.append(rxn)
+                # Forward Reaction (Association)
+                rate_const_name_fwd = f"k_on_{reaction_idx}"
+                reaction_expr_fwd = f"{name1} + {name2} -> {name_product}, {rate_const_name_fwd}"
+                rxn_fwd = SimpleReaction(reaction_expr_fwd, rate=k_on, rate_name=rate_const_name_fwd)
+                reaction_system.reactions.append(rxn_fwd)
+                
+                # Reverse Reaction (Dissociation)
+                rate_const_name_rev = f"k_off_{reaction_idx}"
+                reaction_expr_rev = f"{name_product} -> {name1} + {name2}, {rate_const_name_rev}"
+                rxn_rev = SimpleReaction(reaction_expr_rev, rate=k_off, rate_name=rate_const_name_rev)
+                reaction_system.reactions.append(rxn_rev)
+                
                 reaction_idx += 1
     
-    # Process transformation reactions
-    for G1, G2, direction, edges_changed in transformation_pairs:
-        nodeset1 = frozenset(G1.nodes())
-        nodeset2 = frozenset(G2.nodes())
-        name1 = subgraph_nodeset_to_name.get(nodeset1)
-        name2 = subgraph_nodeset_to_name.get(nodeset2)
+    # Process transformation reactions (optional)
+    if include_transformation_reactions:
+        transformation_pairs = find_all_transformable_subgraph_pairs(G_full, subgraphs=subgraphs)
         
-        if name1 and name2:
-            rate_const_name = f"k_trans_{reaction_idx}"
+        for G1, G2, direction, edges_changed in transformation_pairs:
+            # G1 and G2 are graphs from the subgraphs list, so we can name them directly
+            name1 = _generate_complex_name(G1)
+            name2 = _generate_complex_name(G2)
             
-            if direction == "forming":
-                reaction_expr = f"{name1} -> {name2}, {rate_const_name}"
-            else:
-                reaction_expr = f"{name2} -> {name1}, {rate_const_name}"
-            
-            rxn = SimpleReaction(reaction_expr, rate=1.0, rate_name=rate_const_name)
-            reaction_system.reactions.append(rxn)
-            reaction_idx += 1
+            if name1 and name2:
+                # Calculate Rates
+                k_fwd, k_rev = _calculate_reaction_rates(
+                    reactants=[G1],
+                    products=[G2],
+                    default_kon=DEFAULT_KON
+                )
+                
+                # Forward
+                rate_const_name_fwd = f"k_trans_fwd_{reaction_idx}"
+                reaction_expr_fwd = f"{name1} -> {name2}, {rate_const_name_fwd}"
+                rxn_fwd = SimpleReaction(reaction_expr_fwd, rate=k_fwd, rate_name=rate_const_name_fwd)
+                reaction_system.reactions.append(rxn_fwd)
+                
+                # Reverse
+                rate_const_name_rev = f"k_trans_rev_{reaction_idx}"
+                reaction_expr_rev = f"{name2} -> {name1}, {rate_const_name_rev}"
+                rxn_rev = SimpleReaction(reaction_expr_rev, rate=k_rev, rate_name=rate_const_name_rev)
+                reaction_system.reactions.append(rxn_rev)
+                
+                reaction_idx += 1
     
     return complex_names, reaction_system

@@ -116,6 +116,51 @@ def calculate_ode_solution(
     return time, concentrations, species_names
 
 
+    return saved_files
+
+def _aggregate_by_composition(
+    concentrations: np.ndarray,
+    species_names: List[str]
+) -> Tuple[np.ndarray, List[str]]:
+    """
+    Aggregate concentrations by species composition (prefix before '_').
+    
+    Args:
+        concentrations: Array of shape (n_timepoints, n_species)
+        species_names: List of species names
+        
+    Returns:
+        Tuple of (aggregated_concentrations, unique_names)
+    """
+    # Find unique compositions and map indices
+    composition_map = {} # name -> list of indices
+    
+    for i, name in enumerate(species_names):
+        # Extract composition (e.g. "A2" from "A2_hash")
+        # If no underscore, use full name
+        if '_' in name:
+            comp = name.split('_')[0]
+        else:
+            comp = name
+            
+        if comp not in composition_map:
+            composition_map[comp] = []
+        composition_map[comp].append(i)
+    
+    # Sort unique names for consistency
+    unique_names = sorted(composition_map.keys())
+    n_unique = len(unique_names)
+    n_timepoints = concentrations.shape[0]
+    
+    agg_concentrations = np.zeros((n_timepoints, n_unique))
+    
+    for i, name in enumerate(unique_names):
+        indices = composition_map[name]
+        # Sum concentrations of all species with this composition
+        agg_concentrations[:, i] = np.sum(concentrations[:, indices], axis=1)
+        
+    return agg_concentrations, unique_names
+
 def save_ode_results(
     time: np.ndarray,
     concentrations: np.ndarray,
@@ -126,6 +171,7 @@ def save_ode_results(
 ) -> Dict[str, Path]:
     """
     Save ODE results to files (CSV and optional plots).
+    Also saves simplified results aggregated by composition.
     
     Args:
         time: Time points array
@@ -146,52 +192,91 @@ def save_ode_results(
     
     saved_files = {}
     
-    # Save CSV
-    if config.save_csv:
-        csv_path = output_dir / f"{filename_prefix}.csv"
-        with open(csv_path, 'w', newline='') as f:
-            writer = csv.writer(f)
-            # Header - convert species_names to list if it's a numpy array
-            species_list = list(species_names) if hasattr(species_names, '__iter__') else species_names
-            writer.writerow(['time'] + species_list)
-            # Data
-            for i, t in enumerate(time):
-                writer.writerow([t] + concentrations[i, :].tolist())
-        saved_files['csv'] = csv_path
-        print(f"ODE results saved to: {csv_path}")
+    # ---------------------------------------------------------
+    # Helper to save CSV and Plot for a given dataset
+    # ---------------------------------------------------------
+    def _save_dataset(time_arr, conc_arr, names, prefix):
+        prefix_files = {}
+        
+        # Save CSV
+        if config.save_csv:
+            csv_path = output_dir / f"{prefix}.csv"
+            with open(csv_path, 'w', newline='') as f:
+                writer = csv.writer(f)
+                species_list = list(names) if hasattr(names, '__iter__') else names
+                writer.writerow(['time'] + species_list)
+                for i, t in enumerate(time_arr):
+                    writer.writerow([t] + conc_arr[i, :].tolist())
+            prefix_files['csv'] = csv_path
+            print(f"ODE results saved to: {csv_path}")
+            
+        # Generate Plot
+        if config.plot:
+            fig, ax = plt.subplots(figsize=(10, 6))
+            
+            # Simple plotting for aggregated results (plot all)
+            # For original results, use config indices
+            if prefix == filename_prefix and config.plot_species_indices is not None:
+                indices = config.plot_species_indices
+            else:
+                indices = range(len(names))
+            
+            for idx in indices:
+                if idx < len(names):
+                    label = names[idx]
+                    # Use config labels only for exact matches on original
+                    if prefix == filename_prefix and config.species_labels:
+                        label = config.species_labels.get(idx, label)
+                    
+                    ax.plot(time_arr, conc_arr[:, idx], label=label, linewidth=2)
+            
+            ax.set_xlabel('Time (s)', fontsize=12)
+            ax.set_ylabel(r'Concentration $(\mu\mathrm{M})$', fontsize=12)
+            title = 'ODE Solution: Complex Assembly Kinetics'
+            if prefix != filename_prefix:
+                title += ' (Simplified)'
+            ax.set_title(title, fontsize=14)
+            ax.legend(loc='best')
+            ax.grid(True, alpha=0.3)
+            
+            plot_path = output_dir / f"{prefix}.png"
+            fig.savefig(plot_path, dpi=300, bbox_inches='tight')
+            prefix_files['plot'] = plot_path
+            print(f"ODE plot saved to: {plot_path}")
+            plt.close(fig)
+            
+        return prefix_files
+
+    # ---------------------------------------------------------
+    # 1. Save Original Results
+    # ---------------------------------------------------------
+    original_files = _save_dataset(time, concentrations, species_names, filename_prefix)
+    saved_files.update(original_files)
     
-    # Generate plots
-    if config.plot:
-        fig, ax = plt.subplots(figsize=(10, 6))
-        
-        # Determine which species to plot
-        if config.plot_species_indices is not None:
-            indices_to_plot = config.plot_species_indices
-        else:
-            indices_to_plot = range(len(species_names))
-        
-        # Plot selected species
-        for idx in indices_to_plot:
-            if idx < len(species_names):
-                # Use custom label if provided, otherwise species name
-                label = config.species_labels.get(idx, species_names[idx]) \
-                    if config.species_labels else species_names[idx]
-                ax.plot(time, concentrations[:, idx], label=label, linewidth=2)
-        
-        ax.set_xlabel('Time (s)', fontsize=12)
-        ax.set_ylabel(r'Concentration $(\mu\mathrm{M})$', fontsize=12)
-        ax.set_title('ODE Solution: Complex Assembly Kinetics', fontsize=14)
-        ax.legend(loc='best')
-        ax.grid(True, alpha=0.3)
-        
-        # Save plot
-        plot_path = output_dir / f"{filename_prefix}.png"
-        fig.savefig(plot_path, dpi=300, bbox_inches='tight')
-        saved_files['plot'] = plot_path
-        print(f"ODE plot saved to: {plot_path}")
-        
-        plt.close(fig)
+    # ---------------------------------------------------------
+    # 2. Save Simplified Results (Aggregated)
+    # ---------------------------------------------------------
+    # Check if aggregation is possible (look for underscores)
+    has_underscore = any('_' in name for name in species_names)
     
+    if has_underscore:
+        agg_conc, agg_names = _aggregate_by_composition(concentrations, species_names)
+        
+        # Determine prefix for simplified files
+        # If original is "ode_solution", simplified is "ode_solution_simple"
+        simple_prefix = f"{filename_prefix}_simple"
+        
+        simple_files = _save_dataset(time, agg_conc, agg_names, simple_prefix)
+        
+        # Add to saved_files with distinct keys if needed, 
+        # or just assume user knows where to look. 
+        # API return usually expects just 'csv', 'plot'. 
+        # We can add 'csv_simple', 'plot_simple'
+        if 'csv' in simple_files:
+            saved_files['csv_simple'] = simple_files['csv']
+        if 'plot' in simple_files:
+            saved_files['plot_simple'] = simple_files['plot']
+            
     return saved_files
 
 
