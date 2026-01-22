@@ -62,7 +62,7 @@ def plot_size_distribution(
     **kwargs
 ) -> Axes:
     """
-    Plots the cluster size probability distribution.
+    Plots the cluster size probability distribution from transition matrix data.
     
     Args:
         df: DataFrame with 'size' and 'probability' columns.

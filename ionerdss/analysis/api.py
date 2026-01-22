@@ -23,19 +23,19 @@ class Plotter:
         self.analyzer = analyzer
 
     def free_energy(self, simulation_index: int = 0, ax=None, **kwargs):
-        """Plots free energy for a specific simulation."""
+        """Plots free energy calculated from transition matrix data for a specific simulation."""
         sim = self.analyzer.get_simulation(simulation_index)
         df = self.analyzer.compute_free_energy(sim)
         return plots.plot_free_energy(df, ax=ax, label=sim.id, **kwargs)
 
     def size_distribution(self, simulation_index: int = 0, ax=None, **kwargs):
-        """Plots size distribution for a specific simulation."""
+        """Plots size distribution from transition matrix for a specific simulation."""
         sim = self.analyzer.get_simulation(simulation_index)
         df = self.analyzer.compute_size_distribution(sim)
         return plots.plot_size_distribution(df, ax=ax, label=sim.id, **kwargs)
 
     def transitions(self, simulation_index: int = 0, ax=None, **kwargs):
-        """Plots growth/shrinkage probabilities."""
+        """Plots growth/shrinkage probabilities from transition matrix."""
         sim = self.analyzer.get_simulation(simulation_index)
         matrix = sim.get_transition_matrix()
         df = transitions.compute_transition_probabilities(matrix)

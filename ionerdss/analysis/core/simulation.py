@@ -156,6 +156,58 @@ class Simulation:
         
         return self.data.hist_times, species_ts.squeeze()
 
+    def get_largest_size_time_series(self, include=None, exclude=None, only_count_these=None):
+        """
+        Time series of the size of the largest size complex as found from the histogram file.
+        
+        The "include" kwarg can be used to only look at complexes containing particular monomers.
+        
+        The "exclude" kwarg can be used to ignore complexes containing particular other monomers,
+        
+        e.g. get_largest_size_time_series(["A","B"],["C","D"]) will return the time series of the size of
+        the largest complex containing both A and B that does not containing any C or D molecules.
+
+        If only_count_these is provided, then the calculated "size" only counts the monomers specified,
+        i.e. a complex A:4.B:1.C:3. with include=["A","B"] would have size 5 if only_count_these=["A","B"]
+        and size 8 otherwise.
+
+        Returns:
+                time (1D numpy array length N), size (1D array)
+        """
+        if include is not None and not isinstance(include,list):
+            include = [include]
+        
+        if exclude is None:
+            exclude = [] # do NOT put empty list as default parameter value; leads to difficult bugs
+        elif not isinstance(exclude,list):
+            exclude = [exclude]
+
+        target_comps = list(self.data.hist_comps) # make a copy that we will modify
+
+        if include is not None:
+            for inc in include:
+                # restrict to complexes containing desired monomer
+                target_comps = [comp for comp in target_comps if inc in comp]
+
+        # restrict to complexes which do not contain any of the excluded monomers
+        for e in exclude:
+            target_comps = [comp for comp in target_comps if e not in comp]
+        
+        target_indices = [self.data.hist_comps.index(comp) for comp in target_comps]
+        
+        if only_count_these is not None:
+            if not isinstance(only_count_these,list):
+                only_count_these = [only_count_these]
+            target_sizes = np.array([sum([comp[monomer] for monomer in only_count_these]) for comp in target_comps])
+        else:
+            target_sizes = np.array([sum([comp[monomer] for monomer in comp]) for comp in target_comps])
+
+        largest_size_ts = np.zeros(len(self.data.hist_times))
+        for i,row in enumerate(self.data.hist_matrix):
+            largest_size_ts[i] = np.amax(target_sizes[row[target_indices].toarray()>0])
+
+        return self.data.hist_times, largest_size_ts
+
     def __repr__(self) -> str:
         return f"<Simulation id={self.id} path={self.path}>"
 
