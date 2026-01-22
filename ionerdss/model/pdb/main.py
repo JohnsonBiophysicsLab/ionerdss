@@ -242,8 +242,8 @@ class PDBModelBuilder:
                 
                 try:
                     # Import ODE pipeline module and new System-compatible generator
-                    from ionerdss.ode_pipeline import run_ode_pipeline, ODEPipelineConfig
-                    from ionerdss.system_ode_generator import generate_ode_model_from_system
+                    from ionerdss.ode.ode_pipeline import run_ode_pipeline, ODEPipelineConfig
+                    from ionerdss.ode.system_ode_generator import generate_ode_model_from_system
                     
                     # Check if assembly size exceeds limit
                     num_molecule_types = len(system.molecule_types.molecule_types)
