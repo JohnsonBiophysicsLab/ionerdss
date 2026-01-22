@@ -156,7 +156,7 @@ class Simulation:
         
         return self.data.hist_times, species_ts.squeeze()
 
-    def get_largest_size_time_series(self, include=None, exclude=None, only_count_includes=False):
+    def get_largest_size_time_series(self, include=None, exclude=None, only_count_these=None):
         """
         Time series of the size of the largest size complex as found from the histogram file.
         
@@ -167,8 +167,9 @@ class Simulation:
         e.g. get_largest_size_time_series(["A","B"],["C","D"]) will return the time series of the size of
         the largest complex containing both A and B that does not containing any C or D molecules.
 
-        If only_count_includes=True, then the calculated "size" only counts the monomers of "include" species,
-        i.e. a complex A:4.B:1.C:3. with include=["A","B"] would have size 5 if only_count_includes=True and size 8 otherwise.
+        If only_count_these is provided, then the calculated "size" only counts the monomers specified,
+        i.e. a complex A:4.B:1.C:3. with include=["A","B"] would have size 5 if only_count_these=["A","B"]
+        and size 8 otherwise.
 
         Returns:
                 time (1D numpy array length N), size (1D array)
@@ -194,8 +195,10 @@ class Simulation:
         
         target_indices = [self.data.hist_comps.index(comp) for comp in target_comps]
         
-        if only_count_includes:
-            target_sizes = np.array([sum([comp[monomer] for monomer in include]) for comp in target_comps])
+        if only_count_these is not None:
+            if not isinstance(only_count_these,list):
+                only_count_these = [only_count_these]
+            target_sizes = np.array([sum([comp[monomer] for monomer in only_count_these]) for comp in target_comps])
         else:
             target_sizes = np.array([sum([comp[monomer] for monomer in comp]) for comp in target_comps])
 
