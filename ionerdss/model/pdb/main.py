@@ -279,7 +279,10 @@ class PDBModelBuilder:
                         atol=hyperparams.ode_atol,
                         plot=hyperparams.ode_plot,
                         save_csv=hyperparams.ode_save_csv,
-                        initial_concentrations=hyperparams.ode_initial_concentrations
+                        initial_concentrations=hyperparams.ode_initial_concentrations,
+                        plot_species_indices=hyperparams.ode_plot_species_indices,
+                        plot_sample_points=hyperparams.ode_plot_sample_points,
+                        species_labels=hyperparams.ode_species_labels
                     )
                     
                     # Create ODE output directory

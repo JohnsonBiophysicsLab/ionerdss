@@ -272,7 +272,19 @@ class PDBModelHyperparameters:
     )
     ode_initial_concentrations: Optional[dict] = field(
         default=None,
-        metadata={"description": "Custom initial concentrations for ODE (dict of species: concentration)"}
+        metadata={"description": "Custom initial concentrations for ODE (dict of species: concentration in uM)"}
+    )
+    ode_plot_species_indices: Optional[list] = field(
+        default=None,
+        metadata={"description": "List of species indices to plot specifically (None plots all or top N)"}
+    )
+    ode_plot_sample_points: int = field(
+        default=1000,
+        metadata={"description": "Number of time points to sample for plotting"}
+    )
+    ode_species_labels: Optional[dict] = field(
+        default=None,
+        metadata={"description": "Custom labels for species indices in plots"}
     )
     
     # Kinetic parameters

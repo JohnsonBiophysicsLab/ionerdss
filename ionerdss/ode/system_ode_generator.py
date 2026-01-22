@@ -99,45 +99,90 @@ def _calculate_reaction_rates(
     import numpy as np
     
     # Collect edge energies
+    # Collect edge energies with unit normalization
+    # Constants for normalization
+    R_kJ = 0.008314
+    T = 298.0
+    RT = R_kJ * T
+    
     def _sum_energy(graphs):
-        total_E = 0.0
+        total_E_RT = 0.0
         edges_seen = set()
         for G in graphs:
             for u, v, d in G.edges(data=True):
                 key = frozenset([u, v])
                 if key not in edges_seen:
-                    total_E += d.get('energy', 0.0)
+                    # Get raw energy (stored in edge)
+                    # Could be -1.0 (flag) or kJ/mol
+                    raw_E = d.get('energy', 0.0)
+                    
+                    if raw_E == -1.0:
+                        # Default strong binding: -16 RT
+                        norm_E = -16.0
+                    elif raw_E == 0.0:
+                         # Assume 0 energy
+                         norm_E = 0.0
+                    else:
+                        # Explicit energy in kJ/mol (e.g. from ProAffinity)
+                        # Normalize by RT
+                        norm_E = raw_E / RT
+                        
+                    total_E_RT += norm_E
                     edges_seen.add(key)
-        return total_E, edges_seen
+        return total_E_RT, edges_seen
 
     E_reactants, r_edges = _sum_energy(reactants)
     E_products, p_edges = _sum_energy(products)
     
-    # Delta G of reaction (assuming Energy is "Bond Free Energy" which is negative for stable bond)
-    # G_state = sum(E_bonds). 
+    # Delta G of reaction in RT units
+    # G_state = sum(E_bonds_RT). 
     # Delta G = G_final - G_initial
+    # Typically E_bonds is negative for stability.
     delta_G = E_products - E_reactants
     
-    # Keq = exp(-delta_G)
-    # If Product is more stable (more negative energy), delta_G is negative.
-    # -delta_G is positive. Keq > 1. Correct.
-    Keq = np.exp(-delta_G)
+    # Unit Conversion Constants
+    # 1. Convert kon from nm^3/us to uM^-1 s^-1
+    #    Factor ~0.6022
+    #    Derivation: 1 nm^3/us = 1e-15 cm^3/s. 
+    #    N_A * 1e-15 * 1e-3 (to L) ... wait.
+    #    Directly: 120 nm^3/us -> ~72 uM^-1 s^-1.
+    #    Precise factor: 0.602214
+    CONV_NM3_US_TO_UM_S = 0.602214
     
-    # Determine direction dominance (Forming vs Breaking)
-    # Count bonds
-    n_bonds_r = len(r_edges)
-    n_bonds_p = len(p_edges)
+    # 2. Standard Concentration activity correction for uM units
+    #    C0 = 1 M = 10^6 uM
+    C0_uM = 1.0e6 
     
-    if n_bonds_p >= n_bonds_r:
-        # Net formation or neutral rearrangement
-        # Anchor forward rate (Association)
-        k_fwd = default_kon
-        k_rev = k_fwd / Keq
+    k_fwd_val = default_kon * CONV_NM3_US_TO_UM_S
+    
+    # Determine reaction molecularity change (delta n)
+    # 2 reactants -> 1 product : delta_n = -1 (Association)
+    # 1 reactant -> 2 products : delta_n = +1 (Dissociation)
+    # 1 -> 1 : delta_n = 0 (Isomerization)
+    delta_n = len(products) - len(reactants)
+    
+    # Calculate Equilibrium Constant Kc in units of uM^delta_n
+    # K_eq (dimensionless) = exp(-delta_G/RT) [activity based]
+    # Kc = K_eq_activity * (C0_uM)^delta_n
+    
+    Keq_activity = np.exp(-delta_G) # delta_G assumed in RT units
+    Kc = Keq_activity * (C0_uM ** delta_n)
+    
+    # Assign rates
+    if delta_n < 0:
+        # Association dominant (forming bonds)
+        # Anchor forward rate (k_on in uM^-1 s^-1)
+        k_fwd = k_fwd_val
+        k_rev = k_fwd / Kc
+    elif delta_n > 0:
+        # Dissociation dominant (breaking bonds)
+        # Anchor reverse association (if it were occurring)
+        k_rev = k_fwd_val
+        k_fwd = k_rev * Kc
     else:
-        # Net breaking (Dissociation)
-        # Anchor reverse rate (Re-association)
-        k_rev = default_kon
-        k_fwd = k_rev * Keq
+        # Isomerization (1->1)
+        k_rev = k_fwd_val # ~72 s^-1
+        k_fwd = k_rev * Kc
         
     return k_fwd, k_rev
 
