@@ -15,9 +15,9 @@ import numpy as np
 import matplotlib.pyplot as plt
 import csv
 
-from ionerdss.model.complex import ComplexReactionSystem
-from ionerdss.ode_solver.reaction_string_parser import ReactionStringParser
-from ionerdss.ode_solver.reaction_ode_solver import solve_reaction_ode, dydt
+from typing import Any
+from ionerdss.ode.reaction_string_parser import ReactionStringParser
+from ionerdss.ode.reaction_ode_solver import solve_reaction_ode, dydt
 
 
 @dataclass
@@ -49,7 +49,7 @@ class ODEPipelineConfig:
 
 
 def calculate_ode_solution(
-    complex_reaction_system: ComplexReactionSystem,
+    complex_reaction_system: Any,
     config: Union[ODEPipelineConfig, Dict] = None,
 ) -> Tuple[np.ndarray, np.ndarray, List[str]]:
     """
@@ -196,7 +196,7 @@ def save_ode_results(
 
 
 def run_ode_pipeline(
-    complex_reaction_system: ComplexReactionSystem,
+    complex_reaction_system: Any,
     output_dir: Path,
     config: Union[ODEPipelineConfig, Dict] = None,
     filename_prefix: str = "ode_results"

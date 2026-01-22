@@ -38,8 +38,8 @@ submodules = {
     'convert_simularium': ['.simularium_converter.simularium_converter', 'convert_simularium'],
     'Simulation': ['.nerdss_simulation', 'Simulation'],
     'Analyzer': ['.analysis', 'Analyzer'],
-    'ODEPipelineConfig': ['.ode_pipeline', 'ODEPipelineConfig'],
-    'run_ode_pipeline': ['.ode_pipeline', 'run_ode_pipeline'],
+    'ODEPipelineConfig': ['.ode.ode_pipeline', 'ODEPipelineConfig'],
+    'run_ode_pipeline': ['.ode.ode_pipeline', 'run_ode_pipeline'],
     'build_system_from_pdb': ['.api', 'build_system_from_pdb']
 }
 
