@@ -192,6 +192,10 @@ class Simulation:
         # restrict to complexes which do not contain any of the excluded monomers
         for e in exclude:
             target_comps = [comp for comp in target_comps if e not in comp]
+
+        if len(target_comps) == 0:
+            logger.error(f"No matching complexes found in simulation {self.id} for include={include} and exclude={exclude}")
+            return self.data.hist_times, np.zeros(len(self.data.hist_times))
         
         target_indices = [self.data.hist_comps.index(comp) for comp in target_comps]
         
@@ -236,6 +240,10 @@ class Simulation:
             exclude = [exclude]
 
         target_comps = list(self.data.hist_comps) # make a copy that we will modify
+
+        if len(target_comps) == 0:
+            logger.error(f"No matching complexes found in simulation {self.id} for include={include} and exclude={exclude}")
+            return self.data.hist_times, np.zeros(len(self.data.hist_times))
 
         if include is not None:
             for inc in include:
