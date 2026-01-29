@@ -893,26 +893,26 @@ class PDBVisualizer:
             pml_file.write("zoom all\n")
 
             # Save images
-            comparison_image = self.viz_dir / \
-                f'{self.workspace_manager.pdb_id}_comparison.png'
-            pml_file.write(f"\n# Save comparison image\n")
-            pml_file.write(f"png {comparison_image}, 1200, 1200, 300, 1\n")
+            #comparison_image = self.viz_dir / \
+            #    f'{self.workspace_manager.pdb_id}_comparison.png'
+            #pml_file.write(f"\n# Save comparison image\n")
+            #pml_file.write(f"png {comparison_image}, 1200, 1200, 300, 1\n")
 
             # Create views for different perspectives
-            pml_file.write("\n# Create different views\n")
-            pml_file.write("# View 1: Side view\n")
-            pml_file.write(
-                "set_view (1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, -50.0, 0.0, 0.0, 0.0, 40.0, 60.0, -20.0)\n")
-            side_view_image = self.viz_dir / \
-                f'{self.workspace_manager.pdb_id}_side_view.png'
-            pml_file.write(f"png {side_view_image}, 1200, 1200, 300, 1\n")
+            #pml_file.write("\n# Create different views\n")
+            #pml_file.write("# View 1: Side view\n")
+            #pml_file.write(
+            #    "set_view (1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, -50.0, 0.0, 0.0, 0.0, 40.0, 60.0, -20.0)\n")
+            #side_view_image = self.viz_dir / \
+            #    f'{self.workspace_manager.pdb_id}_side_view.png'
+            #pml_file.write(f"png {side_view_image}, 1200, 1200, 300, 1\n")
 
-            pml_file.write("\n# View 2: Top view\n")
-            pml_file.write(
-                "set_view (1.0, 0.0, 0.0, 0.0, 0.0, -1.0, 0.0, 1.0, 0.0, 0.0, 0.0, -50.0, 0.0, 0.0, 0.0, 40.0, 60.0, -20.0)\n")
-            top_view_image = self.viz_dir / \
-                f'{self.workspace_manager.pdb_id}_top_view.png'
-            pml_file.write(f"png {top_view_image}, 1200, 1200, 300, 1\n")
+            #pml_file.write("\n# View 2: Top view\n")
+            #pml_file.write(
+            #    "set_view (1.0, 0.0, 0.0, 0.0, 0.0, -1.0, 0.0, 1.0, 0.0, 0.0, 0.0, -50.0, 0.0, 0.0, 0.0, 40.0, 60.0, -20.0)\n")
+            #top_view_image = self.viz_dir / \
+            #    f'{self.workspace_manager.pdb_id}_top_view.png'
+            #pml_file.write(f"png {top_view_image}, 1200, 1200, 300, 1\n")
 
         self.logger.info("Generated PyMOL script: %s", output_path)
         self.logger.info(

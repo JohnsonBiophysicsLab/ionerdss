@@ -120,6 +120,8 @@ proaffinity-gnn/pdbfiles
 *.cif.gz
 *.log
 *.png
+## exception for .png files:
+!pml_6BNO_visualization.png
 *.pml
 *.json
 /sim_params_*
