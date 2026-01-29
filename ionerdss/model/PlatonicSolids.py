@@ -278,10 +278,6 @@ class PlatonicSolidsModel:
             
             normal = reactions[0].geometry.norm1
             exporter._local_x_with_degeneracy = lambda mol,site: -normal/np.linalg.norm(normal)
-        
-        # Monkey-patch _local_x_with_degeneracy to force normals to [1,0,0]
-        # This overrides the calculation based on structure, as requested.
-        exporter._local_x_with_degeneracy = lambda mol, site: np.array([1.0, 0.0, 0.0])
 
         exporter.export_all()
 
