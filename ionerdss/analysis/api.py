@@ -54,7 +54,7 @@ class Analyzer:
     
     Usage:
         analyzer = Analyzer("./my_data")
-        analyzer.plot.plot_free_energy()
+        analyzer.plot.free_energy()
     """
     
     def __init__(self, root_dir: Union[str, Path]):
