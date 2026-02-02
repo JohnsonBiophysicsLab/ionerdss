@@ -1011,7 +1011,7 @@ class NERDSSExporter:
 
         return True
 
-    def _write_mol_file(self, mol_type: MoleculeType, hyperparams=None) -> Path:
+    def _write_mol_file(self, mol_type: MoleculeType, hyperparams=None, dry_run: bool = False) -> Optional[Path]:
         mol_file_path = self.output_dir / f"{mol_type.name}.mol"
 
         # Get the representative instance for this molecule type
@@ -1074,6 +1074,9 @@ class NERDSSExporter:
 
         # Sort interfaces by site label for consistent output
         interfaces.sort(key=lambda x: x["site_label"])
+        
+        if dry_run:
+             return None
 
         # --- existing file writing logic below unchanged ---
         with open(mol_file_path, 'w', encoding='utf-8') as f:
@@ -1777,6 +1780,7 @@ class NERDSSExporter:
 
 
 
+    
     def _calculate_auto_time_step(self, reactions: List[str], molecule_counts: Dict[str, int],
                                   box_nm: Tuple[float, float, float], sigma_list: List[float]) -> Optional[float]:
         """Calculate automatic time step based on stability criteria.
@@ -1833,6 +1837,36 @@ class NERDSSExporter:
                     
         return min_dt if found_interaction else None
 
+    def calculate_simulation_timestep(self, molecule_counts: Dict[str, int], 
+                                    box_nm: Tuple[float, float, float]) -> Optional[float]:
+        """Calculate the required time step based on system geometry and physics.
+        
+        This method runs a partial export process (without writing files) to determine
+        the stable time step for the system.
+        """
+        # Clear state
+        self.interface_to_site_map.clear()
+        self.reaction_metadata.clear()
+        self.homotypic_interface_map.clear()
+        self.calculated_normals.clear()
+        self.reaction_params_cache.clear()
+
+        # Build mappings via dry-run of mol file generation
+        for mol_type in self.system.molecule_types:
+            self._write_mol_file(mol_type, dry_run=True)
+            
+        # Calculate normals
+        self._calculate_normal_vectors()
+        
+        # Generate reactions
+        reactions = self._generate_reactions()
+        
+        # Calculate parameters (sigma needed for timestep)
+        sigma_list, _ = self._calculate_reaction_parameters(reactions)
+        
+        # Calculate timestep
+        return self._calculate_auto_time_step(reactions, molecule_counts, box_nm, sigma_list)
+
     def _write_parms_file(self, reactions: List[str], molecule_counts: Dict[str, int],
                           box_nm: Tuple[float, float, float], sigma_list: List[float],
                           angles_list: List[Tuple[float, float, float, float, float]],
@@ -1846,13 +1880,13 @@ class NERDSSExporter:
         params = {
             'nItr': 1e5,
             'timestep': 0.5,
-            'timeWrite': 1e4,
+            'timeWrite': 1e3,
             'trajWrite': 1e5,
             'restartWrite': 1e5,
             'checkPoint': 1e5,
             'pdbWrite': 1e5,
             'onRate3Dka': 120.0,  # Default diffusion-limited (nm³/μs)
-            'offRatekb': 1000.0,   # Default fallback (s⁻¹)
+            'offRatekb': 8.2,   # Default fallback (s⁻¹)
             'overlapSepLimit': 2.0,
             'scaleMaxDisplace': 100.0,
         }

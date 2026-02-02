@@ -262,6 +262,29 @@ class PDBModelBuilder:
 
             # Step 7.5: Run ODE pipeline (if enabled)
             if hyperparams.ode_enabled:
+                # Dynamic Time Span Calculation
+                if hyperparams.ode_time_span is None:
+                     from ionerdss.model.pdb.nerdss_exporter import NERDSSExporter
+                     exporter = NERDSSExporter(system, self.workspace_manager)
+                     
+                     # Determine box size
+                     calc_box = tuple(hyperparams.nerdss_water_box) if hyperparams.nerdss_water_box else box_nm
+                     
+                     dt = exporter.calculate_simulation_timestep(molecule_counts, calc_box)
+                     
+                     if dt:
+                         total_duration_us = dt * hyperparams.nerdss_n_itr
+                         total_duration_s = total_duration_us / 1e6
+                         self.workspace_manager.logger.info(
+                             "Auto-calculated ODE time span: dt=%.4f us, nItr=%d -> duration=%.6f s",
+                             dt, hyperparams.nerdss_n_itr, total_duration_s
+                         )
+                         hyperparams.ode_time_span = (0.0, total_duration_s)
+                     else:
+                         # Fallback if calculation failed
+                         self.workspace_manager.logger.warning("Failed to auto-calculate ODE time span (no dynamic species?), defaulting to 10s")
+                         hyperparams.ode_time_span = (0.0, 10.0)
+
                 step_num_ode = 8 if hyperparams.generate_nerdss_files else 7
                 self.workspace_manager.logger.info(
                     "Step %d: Running ODE pipeline...", step_num_ode)

@@ -234,6 +234,11 @@ class PDBModelHyperparameters:
         metadata={"description": "Time step for NERDSS simulation (us). If None, calculated automatically based on stability criteria.", "unit": "us"}
     )
     
+    nerdss_n_itr: int = field(
+        default=int(1e5),
+        metadata={"description": "Number of iterations for NERDSS simulation", "unit": "steps"}
+    )
+    
     # ProAffinity binding energy prediction options
     predict_affinity: bool = field(
         default=False,
@@ -259,9 +264,9 @@ class PDBModelHyperparameters:
         default=12,
         metadata={"description": "Maximum complex size (number of molecules) for ODE generation. ODE will be skipped if assembly exceeds this."}
     )
-    ode_time_span: tuple = field(
-        default=(0.0, 10.0),
-        metadata={"description": "Time span for ODE solving (start, end)", "unit": "seconds"}
+    ode_time_span: Optional[tuple] = field(
+        default=None,
+        metadata={"description": "Time span for ODE solving (start, end). If None, will be [0, nerdss_time_step * nerdss_n_itr].", "unit": "seconds"}
     )
     ode_solver_method: str = field(
         default="BDF",
