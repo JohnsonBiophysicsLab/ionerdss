@@ -10,6 +10,7 @@ the complete pipeline with proper file organization, logging, and NERDSS export.
 from typing import Optional, Union, Dict, Any, Tuple
 from pathlib import Path
 import logging
+import math
 
 from ionerdss.model.components.system import System
 from ionerdss.model.components.units import Units
@@ -156,6 +157,10 @@ class PDBModelBuilder:
                 self.parser, coarse_grainer, hyperparams)
 
             group_summary = chain_grouper.get_summary()
+            
+            # Extract stoichiometry for later use
+            stoichiometry_map = {g['representative']: g['size'] for g in group_summary['groups']}
+            
             self.workspace_manager.logger.info("Created %d chain groups using %s method",
                                                group_summary['num_groups'],
                                                group_summary['grouping_method'])
@@ -194,6 +199,27 @@ class PDBModelBuilder:
 
             system = system_builder.get_system()
 
+            # Calculate default molecule counts if not provided (using stoichiometry)
+            if molecule_counts is None:
+                molecule_counts = {}
+                target_total = hyperparams.nerdss_total_molecule_count
+                
+                # Calculate total stoichiometry parts
+                total_parts = 0
+                for mol_type in system.molecule_types:
+                    total_parts += stoichiometry_map.get(mol_type.name, 1)
+                
+                if total_parts == 0: total_parts = 1
+                
+                for mol_type in system.molecule_types:
+                    parts = stoichiometry_map.get(mol_type.name, 1)
+                    count = math.ceil((parts / total_parts) * target_total)
+                    molecule_counts[mol_type.name] = count
+                    
+                self.workspace_manager.logger.info(
+                    "Calculated default molecule counts (Total=%d): %s",
+                    target_total, molecule_counts)
+
             # Step 6: Generate visualizations (if requested)
             if hyperparams.generate_visualizations:
                 self.workspace_manager.logger.info(
@@ -205,15 +231,15 @@ class PDBModelBuilder:
                         "Generated %s: %s", viz_type, viz_path)
 
             # Step 7: Export NERDSS files (if requested)
-            if hyperparams.generate_visualizations:
+            if hyperparams.generate_nerdss_files:
                 self.workspace_manager.logger.info(
                     "Step 7: Exporting NERDSS simulation files...")
 
-                # Set default molecule counts if not provided
+                # Validating molecule_counts are set (should be set by now)
                 if molecule_counts is None:
-                    molecule_counts = {}
-                    for mol_type in system.molecule_types:
-                        molecule_counts[mol_type.name] = 10
+                     # This fallback should rarely be hit if logic above works, 
+                     # but keeping a safe fallback just in case
+                     molecule_counts = {m.name: 1 for m in system.molecule_types}
 
                 # Export NERDSS files
                 # Add hyperparameters to parms_overrides for transition matrix config
@@ -272,6 +298,34 @@ class PDBModelBuilder:
                     if len(complex_reaction_system.reactions) == 0:
                         self.workspace_manager.logger.warning("No reactions generated, ODE will have trivial dynamics")
                     
+
+                    # Calculate default concentrations if not provided
+                    ode_initial_concentrations = hyperparams.ode_initial_concentrations
+                    if ode_initial_concentrations is None:
+                        # Ensure molecule counts are available
+                        current_molecule_counts = molecule_counts.copy() if molecule_counts else {}
+                        for mol_type in system.molecule_types:
+                            if mol_type.name not in current_molecule_counts:
+                                # Fallback if for some reason count is missing
+                                current_molecule_counts[mol_type.name] = 10
+                        
+                        # Get box volume in nm^3
+                        box_dims = tuple(hyperparams.nerdss_water_box) if hyperparams.nerdss_water_box else box_nm
+                        volume_nm3 = box_dims[0] * box_dims[1] * box_dims[2]
+                        
+                        # Calculate concentrations in uM
+                        # Concentration (uM) = (Count / Volume_nm3) * 1.66054e6
+                        conversion_factor = 1.66054e6 
+                        ode_initial_concentrations = {}
+                        
+                        for mol_name, count in current_molecule_counts.items():
+                            conc_uM = (count / volume_nm3) * conversion_factor
+                            ode_initial_concentrations[mol_name] = conc_uM
+                            
+                        self.workspace_manager.logger.info(
+                            "Calculated default ODE initial concentrations from NERDSS counts (Volume=%.2f nm^3)", 
+                            volume_nm3)
+
                     # Create ODE configuration from hyperparameters
                     ode_config = ODEPipelineConfig(
                         t_span=hyperparams.ode_time_span,
@@ -279,7 +333,7 @@ class PDBModelBuilder:
                         atol=hyperparams.ode_atol,
                         plot=hyperparams.ode_plot,
                         save_csv=hyperparams.ode_save_csv,
-                        initial_concentrations=hyperparams.ode_initial_concentrations,
+                        initial_concentrations=ode_initial_concentrations,
                         plot_species_indices=hyperparams.ode_plot_species_indices,
                         plot_sample_points=hyperparams.ode_plot_sample_points,
                         species_labels=hyperparams.ode_species_labels

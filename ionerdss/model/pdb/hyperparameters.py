@@ -224,6 +224,11 @@ class PDBModelHyperparameters:
         default_factory=lambda: [100.0, 100.0, 100.0],
         metadata={"description": "Water box dimensions for NERDSS simulation", "unit": "nm"}
     )
+
+    nerdss_total_molecule_count: int = field(
+        default=75,
+        metadata={"description": "Total target number of molecules for NERDSS simulation, distributed according to stoichiometry", "unit": "molecules"}
+    )
     
     # ProAffinity binding energy prediction options
     predict_affinity: bool = field(
@@ -272,8 +277,9 @@ class PDBModelHyperparameters:
     )
     ode_initial_concentrations: Optional[dict] = field(
         default=None,
-        metadata={"description": "Custom initial concentrations for ODE (dict of species: concentration in uM)"}
+        metadata={"description": "Custom initial concentrations for ODE (dict of species: concentration in uM). If not set, use the concentration equivalent to count / volume for nerdss simulation."}
     )
+
     ode_plot_species_indices: Optional[list] = field(
         default=None,
         metadata={"description": "List of species indices to plot specifically (None plots all or top N)"}
@@ -451,6 +457,8 @@ class PDBModelHyperparameters:
 
         if self.homodimer_angle_threshold < 0:
             errors.append("homodimer_angle_threshold must be non-negative")
+
+
 
         return errors
 
