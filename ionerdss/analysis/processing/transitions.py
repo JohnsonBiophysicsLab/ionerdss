@@ -9,7 +9,7 @@ import numpy as np
 import pandas as pd
 from typing import Tuple, Dict
 
-def compute_size_distribution(transition_matrix: np.ndarray) -> pd.DataFrame:
+def compute_size_distribution_transition_matrix(transition_matrix: np.ndarray) -> pd.DataFrame:
     """
     Calculates the probability distribution of cluster sizes.
     

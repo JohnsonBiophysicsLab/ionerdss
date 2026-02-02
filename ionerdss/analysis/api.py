@@ -54,7 +54,7 @@ class Analyzer:
     
     Usage:
         analyzer = Analyzer("./my_data")
-        analyzer.plot.free_energy()
+        analyzer.plot.plot_free_energy()
     """
     
     def __init__(self, root_dir: Union[str, Path]):
@@ -91,12 +91,14 @@ class Analyzer:
         return results
 
     def compute_size_distribution(self, sim: Simulation) -> pd.DataFrame:
-        """Computes size distribution for a simulation."""
+        """Computes size distribution for a simulation from transition matrix file."""
         matrix = sim.get_transition_matrix()
-        return transitions.compute_size_distribution(matrix)
+        if len(matrix) == 0:
+            logger.error(f"No transition matrix found for simulation {sim.id}")
+        return transitions.compute_size_distribution_transition_matrix(matrix)
 
     def compute_free_energy(self, sim: Simulation, temperature: float = 1.0) -> pd.DataFrame:
-        """Computes free energy for a simulation."""
+        """Computes free energy for a simulation from transition matrix file."""
         # Check cache
         if sim.data.df_free_energy is not None:
             return sim.data.df_free_energy

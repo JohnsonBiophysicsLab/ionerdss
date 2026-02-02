@@ -21,7 +21,7 @@ def plot_free_energy(
     **kwargs
 ) -> Axes:
     """
-    Plots the Free Energy profile.
+    Plots the Free Energy profile from transition matrix data.
     
     Args:
         df: DataFrame with 'size' and 'free_energy' columns.
