@@ -1777,6 +1777,62 @@ class NERDSSExporter:
 
 
 
+    def _calculate_auto_time_step(self, reactions: List[str], molecule_counts: Dict[str, int],
+                                  box_nm: Tuple[float, float, float], sigma_list: List[float]) -> Optional[float]:
+        """Calculate automatic time step based on stability criteria.
+        
+        Formula: Δt = (1 / 56(DA+DB)) * [ ((3/(4πρ)) + σ³)^(1/3) - σ ]²
+        """
+        V = box_nm[0] * box_nm[1] * box_nm[2]
+        if V <= 0: return None
+        
+        diff_map = {m.name: m.D_t_nm2_us for m in self.system.molecule_types}
+        min_dt = float('inf')
+        
+        reaction_re = re.compile(
+            r"^\s*([A-Za-z0-9_]+)\(([A-Za-z0-9_]+)\)\s*\+\s*([A-Za-z0-9_]+)\(([A-Za-z0-9_]+)\)"
+        )
+        
+        found_interaction = False
+        
+        for i, rxn_str in enumerate(reactions):
+            match = reaction_re.match(rxn_str)
+            if not match: continue
+            
+            mol1, _, mol2, _ = match.groups()
+            sigma = sigma_list[i]
+            
+            D1 = diff_map.get(mol1, 0.0)
+            D2 = diff_map.get(mol2, 0.0)
+            D_sum = D1 + D2
+            
+            if D_sum <= 1e-12: continue
+            
+            # Check both directions for density dependence
+            for mol_target in [mol1, mol2]:
+                N = molecule_counts.get(mol_target, 0)
+                if N <= 0: continue
+                
+                rho = N / V
+                if rho <= 0: continue
+                
+                # Formula: dt = (1 / 56(D1+D2)) * [ ((3/(4 pi rho)) + sigma^3)^(1/3) - sigma ]^2
+                term1 = 1.0 / (56.0 * D_sum)
+                
+                r_avg_term = 3.0 / (4.0 * math.pi * rho)
+                bracket_inner = r_avg_term + (sigma**3)
+                bracket = (bracket_inner**(1.0/3.0)) - sigma
+                
+                if bracket < 0: bracket = 0.0
+                
+                dt = term1 * (bracket**2)
+                
+                if dt < min_dt:
+                    min_dt = dt
+                    found_interaction = True
+                    
+        return min_dt if found_interaction else None
+
     def _write_parms_file(self, reactions: List[str], molecule_counts: Dict[str, int],
                           box_nm: Tuple[float, float, float], sigma_list: List[float],
                           angles_list: List[Tuple[float, float, float, float, float]],
@@ -1824,6 +1880,39 @@ class NERDSSExporter:
             
         # Update default onRate in params too
         params['onRate3Dka'] = default_ka_val
+
+        # --- Time Step Logic ---
+        # 1. Start with default or overridden value (from params)
+        final_dt = params['timestep']
+        
+        # 2. Check for auto-calculation if not explicitly forced by hyperparams
+        hyperparams_dt = None
+        if parms_overrides and 'hyperparams' in parms_overrides:
+            hp = parms_overrides['hyperparams']
+            if hasattr(hp, 'nerdss_time_step'):
+                hyperparams_dt = hp.nerdss_time_step
+
+        if hyperparams_dt is not None:
+             # Force using the hyperparameter value
+             final_dt = hyperparams_dt
+             if self.workspace_manager:
+                 self.workspace_manager.logger.info(
+                     f"Using forced NERDSS time step from hyperparameters: {final_dt} us")
+        else:
+             # Auto-calculate if no forced hyperparameter
+             auto_dt = self._calculate_auto_time_step(reactions, molecule_counts, box_nm, sigma_list)
+             if auto_dt is not None:
+                 final_dt = auto_dt
+                 if self.workspace_manager:
+                     self.workspace_manager.logger.info(
+                         f"Using automatically calculated NERDSS time step: {final_dt:.6f} us")
+             else:
+                 if self.workspace_manager:
+                     self.workspace_manager.logger.info(
+                         f"Could not auto-calculate time step (no dynamic species?). Using default/override: {final_dt} us")
+
+        params['timestep'] = final_dt
+        # -----------------------
 
         # Regex to parse reactions
         reaction_re = re.compile(

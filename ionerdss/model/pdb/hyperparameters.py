@@ -229,6 +229,10 @@ class PDBModelHyperparameters:
         default=75,
         metadata={"description": "Total target number of molecules for NERDSS simulation, distributed according to stoichiometry", "unit": "molecules"}
     )
+    nerdss_time_step: Optional[float] = field(
+        default=None,
+        metadata={"description": "Time step for NERDSS simulation (us). If None, calculated automatically based on stability criteria.", "unit": "us"}
+    )
     
     # ProAffinity binding energy prediction options
     predict_affinity: bool = field(
