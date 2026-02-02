@@ -93,7 +93,24 @@ def calculate_ode_solution(
     if config.initial_concentrations:
         # Use user-provided initial concentrations
         for i, species in enumerate(species_names):
-            y_init[i] = config.initial_concentrations.get(species, 0.0)
+            val = config.initial_concentrations.get(species)
+            if val is not None:
+                y_init[i] = val
+            elif '_' in species:
+                # Try to map monomer names (e.g. A1_hash -> A)
+                # Assumes species name format "Composition_Hash" where Composition is like "A1"
+                composition = species.split('_')[0]
+                # Check if it looks like a monomer "X1"
+                if composition.endswith('1'):
+                    # Extract type name (everything before '1')
+                    mol_type = composition[:-1]
+                    # Check if this type has an initial concentration
+                    if mol_type in config.initial_concentrations and not any(c.isdigit() for c in mol_type):
+                         # Ensure we didn't just strip a digit from "A12" -> "A1" (unlikely given sort, but safety)
+                         # Actually just checking strict "X1" pattern matching against keys
+                         val = config.initial_concentrations.get(mol_type)
+                         if val is not None:
+                             y_init[i] = val
     else:
         # Default: first species (monomer) at 1.0, rest at 0.0
         y_init[0] = 1.0
