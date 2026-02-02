@@ -221,7 +221,7 @@ class PDBModelHyperparameters:
         metadata={"description": "Generate NERDSS simulation files"}
     )
     nerdss_water_box: list = field(
-        default_factory=lambda: [100.0, 100.0, 100.0],
+        default_factory=lambda: [500.0, 500.0, 500.0],
         metadata={"description": "Water box dimensions for NERDSS simulation", "unit": "nm"}
     )
 
