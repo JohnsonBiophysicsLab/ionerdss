@@ -126,7 +126,7 @@ class PDBModelBuilder:
                 units = Units()
 
             # Step 1: Parse PDB file or fetch from database
-            logger.notice(
+            self.workspace_manager.logger.notice(
                 "Step 1: Processing structure source: %s", self.source)
             
             # Determine file format: use fetch_format if provided, otherwise use hyperparameter
