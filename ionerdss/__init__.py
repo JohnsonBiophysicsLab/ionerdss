@@ -13,6 +13,8 @@ online at https://ionerdss.readthedocs.io/en/
 # >>>>>>>>>>>>>>>> setup logging level >>>>>>>>>>>>>>>> 
 # TODO: Take user input to setup logging level. 
 # This might be done when creating Analysis instance.
+from __future__ import annotations
+
 import logging as _logging
 _logging.basicConfig(level=_logging.WARNING)
 # <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
@@ -27,7 +29,6 @@ except:
 
 
 import importlib as _importlib
-
 
 # A mapping from public API names to their internal module locations.
 # Structure:

@@ -4,9 +4,9 @@ Simulation object encapsulation.
 This module defines the Simulation class, which acts as the primary interface
 for accessing data from a single simulation run.
 """
-
+from __future__ import annotations
 from pathlib import Path
-from typing import Optional, Dict, List, Tuple
+from typing import Optional, Dict, List, Tuple, Union
 import logging
 import pandas as pd
 import numpy as np

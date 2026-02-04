@@ -4,6 +4,7 @@ Main API for ionerdss.analysis.
 This module exposes the Analyzer class, which is the primary entry point for users.
 """
 
+from __future__ import annotations
 from pathlib import Path
 from typing import List, Union, Optional, Tuple, Dict
 import pandas as pd
