@@ -15,7 +15,7 @@ authors = [
     { name = "Sikao Guo", email = "sikaoguo@gmail.com" },
     { name = "Mankun Sang", email = "msang2@jhu.edu" }
 ]
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 keywords = ["NERDSS Simulation", "Model Setup", "Analysis Tools"]
 classifiers = [
     "Development Status :: 5 - Production/Stable",
