@@ -9,6 +9,8 @@ description = "Package for preparing NERDSS inputs and analysing outputs."
 readme = "README.md"
 license = { text = "GPL-3.0" }
 authors = [
+    { name = "Yue Moon Ying", email = "yying7@jh.edu"},
+    { name = "Samuel L Foley", email = "sfoley13@jh.edu"},
     { name = "Zixiu (Hugh) Liu", email = "zliu140@jhu.edu" },
     { name = "Sikao Guo", email = "sikaoguo@gmail.com" },
     { name = "Mankun Sang", email = "msang2@jhu.edu" }
