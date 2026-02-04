@@ -10,11 +10,14 @@ from typing import List, Union, Optional, Tuple, Dict
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
+import logging
 
 from .core.simulation import Simulation
 from .io.loader import DataLoader
 from .processing import transitions
 from .visualization import plots, config
+
+logger = logging.getLogger(__name__)
 
 class Plotter:
     """
