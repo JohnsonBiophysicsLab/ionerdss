@@ -1026,26 +1026,45 @@ class NERDSSExporter:
         per_type_local: dict[str, np.ndarray] = {}
         per_type_partner_ids: dict[str, int] = {}
 
-        # Get ALL interface types for this molecule type (not just from representative instance)
+        # Get ALL interface types for this molecule type
         mol_interface_types = [it for it in self.system.interface_types if it.this_mol_type_name == mol_type.name]
         
-        # For each interface type, find coordinates from ANY instance that has it
+        # Get all instances of this molecule type
         all_instances = [inst for inst in self.system.molecule_instances if inst.molecule_type and inst.molecule_type.name == mol_type.name]
+
+        # Priority 1: Get coordinates from representative instance (Ensures consistent reference frame)
+        if rep_inst:
+            for iface, partner in rep_inst.interfaces_neighbors_map.items():
+                if iface.interface_type:
+                    tname = iface.interface_type.get_name()
+                    if tname in [it.get_name() for it in mol_interface_types]:
+                        # Only update if not already set (though rep_inst should be primary)
+                        if tname not in per_type_local:
+                            per_type_local[tname] = iface.absolute_coord - rep_inst.com
+                            per_type_partner_ids[tname] = id(partner) if partner else -1
+
+        # Priority 2: Fallback to any instance (Warning: May have inconsistent frame if not aligned)
+        # Only for types missing from representative
+        missing_types = [it.get_name() for it in mol_interface_types if it.get_name() not in per_type_local]
         
-        for itype in mol_interface_types:
-            tname = itype.get_name()
-            # Find first instance that has this interface type
-            found = False
-            for inst in all_instances:
-                for iface, partner in inst.interfaces_neighbors_map.items():
-                    if iface.interface_type and iface.interface_type.get_name() == tname:
-                        # Found it! Use this instance's coordinates
-                        per_type_local[tname] = iface.absolute_coord - inst.com
-                        per_type_partner_ids[tname] = id(partner) if partner else -1
-                        found = True
+        if missing_types:
+            if self.workspace_manager:
+                self.workspace_manager.logger.warning(
+                    "Representative instance %s missing interfaces: %s. Falling back to mixed-frame instances (RISKY).",
+                    id(rep_inst), missing_types
+                )
+            
+            for tname in missing_types:
+                found = False
+                for inst in all_instances:
+                    for iface, partner in inst.interfaces_neighbors_map.items():
+                        if iface.interface_type and iface.interface_type.get_name() == tname:
+                            per_type_local[tname] = iface.absolute_coord - inst.com
+                            per_type_partner_ids[tname] = id(partner) if partner else -1
+                            found = True
+                            break
+                    if found:
                         break
-                if found:
-                    break
 
         if self.workspace_manager:
             self.workspace_manager.logger.info(
@@ -2249,6 +2268,8 @@ class NERDSSExporter:
         """
         Choose the local base normal for a site in the REPRESENTATIVE frame.
         Default [0,0,1] (Z-axis); if collinear with the site's local vector (at rep), use [1,0,0].
+        
+        Reverted to 0.99 to match user manual reference frame behavior.
         """
         n_local = np.array([0.0, 0.0, 1.0], dtype=float)
         p_local = self._rep_local_site_vector(mol_name, site_label)
