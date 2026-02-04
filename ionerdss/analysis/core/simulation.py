@@ -202,7 +202,7 @@ class Simulation:
         if only_count_these is not None:
             if not isinstance(only_count_these,list):
                 only_count_these = [only_count_these]
-            target_sizes = np.array([sum([comp[monomer] for monomer in only_count_these]) for comp in target_comps])
+            target_sizes = np.array([sum([comp[monomer] if monomer in comp else 0 for monomer in only_count_these]) for comp in target_comps])
         else:
             target_sizes = np.array([sum([comp[monomer] for monomer in comp]) for comp in target_comps])
 
