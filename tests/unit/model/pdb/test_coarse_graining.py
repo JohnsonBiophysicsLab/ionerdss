@@ -245,9 +245,10 @@ class TestCoarseGrainer(unittest.TestCase):
             ]
             mock_kdtree_class.return_value = mock_tree
 
-            interface = grainer._detect_interface("A", "B")
+            interfaces = grainer._detect_interface("A", "B")
 
-            self.assertIsNotNone(interface)
+            self.assertTrue(interfaces)
+            interface = interfaces[0]
             self.assertEqual(interface.chain_i, "A")
             self.assertEqual(interface.chain_j, "B")
             self.assertEqual(len(interface.residues_i), 3)  # First 3 residues
@@ -272,9 +273,9 @@ class TestCoarseGrainer(unittest.TestCase):
             ]
             mock_kdtree_class.return_value = mock_tree
 
-            interface = grainer._detect_interface("A", "B")
+            interfaces = grainer._detect_interface("A", "B")
 
-            self.assertIsNone(interface)
+            self.assertEqual(interfaces, [])
 
     def test_detect_interface_empty_coordinates(self):
         """Test _detect_interface with empty coordinates."""
@@ -291,9 +292,9 @@ class TestCoarseGrainer(unittest.TestCase):
             mock_get_data.side_effect = lambda x: empty_chain_data if x == "A" else self.chain_data[
                 x]
 
-            interface = grainer._detect_interface("A", "B")
+            interfaces = grainer._detect_interface("A", "B")
 
-            self.assertIsNone(interface)
+            self.assertEqual(interfaces, [])
 
     def test_build_partner_mapping(self):
         """Test _build_partner_mapping method."""
@@ -349,8 +350,8 @@ class TestCoarseGrainer(unittest.TestCase):
 
                 def detect_side_effect(chain_i, chain_j):
                     if (chain_i, chain_j) == ("A", "B"):
-                        return mock_interface_ab
-                    return None
+                        return [mock_interface_ab]
+                    return []
 
                 mock_detect.side_effect = detect_side_effect
 
@@ -378,8 +379,8 @@ class TestCoarseGrainer(unittest.TestCase):
 
             def detect_side_effect(chain_i, chain_j):
                 if (chain_i, chain_j) == ("A", "B"):
-                    return mock_interface
-                return None
+                    return [mock_interface]
+                return []
 
             mock_detect.side_effect = detect_side_effect
 
@@ -475,7 +476,9 @@ class TestCoarseGrainer(unittest.TestCase):
             ]
             mock_kdtree_class.return_value = mock_tree
 
-            interface = grainer._detect_interface("A", "B")
+            interfaces = grainer._detect_interface("A", "B")
+            self.assertTrue(interfaces)
+            interface = interfaces[0]
 
             # Check that interface coordinates are means of contacting residues
             # Mean of first 3 A coords
@@ -507,8 +510,8 @@ class TestCoarseGrainer(unittest.TestCase):
             ]
             mock_kdtree_class.return_value = mock_tree
 
-            interface = grainer._detect_interface("A", "B")
-            self.assertIsNotNone(interface)
+            interfaces = grainer._detect_interface("A", "B")
+            self.assertTrue(interfaces)
 
             # Test case 2: Below cutoff (should fail)
             mock_tree.query_ball_point.return_value = [
@@ -518,8 +521,8 @@ class TestCoarseGrainer(unittest.TestCase):
                 []          # No contacts
             ]
 
-            interface = grainer._detect_interface("A", "B")
-            self.assertIsNone(interface)
+            interfaces = grainer._detect_interface("A", "B")
+            self.assertEqual(interfaces, [])
 
 
 class TestCoarseGrainerIntegration(unittest.TestCase):
