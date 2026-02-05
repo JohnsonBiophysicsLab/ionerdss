@@ -40,7 +40,7 @@ class TestTransitionProcessing(unittest.TestCase):
             [0, 0, 2]
         ])
         
-        df = trans_proc.compute_size_distribution(matrix)
+        df = trans_proc.compute_size_distribution_transition_matrix(matrix)
         
         self.assertIn('size', df.columns)
         self.assertIn('probability', df.columns)
