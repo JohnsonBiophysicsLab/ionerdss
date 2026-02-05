@@ -29,9 +29,8 @@ class TestPDBModelHyperparameters(unittest.TestCase):
         self.assertEqual(params.signature_precision, 6)
         self.assertEqual(params.homodimer_distance_threshold, 0.5)
         self.assertEqual(params.homodimer_angle_threshold, 0.5)
-        self.assertEqual(params.ring_regularization_mode, "uniform")
-        self.assertEqual(params.ring_geometry, "cylinder")
-        self.assertEqual(params.min_ring_size, 3)
+
+        self.assertEqual(params.is_on_sphere, False)
         self.assertEqual(params.pdb_file_format, "bioassembly1")
 
         # Check that custom_aligner is created
@@ -53,9 +52,8 @@ class TestPDBModelHyperparameters(unittest.TestCase):
             signature_precision=4,
             homodimer_distance_threshold=0.2,
             homodimer_angle_threshold=0.15,
-            ring_regularization_mode="separate",
-            ring_geometry="sphere",
-            min_ring_size=4
+
+            is_on_sphere=True
         )
 
         # Check custom values
@@ -69,9 +67,8 @@ class TestPDBModelHyperparameters(unittest.TestCase):
         self.assertEqual(params.signature_precision, 4)
         self.assertEqual(params.homodimer_distance_threshold, 0.2)
         self.assertEqual(params.homodimer_angle_threshold, 0.15)
-        self.assertEqual(params.ring_regularization_mode, "separate")
-        self.assertEqual(params.ring_geometry, "sphere")
-        self.assertEqual(params.min_ring_size, 4)
+
+        self.assertEqual(params.is_on_sphere, True)
 
     def test_post_init_default_aligner_creation(self):
         """Test that __post_init__ creates default aligner when None provided."""
@@ -137,9 +134,8 @@ class TestPDBModelHyperparameters(unittest.TestCase):
         params.homotypic_detection = "auto"
         params.homotypic_detection_residue_similarity_threshold = 0.7
         params.homotypic_detection_interface_radius = 8.0
-        params.ring_regularization_mode = "uniform"
-        params.ring_geometry = "cylinder"
-        params.min_ring_size = 3
+        params.homotypic_detection_interface_radius = 8.0
+        params.is_on_sphere = False
         params.template_regularization_strength = 0.0
         params.generate_visualizations = True
         params.generate_nerdss_files = True
@@ -419,17 +415,13 @@ class TestPDBModelHyperparameters(unittest.TestCase):
             params = PDBModelHyperparameters(steric_clash_mode=mode)
             self.assertEqual(params.steric_clash_mode, mode)
 
-    def test_ring_regularization_parameters(self):
-        """Test ring regularization parameters."""
+    def test_sphere_regularization_parameters(self):
+        """Test sphere regularization parameters."""
         params = PDBModelHyperparameters(
-            ring_regularization_mode="separate",
-            ring_geometry="sphere",
-            min_ring_size=5
+            is_on_sphere=True
         )
 
-        self.assertEqual(params.ring_regularization_mode, "separate")
-        self.assertEqual(params.ring_geometry, "sphere")
-        self.assertEqual(params.min_ring_size, 5)
+        self.assertEqual(params.is_on_sphere, True)
 
     def test_aligner_parameter_robustness(self):
         """Test robustness of aligner parameter handling."""

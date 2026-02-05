@@ -305,11 +305,13 @@ class TestNERDSSExporterWithMolecules(unittest.TestCase):
         """Test export_all with custom parameters."""
         exporter = NERDSSExporter(self.system, self.workspace_manager)
 
-        output_files = exporter.export_all(
-            molecule_counts={"A": 25},
-            box_nm=(250.0, 250.0, 250.0),
-            parms_overrides={"timestep": 0.5, "nItr": 1e5}
-        )
+        # Mock auto time step calculation to return None, so custom value is used
+        with patch.object(exporter, '_calculate_auto_time_step', return_value=None):
+            output_files = exporter.export_all(
+                molecule_counts={"A": 25},
+                box_nm=(250.0, 250.0, 250.0),
+                parms_overrides={"timestep": 0.5, "nItr": 1e5}
+            )
 
         # Check parms file contains overrides
         parms_content = output_files['parms'].read_text()
