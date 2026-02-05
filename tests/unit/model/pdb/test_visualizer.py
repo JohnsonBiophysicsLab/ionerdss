@@ -337,7 +337,7 @@ class TestPDBVisualizer(unittest.TestCase):
         self.assertIn('load', written_content)
         self.assertIn('pseudoatom', written_content)
         self.assertIn('distance', written_content)
-        self.assertIn('png', written_content)
+        # self.assertIn('png', written_content)  # Deprecated: png generation muted by default
 
     def test_set_equal_aspect_3d(self):
         """Test setting equal aspect ratio for 3D plots."""
