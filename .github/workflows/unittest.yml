@@ -78,9 +78,3 @@ jobs:
           name: junit-${{ matrix.os }}-py${{ matrix.python-version }}
           path: report.xml
 
-      - name: Upload coverage to Codecov
-        if: always()
-        uses: codecov/codecov-action@v5      
-        with:
-          use_oidc: true #required for tokenless apparently
-          fail_ci_if_error: true

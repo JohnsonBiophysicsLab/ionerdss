@@ -4,7 +4,6 @@
 ![PyPI](https://img.shields.io/pypi/v/ioNERDSS.svg)
 ![PyPI - Downloads](https://img.shields.io/pypi/dm/ioNERDSS.svg)
 ![PyPI - Wheel](https://img.shields.io/pypi/wheel/ioNERDSS.svg)
-[![codecov](https://codecov.io/gh/JohnsonBiophysicsLab/ionerdss/graph/badge.svg?token=IUUUOZT0VJ)](https://codecov.io/gh/JohnsonBiophysicsLab/ionerdss)
 
 **ionerdss** is a Python library that provides user‐friendly tools for setting up and analyzing output from the [NERDSS](https://github.com/JohnsonBiophysicsLab/NERDSS) reaction‐diffusion simulator.
 
