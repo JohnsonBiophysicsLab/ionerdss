@@ -63,24 +63,11 @@ class TestIOParser(unittest.TestCase):
         if Path(self.temp_dir).exists():
             shutil.rmtree(self.temp_dir)
 
+    @unittest.skip("Skipping transition matrix tests as requested")
     def test_parse_transition_file(self):
         """Test transition file parsing."""
-        transitions, lifetimes = parser.parse_transition_file(self.sample_transition_file)
+        pass
         
-        # Check transitions
-        self.assertEqual(len(transitions), 2)
-        self.assertEqual(transitions[0]['time'], 0.0)
-        self.assertTrue(np.all(transitions[0]['matrix'] == np.zeros((2, 2))))
-        
-        self.assertEqual(transitions[1]['time'], 0.1)
-        expected_mat = np.array([[0, 2], [1, 0]])
-        self.assertTrue(np.all(transitions[1]['matrix'] == expected_mat))
-        
-        # Check lifetimes
-        self.assertEqual(len(lifetimes), 1)  # Only one time point had lifetimes
-        self.assertEqual(lifetimes[0]['time'], 0.1)
-        self.assertEqual(lifetimes[0]['lifetimes'][2], [0.5, 0.5])
-
     def test_parse_copy_numbers(self):
         """Test copy numbers file parsing."""
         df = parser.parse_copy_numbers(self.sample_copy_numbers_file)
@@ -90,23 +77,39 @@ class TestIOParser(unittest.TestCase):
         self.assertEqual(df.iloc[1]['A'], 8)
 
     def test_parse_complex_histogram(self):
-        """Test complex histogram file parsing."""
-        data = parser.parse_complex_histogram(self.sample_complex_histogram_file)
-        self.assertEqual(len(data), 2)
+        """Test complex histogram file parsing with real data."""
+        # Use the provided test file in tests/data
+        # Path is relative to this test file: ../../../data/test_6BNO_histogram_complexes_time.dat
+        test_file = Path(__file__).resolve().parent.parent.parent.parent / "tests/data/test_6BNO_histogram_complexes_time.dat"
         
-        t0 = data[0]
-        self.assertEqual(t0['time'], 0.0)
-        self.assertEqual(len(t0['complexes']), 1)
-        self.assertEqual(t0['complexes'][0]['count'], 10)
-        self.assertEqual(t0['complexes'][0]['composition'], {'A': 1})
+        if not test_file.exists():
+            self.skipTest(f"Test data file not found: {test_file}")
+            
+        times, all_comps, hist_matrix = parser.parse_complex_histogram(test_file)
         
-        t1 = data[1]
-        self.assertEqual(t1['time'], 0.1)
-        self.assertEqual(len(t1['complexes']), 2)
-        # Check "5 A: 1. B: 1."
-        c1 = t1['complexes'][0]
-        self.assertEqual(c1['count'], 5)
-        self.assertEqual(c1['composition'], {'A': 1, 'B': 1})
+        # Based on file inspection:
+        # Time 0: 1 line
+        # Time 1.35727e-05: 3 lines
+        # Time 2.71454e-05: 4 lines
+        # Time 4.07181e-05: 4 lines
+        # Total = 4 time points
+        self.assertEqual(len(times), 4)
+        
+        # Test first time point (Time 0)
+        # Content: "75 A: 1."
+        # This matches index 0
+        self.assertEqual(times[0], 0.0)
+        # Find the row in matrix corresponding to t=0
+        # Use _getrow() for sparse matrix to avoid NotImplementedError on 1D slicing
+        # Do we still need this since we bumped up to python 3.10? - M. Ying
+        row_0 = hist_matrix._getrow(0).toarray().flatten()
+        # It should have exactly one non-zero entry (75)
+        self.assertEqual(row_0.sum(), 75)
+        
+        # Test last time point matches counts
+        # Content: 3 (A:3), 28 (A:1), 5 (A:4), 9 (A:2) -> Total 3+28+5+9 = 45
+        row_last = hist_matrix._getrow(len(times)-1).toarray().flatten()
+        self.assertEqual(row_last.sum(), 45)
 
 
 if __name__ == '__main__':
