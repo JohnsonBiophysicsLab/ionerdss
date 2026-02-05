@@ -585,14 +585,11 @@ class SystemBuilder:
         # Step 4: Create the final system
         self._create_system()
 
-        # Step 5: Ring regularization (if enabled)
-        if hasattr(self.hyperparams, 'ring_regularization_mode'):
+        # Step 5: Sphere regularization (if enabled)
+        if hasattr(self.hyperparams, 'is_on_sphere') and self.hyperparams.is_on_sphere:
             ring_regularizer = RingRegularizer(
                 system=self.system,
-                workspace_manager=self.workspace_manager,
-                mode=getattr(self.hyperparams,
-                             'ring_regularization_mode', 'off'),
-                geometry=getattr(self.hyperparams, 'ring_geometry', 'cylinder')
+                workspace_manager=self.workspace_manager
             )
             ring_regularizer.regularize()
 

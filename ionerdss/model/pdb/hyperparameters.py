@@ -190,17 +190,9 @@ class PDBModelHyperparameters:
     )
 
     # Ring regularizer parameters
-    ring_regularization_mode: str = field(
-        default="uniform",
-        metadata={"description": "Ring structure regularization mode: 'off' (disabled), 'separate' (individual ring fitting), 'uniform' (single fit for all rings)"}
-    )
-    ring_geometry: str = field(
-        default="cylinder",
-        metadata={"description": "Target geometry for ring regularization: 'cylinder' or 'sphere'"}
-    )
-    min_ring_size: int = field(
-        default=3,
-        metadata={"description": "Minimum number of subunits required to form a ring", "unit": "subunits"}
+    is_on_sphere: bool = field(
+        default=False,
+        metadata={"description": "Project all molecules onto best-fit spheres centered on the most abundant element's center"}
     )
 
     # Chain regularizer parameters
