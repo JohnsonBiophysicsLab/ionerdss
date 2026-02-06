@@ -15,7 +15,7 @@ from ionerdss.model.components.system import System
 def build_system_from_pdb(
     source: str,
     workspace_path: Optional[str] = None,
-    fetch_format: str = 'mmcif',
+    fetch_format: Optional[str] = None,
     molecule_counts: Optional[Dict[str, int]] = None,
     **hyperparams_kwargs
 ) -> System:
@@ -28,7 +28,7 @@ def build_system_from_pdb(
     Args:
         source: PDB ID (e.g., "4v6x") or path to PDB/mmCIF file.
         workspace_path: Workspace directory path. Defaults to "{source}_dir".
-        fetch_format: Format for downloading structures ('pdb' or 'mmcif'). Default 'mmcif'.
+        fetch_format: Format for downloading structures ('pdb' or 'mmcif'). If None, uses hyperparameter default (usually 'bioassembly1').
         molecule_counts: Molecule counts for NERDSS export. Default 10 per type.
         **hyperparams_kwargs: Any PDBModelHyperparameters field as keyword arguments.
             Common options:
