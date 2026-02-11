@@ -82,8 +82,4 @@ cd "$ADFR_DIR"
 echo
 echo "=== ADFRsuite installation complete ==="
 echo "Installed into: $INSTALL_DIR"
-echo
-echo "To use ADFRsuite, add its bin directory to your PATH, e.g.:"
-echo "  export PATH=\"$INSTALL_DIR/bin:\$PATH\""
-echo
-echo "Then you can run commands like: pythonsh, agfr, adfr, autosite, etc."
+echo "This is your ADFR dir."
