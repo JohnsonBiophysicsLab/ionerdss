@@ -25,7 +25,8 @@ classifiers = [
     "Programming Language :: Python :: 3"
 ]
 dependencies = [
-    "numpy",
+    # required for pytorch
+    "numpy<2",
     "pandas",
     "matplotlib",
     "seaborn",
@@ -44,6 +45,20 @@ dependencies = [
 [project.optional-dependencies]
 # Dependencies for running the test suite
 test = ["pytest", "pytest-cov"]
+
+# ProAffinity dependcencies
+proaffinity = [
+  "torch==2.2.2",
+  "torchvision==0.17.2",
+  "torchaudio==2.2.2",
+  "torch_geometric==2.3.0",
+  "scipy>=1.10.1",
+  "scikit-learn>=1.5.0",
+  "transformers==4.38",
+  "tokenizers==0.15.2",
+  "huggingface-hub>=0.33.2",
+  "safetensors>=0.5.3",
+]
 
 # Dependencies for advanced rendering with Ovito
 ovito_rendering = ["ovito", "imageio", "Pillow"]
@@ -70,7 +85,9 @@ all = [
     "ipywidgets",
     # docs dependencies
     "furo",
-    "nbsphinx"
+    "nbsphinx",
+    # proaffinity
+    "ioNERDSS[proaffinity]",
 ]
 
 [tool.setuptools]
