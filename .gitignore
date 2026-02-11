@@ -133,8 +133,22 @@ test_simularium.ipynb
 /7pe2*
 /8y7s*
 /1dlh*
-/5l93*
+#/5l93*
 /8ixa*
+/2ms2*
+/5l93*
+/analysis_5l93*
+/7uhy*
+/8y7s*
+
+#debug txt
+check_path_output.txt
+crash_log.txt
+location.txt
+test_output.txt
+
+#Adfr
+/adfr*
 
 # local verification files
 analyze_filament.py
@@ -152,13 +166,15 @@ repro_serialization.py
 ref_angles.py
 reconstruction_test.py
 verify_angles*
-test.py
+#test.py
 test_simple*
 nerdss_output/
 tutorials/6bno_dir/
 /tutorials/6bno_dir
 tutorials/5l93_dir/
 /tutorials/5l93_dir
+tutorials/8y7s_dir/
+/tutorials/8y7s_dir
 /test_debug
 /4v6x_dir
 /debug_*
