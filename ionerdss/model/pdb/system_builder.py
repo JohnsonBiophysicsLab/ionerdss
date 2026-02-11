@@ -777,7 +777,7 @@ class SystemBuilder:
                 return primary_template
             # 4) last resort: same
             if log:
-                log.warning("Could not find partner template for %s; using same template", primary_name)
+                log.info("No partner template for %s; regarding as homodimeric-homotypic and using same template", primary_name)
             return primary_template
 
         def _lookup_hht_meta_from_catalog(iface_template):

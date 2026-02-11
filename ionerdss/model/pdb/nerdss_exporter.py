@@ -1184,6 +1184,26 @@ class NERDSSExporter:
 
         return site_label
 
+    def _get_required_free_sites(self, mol_name: str, type_name: str) -> List[str]:
+        """Get steric exclusion sites (required free) for a given interface type."""
+        required_sites = []
+        # Find interface type definition
+        interface_type = None
+        for it in self.system.interface_types:
+            if it.this_mol_type_name == mol_name and it.get_name() == type_name:
+                interface_type = it
+                break
+        
+        if interface_type and hasattr(interface_type, 'required_free'):
+            for req_type_name in interface_type.required_free:
+                # Map required interface type to site label
+                if req_type_name in self.interface_to_site_map:
+                    site = self.interface_to_site_map[req_type_name]
+                    if site not in required_sites:
+                        required_sites.append(site)
+        
+        return sorted(required_sites)
+
     def _generate_reactions(self) -> List[str]:
         """Generate BNGL reaction strings with proper handling of failed homotypic interfaces."""
         reactions = []
@@ -1237,12 +1257,23 @@ class NERDSSExporter:
                         if candidate_b in names_set:
                             fb_pairs.append((tname, candidate_b))
                 # For each f/b pair, map type → site and create reactions
+                # For each f/b pair, map type → site and create reactions
                 for t_f, t_b in fb_pairs:
                     sites_f = [s for (k, s) in self.interface_to_site_map.items() if k == t_f]
                     sites_b = [s for (k, s) in self.interface_to_site_map.items() if k == t_b]
+                    
+                    # Get required free sites
+                    rf1 = self._get_required_free_sites(mol1, t_f)
+                    rf2 = self._get_required_free_sites(mol2, t_b)
+                    
+                    # Format requirement strings
+                    req1 = "," + ",".join(rf1) if rf1 else ""
+                    req2 = "," + ",".join(rf2) if rf2 else ""
+
                     for s1 in sites_f:
                         for s2 in sites_b:
-                            reaction = f"{mol1}({s1}) + {mol2}({s2}) <-> {mol1}({s1}!1).{mol2}({s2}!1)"
+                            # Add steric exclusions
+                            reaction = f"{mol1}({s1}{req1}) + {mol2}({s2}{req2}) <-> {mol1}({s1}!1{req1}).{mol2}({s2}!1{req2})"
                             reactions.append(reaction)
                             self.reaction_metadata.append({
                                 'reaction': reaction,
@@ -1258,9 +1289,14 @@ class NERDSSExporter:
                 for type_name in homotypic_types:
                     # Get the site label for this interface type
                     sites = [s for (k, s) in self.interface_to_site_map.items() if k == type_name]
+                    
+                    # Get required free sites (same for both)
+                    rf = self._get_required_free_sites(mol1, type_name)
+                    req = "," + ",".join(rf) if rf else ""
+
                     for site in sites:
                         # Self-binding reaction: same site on both sides
-                        reaction = f"{mol1}({site}) + {mol2}({site}) <-> {mol1}({site}!1).{mol2}({site}!1)"
+                        reaction = f"{mol1}({site}{req}) + {mol2}({site}{req}) <-> {mol1}({site}!1{req}).{mol2}({site}!1{req})"
                         reactions.append(reaction)
                         self.reaction_metadata.append({
                             'reaction': reaction,
@@ -1293,10 +1329,17 @@ class NERDSSExporter:
                             mol2_sites.append(site_label)
                 
                 
+                # Get required free sites
+                rf1 = self._get_required_free_sites(mol1, type_name)
+                rf2 = self._get_required_free_sites(mol2, partner_type_name)
+                
+                req1 = "," + ",".join(rf1) if rf1 else ""
+                req2 = "," + ",".join(rf2) if rf2 else ""
+
                 # Generate all combinations for heterotypic
                 for site1 in mol1_sites:
                     for site2 in mol2_sites:
-                        reaction = f"{mol1}({site1}) + {mol2}({site2}) <-> {mol1}({site1}!1).{mol2}({site2}!1)"
+                        reaction = f"{mol1}({site1}{req1}) + {mol2}({site2}{req2}) <-> {mol1}({site1}!1{req1}).{mol2}({site2}!1{req2})"
                         reactions.append(reaction)
 
                         self.reaction_metadata.append({
@@ -1353,17 +1396,24 @@ class NERDSSExporter:
         angles_list: List[Tuple[float, float, float, float, float]] = []
 
         reaction_re = re.compile(
-            r"^\s*([A-Za-z0-9_]+)\(([A-Za-z0-9_]+)\)\s*\+\s*([A-Za-z0-9_]+)\(([A-Za-z0-9_]+)\)"
+            r"^\s*([A-Za-z0-9_]+)\(([^)]+)\)\s*\+\s*([A-Za-z0-9_]+)\(([^)]+)\)"
         )
 
         for reaction in reactions:
             match = reaction_re.match(reaction)
             if not match:
+                if self.workspace_manager:
+                     self.workspace_manager.logger.warning(f"Reaction regex failed to match: {reaction}")
                 sigma_list.append(1.0)
                 angles_list.append((0.0, 0.0, 0.0, 0.0, 0.0))
                 continue
 
-            mol1, site1, mol2, site2 = match.groups()
+            mol1, site1_full, mol2, site2_full = match.groups()
+            
+            # The site string might contain required_free interfaces (comma-separated)
+            # The binding site is always the first one
+            site1 = site1_full.split(',')[0].strip()
+            site2 = site2_full.split(',')[0].strip()
 
             # Resolve sites to exact interface type names
             type1 = self._site_to_single_interface_type(site1)
@@ -1447,7 +1497,12 @@ class NERDSSExporter:
                 angles_acc.append(angles_i)
 
             # arithmetic for sigma/thetas
-            sigma = float(np.mean(sigmas))
+            sigma_calc = float(np.mean(sigmas))
+            # Clamp sigma to reasonable CG minimum (0.5 nm) to avoid unattainable binding targets
+            
+            if sigma_calc < 0.5:
+                self.workspace_manager.logger.warning("WARNING: small sigma values : %f, set to 0.5; consider increasing binding radius threshold", sigma_calc)
+            sigma = max(sigma_calc, 0.5)
             theta1_vals = [a[0] for a in angles_acc]
             theta2_vals = [a[1] for a in angles_acc]
             theta1 = float(np.mean(theta1_vals))
@@ -1904,8 +1959,6 @@ class NERDSSExporter:
             'restartWrite': 1e5,
             'checkPoint': 1e5,
             'pdbWrite': 1e5,
-            'onRate3Dka': 120.0,  # Default diffusion-limited (nm³/μs)
-            'offRatekb': 8.2,   # Default fallback (s⁻¹)
             'overlapSepLimit': 2.0,
             'scaleMaxDisplace': 100.0,
         }
@@ -1930,9 +1983,6 @@ class NERDSSExporter:
             if 'hyperparams' in safe_overrides:
                 del safe_overrides['hyperparams']
             params.update(safe_overrides)
-            
-        # Update default onRate in params too
-        params['onRate3Dka'] = default_ka_val
 
         # --- Time Step Logic ---
         # 1. Start with default or overridden value (from params)

@@ -1432,6 +1432,10 @@ class TemplateBuilder:
             # HHT path, but now with conforming step inside the helper
             type_name_for_i = self._ensure_hht_canonical_and_assign(interface, template_i, signature)
             interface.interface_type = type_name_for_i
+            
+            # Store mapping
+            self._store_interface_mapping(interface, type_name_for_i)
+
             if self.workspace_manager:
                 self.workspace_manager.logger.info(
                     "HHT: assigned %s to (first) %s after canonicalization; chain ordering is now (%s,%s)",
@@ -1447,6 +1451,10 @@ class TemplateBuilder:
         matching_interface_name = self._find_matching_interface_type(template_i, template_j, signature)
         if matching_interface_name:
             interface.interface_type = matching_interface_name
+            
+            # Store mapping
+            self._store_interface_mapping(interface, matching_interface_name)
+
             if self.workspace_manager:
                 self.workspace_manager.logger.info(
                     "Interface %s <-> %s assigned to existing type: %s",
@@ -1464,6 +1472,9 @@ class TemplateBuilder:
                 interface, new_interface_names, template_i, template_j
             )
             interface.interface_type = interface_type_name
+
+        # Store mapping
+        self._store_interface_mapping(interface, interface.interface_type)
 
 
     def _assign_interface_to_heterotypic_type(self, interface: InterfaceString,
@@ -2549,6 +2560,37 @@ class TemplateBuilder:
         # This is a simplified implementation
         # Full implementation would require detailed Cα clash checking
 
+        # Build a mapping of chain_id -> set of interface types on that chain
+        # This allows us to check if two interface types coexist on any chain in the PDB
+        chain_to_interfaces: Dict[str, Set[str]] = {}
+        
+        if hasattr(self, 'coarse_grainer') and hasattr(self, 'interface_to_type_mapping'):
+            for interface in self.coarse_grainer.interfaces:
+                # Reconstruct keys used in _store_interface_mapping
+                key_i = f"{interface.chain_i}_{interface.chain_j}_{interface.coord_i[0]:.3f}_{interface.coord_i[1]:.3f}_{interface.coord_i[2]:.3f}"
+                key_j = f"{interface.chain_j}_{interface.chain_i}_{interface.coord_j[0]:.3f}_{interface.coord_j[1]:.3f}_{interface.coord_j[2]:.3f}"
+                
+                type_i = self.interface_to_type_mapping.get(key_i)
+                type_j = self.interface_to_type_mapping.get(key_j)
+                
+                if type_i:
+                    if interface.chain_i not in chain_to_interfaces:
+                        chain_to_interfaces[interface.chain_i] = set()
+                    chain_to_interfaces[interface.chain_i].add(type_i)
+                    
+                if type_j:
+                    if interface.chain_j not in chain_to_interfaces:
+                        chain_to_interfaces[interface.chain_j] = set()
+                    chain_to_interfaces[interface.chain_j].add(type_j)
+        
+        # DEBUG: Print chain_to_interfaces stats
+        if hasattr(self, 'workspace_manager') and self.workspace_manager:
+            self.workspace_manager.logger.info(f"DEBUG: chain_to_interfaces populated with {len(chain_to_interfaces)} chains")
+            if len(chain_to_interfaces) > 0:
+                sample_chain = list(chain_to_interfaces.keys())[0]
+                self.workspace_manager.logger.info(f"DEBUG: Sample chain {sample_chain}: {chain_to_interfaces[sample_chain]}")
+            self.workspace_manager.logger.info(f"DEBUG: interface_to_type_mapping size: {len(self.interface_to_type_mapping)}")
+
         for template_name, interface_template in self.interface_templates.items():
             # For each interface, check for potential clashes with other interfaces
             # on the same molecule type
@@ -2562,15 +2604,51 @@ class TemplateBuilder:
                 # Simple distance-based clash detection
                 # (Real implementation would use detailed atomic coordinates)
                 for other_name in other_interfaces:
+                    # Co-occurrence Check
+                    coexists = False
+                    for chain, types in chain_to_interfaces.items():
+                        if template_name in types and other_name in types:
+                            coexists = True
+                            break
+                    
+                    if coexists:
+                        continue  # Skip clash check for compatible interfaces
+
+                    # Geometric Fallback:
+                    # If interfaces are physically distant or on opposite sides, assume compatible
+                    # even if not explicitly co-occurring in a single chain.
                     other_intf = self.interface_templates[other_name]
                     distance = np.linalg.norm(
                         interface_template.local_coord - other_intf.local_coord
                     )
+                    
+                    if distance > 2.5: # 2.5 nm safe distance
+                        continue
+
+                    # Calculate dynamic threshold based on partner radii
+                    threshold = 0.5  # default 0.5 nm threshold
+                    
+                    # Enhance detection for large partners
+                    if interface_template.partner_mol_type_name and other_intf.partner_mol_type_name:
+                        try:
+                            # Get radii of the partners that would bind at these interfaces
+                            r1 = self.molecule_templates[interface_template.partner_mol_type_name].radius_nm
+                            r2 = self.molecule_templates[other_intf.partner_mol_type_name].radius_nm
+                            
+                            # Heuristic: if interfaces are closer than 0.6 * sum of radii
+                            # Reduced from 0.75 to 0.6 to be less aggressive given geometric checks
+                            # Make this a hyperparameter
+                            #threshold = max(0.5, (r1 + r2) * 0.75)
+                            threshold = (r1 + r2) * 1.0
+                        except (KeyError, AttributeError):
+                            pass
 
                     # If interfaces are very close, mark as mutually exclusive
-                    if distance < 0.5:  # 0.5 nm threshold (adjustable)
-                        interface_template.required_free.append(other_name)
-                        other_intf.required_free.append(template_name)
+                    if distance < threshold:
+                        if other_name not in interface_template.required_free:
+                            interface_template.required_free.append(other_name)
+                        if template_name not in other_intf.required_free:
+                            other_intf.required_free.append(template_name)
 
     def get_molecule_templates(self) -> Dict[str, MoleculeType]:
         """Get all molecular templates.
