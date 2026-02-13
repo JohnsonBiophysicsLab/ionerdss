@@ -26,7 +26,7 @@ classifiers = [
 ]
 dependencies = [
     # required for pytorch
-    "numpy<2",
+    "numpy>=1.26.4, <3",
     "pandas",
     "matplotlib",
     "seaborn",
@@ -35,7 +35,7 @@ dependencies = [
     "pyqtgraph",
     "PyOpenGL",
     "biopython",
-    "scipy",
+    "scipy>=1.13.1, <2",
     "scikit-learn",
     "requests",
     "ipympl",
@@ -48,16 +48,18 @@ test = ["pytest", "pytest-cov"]
 
 # ProAffinity dependcencies
 proaffinity = [
+  "numpy==1.26.4",
+  "scipy==1.13.1",
   "torch==2.2.2",
   "torchvision==0.17.2",
   "torchaudio==2.2.2",
   "torch_geometric==2.3.0",
-  "scipy>=1.10.1",
   "scikit-learn>=1.5.0",
   "transformers==4.38",
   "tokenizers==0.15.2",
   "huggingface-hub>=0.33.2",
   "safetensors>=0.5.3",
+  "accelerate>=0.26",
 ]
 
 # Dependencies for advanced rendering with Ovito

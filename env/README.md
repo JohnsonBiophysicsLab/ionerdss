@@ -1,21 +1,17 @@
 
-# Environment Setup
+# Environment Setup for Development
 
-This folder contains configuration files for setting up the Python environment required for this project.
+This folder contains configuration files for setting up the Python environment required for **developing this project**. For users, the dependencies are already installed during `pip install` (encoded in `pyproject.toml`).
 
-## Options
+----
 
-You can set up the environment using either **Conda** or **pip**, depending on your preference.
-
----
-
-## Option 1: Using Conda (`environment.yml`)
+##  Using Conda (`environment.yml`)
 
 This is the recommended method if you have Conda (via [Anaconda](https://www.anaconda.com/) or [Miniconda](https://docs.conda.io/en/latest/miniconda.html)) installed.
 
 ```bash
 # From the project root
-conda env create -f env/environment.yml
+conda env create -f environment.yml
 conda activate ionerdss_env
 ````
 
@@ -25,84 +21,6 @@ To update the environment later if the file changes:
 conda env update -f env/environment.yml --prune
 ```
 
----
-
-## Option 2: Using pip (`requirements.txt`)
-
-This method is useful if you prefer a lightweight virtual environment without Conda.
-
-```bash
-# Create and activate a virtual environment
-python -m venv .venv
-source .venv/bin/activate     # On Windows use: .venv\Scripts\activate
-
-# Install requirements
-pip install -r env/requirements.txt
-```
-
----
-
-## Additional functionalities
-
-### Automatic Reaction System Generation and ODE / Gillespie Solver
-
-With `conda`:
-
-```bash
-conda env update -f env/environment-ode.yml --prune
-```
-
-With `pip`: 
-
-```bash
-# Create and activate a virtual environment
-python -m venv .venv
-source .venv/bin/activate     # On Windows use: .venv\Scripts\activate
-
-# Install requirements
-pip install -r env/requirements-ode.txt
-```
-
----
-
-### Enable all optional functionalities
-
-Install all dependencies for all optional functionalities. Use this version if you would like to run `pytest` for the whole repository.
-
-With `conda`:
-
-```bash
-conda env update -f env/environment-full.yml --prune
-```
-
-With `pip`: 
-
-```bash
-# Create and activate a virtual environment
-python -m venv .venv
-source .venv/bin/activate     # On Windows use: .venv\Scripts\activate
-
-# Install requirements
-pip install -r env/requirements-full.txt
-```
-
----
-
-## Files in this folder
-
-* `environment.yml` — full Conda environment specification (Python version, dependencies, pip fallback).
-* `requirements.txt` — pip-compatible list of required packages.
-
----
-
-## Notes
-
-* Be sure to activate your environment before running any scripts or launching notebooks.
-* Jupyter users: the Conda environment includes `ipykernel` so you can run notebooks under this environment.
-
-```bash
-python -m ipykernel install --user --name ionerdss_env --display-name "Python (ionerdss_env)"
-```
 
 ---
 
