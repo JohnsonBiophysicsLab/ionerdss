@@ -27,6 +27,36 @@ from .platonic_solids.solids import (
     PlatonicSolidGenerator
 )
 
+def build_system_from_plat(solid_type: str, radius: float, sigma: float, output_nerdss = True, output_dir="DEFAULT") -> Tuple[System, List[ReactionRule]]:
+    """
+    Build a System containing the Platonic solid definition and its reactions. Default to also outpt nerdss files in a default directory
+
+    Args:
+        solid_type (str): The platonic solid type ["cube", "dode", "icos", "octa", "tetr"]
+        radius (float): The radius of the circumscribed sphere (nm)
+        sigma (float): Distance between two binding sites (nm)
+        output_nerdss (bool): Whether to output nerdss files
+        output_dir (str): The directory to output nerdss files to; "DEFAULT" will use the default directory, which is {solid_type}_dir
+
+    Returns:
+        Tuple[System, List[ReactionRule]]: A tuple containing:
+            - A System object populated with the MoleculeType and InterfaceTypes
+            - A list of ReactionRule objects defining the binding interactions
+    """
+    # create a platonic solid
+    system, reactions = PlatonicSolidsModel.create_solid(solid_type = solid_type, 
+                                                            radius = radius,
+                                                            sigma = sigma)
+    
+    # output nerdss simulation files if prompted
+    if output_nerdss:
+        if output_dir == "DEFAULT":
+            output_dir = f"./{solid_type}_dir"
+        
+        PlatonicSolidsModel.export_nerdss(system, output_path=output_dir, reactions=reactions)
+    
+    return system, reactions
+
 class PlatonicSolidsModel:
     """A class for generating NERDSS molecule types and reactions for platonic solids."""
     
@@ -96,46 +126,12 @@ class PlatonicSolidsModel:
         system.molecule_types.add(mol_type)
 
         # 4. Create InterfaceTypes and add to System
-        # COM is treated as center of system/molecule? 
-        # In this context, the entire solid is ONE particle in NERDSS if coarse-grained?
-        # NO. Platonic solids simulation treats FACES as particles usually?
-        # "dode_face_write" suggests we are simulating FACES as individual rigid bodies that assemble into the solid.
-        # "create_Solid" implies creating a model OF THE SOLID.
-        # But if we return one MoleculeType "cube" with 4 binding sites... that implies the Cube is ONE particle?
-        # BUT `cube` MoleculeType has `radius` of the circumscribed sphere.
-        # If the Cube is the particle, why do we need reaction angles between faces?
-        # Standard NERDSS: "Patchy particles".
-        # Yes, here 'cube' likely represents a single CUBE PARTICLE that binds to OTHER CUBE PARTICLES?
-        # OR does 'cube' represent a SQUARE FACE that binds to form a cube? (Self-assembly of faces into solid).
-        # "dode(lg1) + dode(lg1) <-> ..."
-        # If it's self-assembly, then `MoleculeType` should be "Face".
-        # But the name is `solid_type` ("cube").
-        # If `num_sites=4` (legs of square face), then "cube" IS the face.
-        # The naming is confusing: "cube" = "Square Face used to build a Cube".
-        # "dode" = "Pentagon Face used to build a Dodecahedron".
-        # This aligns with `num_sites` (4 for cube face, 5 for dode face).
-        # So `com` calculated (Face COM) is the center of the particle.
-        # And `legs` are the binding sites on the edges of the face.
-        # `normal` is the orientation vector.
-        
-        # So for MoleculeType creation:
-        # local_coord of interface = leg_coord - com.
-        # Since `com` is the origin of the face particle essentially (or we define it so).
-        # Actually `com` calculated by `generate_coordinates` is the position of the face in the assembled solid (relative to solid center).
-        # But for the `MoleculeType` definition of a single free face, we want coordinates relative to the face center!
-        # If `com` is [x,y,z], and `leg` is [lx, ly, lz].
-        # Relative coord `leg - com` is correct for defining the reusable Face Template.
         
         interface_objects = []
         
         for i, leg_coord in enumerate(legs):
             index = i + 1
             local_coord = np.array(leg_coord) - np.array(com)
-            
-            # Absolute coord in the template definition is usually just the local coord if COM is origin.
-            # `InterfaceType` constructor takes `absolute_coord` and `local_coord`. 
-            # In `types.py`: local_coord = relative to COM. absolute_coord = global? 
-            # But in a Type definition, global doesn't exist. Usually absolute=local for Type.
             
             interface = InterfaceType(
                 this_mol_type_name=solid_type,
@@ -152,16 +148,6 @@ class PlatonicSolidsModel:
             interface_objects.append(interface)
 
         # 5. Create Molecule Instance
-        # Create a single instance at the origin (or COM relative to origin)
-        # We use standard basis vectors for ref1/ref2, assuming norm is reasonably aligned or handled
-        # But wait, norm is arbitrary. Ideally ref1 should be orthogonal to norm.
-        # Simple hack: use exporter's helper or just numpy if easy.
-        # Let's try to be simple: if norm is Z, ref1 is X.
-        # But we don't know norm.
-        # However, for a single instance in a model definition, orientation doesn't matter much 
-        # provided it's consistent.
-        # Let's just create one instance "structurally".
-        # Normal is face normal.
         
         mol_instance = MoleculeInstance(
             name=f"{solid_type}_0",

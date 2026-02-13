@@ -36,6 +36,7 @@ import importlib as _importlib
 submodules = {
     'System': ['.model.components.system', 'System'],
     'platonic_solid_generator': ['.model.PlatonicSolids', 'PlatonicSolidsModel'],
+    'build_system_from_plat': ['.model.PlatonicSolids', 'build_system_from_plat'],
     'convert_simularium': ['.simularium_converter.simularium_converter', 'convert_simularium'],
     'Simulation': ['.nerdss_simulation', 'Simulation'],
     'Analyzer': ['.analysis', 'Analyzer'],
