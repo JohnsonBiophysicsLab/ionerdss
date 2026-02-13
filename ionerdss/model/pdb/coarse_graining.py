@@ -127,6 +127,7 @@ InterfaceString objects are stored separately and accessed through helper method
 
 from typing import Any, Dict, List, Tuple, Set, Optional
 from dataclasses import dataclass
+import logging
 
 import numpy as np
 from scipy.spatial import KDTree
@@ -135,6 +136,7 @@ from scipy.cluster.hierarchy import fcluster, linkage
 from .hyperparameters import PDBModelHyperparameters
 from .parser import PDBParser
 
+logger = logging.getLogger(__name__)
 
 @dataclass
 class ResidueInfo:
@@ -720,16 +722,16 @@ class CoarseGrainer:
                 'chains': f"{interface.chain_i},{interface.chain_j}",
                 'interface': interface  # Store reference to update later
             })
-        
-        print("\n" + "="*80)
-        print("NOTE: Using ProAffinity-GNN for binding energy prediction")
-        print("="*80)
-        print("This is an easy-to-use version that skips sequence alignment with")
-        print("canonical FASTA sequences. For better accuracy and advanced options,")
-        print("please visit: https://github.com/legendzzy/ProAffinity-GNN")
-        print("="*80 + "\n")
-        print(f"Predicting energies for {len(affinity_prediction_pairs)} interfaces...")
-        print("="*80 + "\n")
+        logger.warning("NOTE: Using ProAffinity-GNN without FASTA sequences for binding energy prediction. ")
+        logger.info("\n" + "="*80)
+        logger.info("NOTE: Using ProAffinity-GNN for binding energy prediction")
+        logger.info("="*80)
+        logger.info("This is an easy-to-use version that skips sequence alignment with")
+        logger.info("canonical FASTA sequences. For better accuracy and advanced options,")
+        logger.info("please visit: https://github.com/legendzzy/ProAffinity-GNN")
+        logger.info("="*80 + "\n")
+        logger.info(f"Predicting energies for {len(affinity_prediction_pairs)} interfaces...")
+        logger.info("="*80 + "\n")
         
         try:
             # Import here to avoid dependency issues if not used
@@ -750,14 +752,14 @@ class CoarseGrainer:
                     R = 0.008314  # kJ/(mol·K)
                     T = 298.0
                     interface.energy = -16 * R * T  # -16RT
-                    print(f"Warning: ProAffinity prediction failed for {interface.chain_i}-{interface.chain_j}, using default energy")
+                    logger.error(f"ProAffinity prediction failed for {interface.chain_i}-{interface.chain_j}, using default energy")
                 else:
                     interface.energy = binding_energy
-                    print(f"Predicted energy for {interface.chain_i}-{interface.chain_j}: {binding_energy:.2f} kJ/mol")
+                    logger.info(f"Predicted energy for {interface.chain_i}-{interface.chain_j}: {binding_energy:.2f} kJ/mol")
                     
         except Exception as e:
-            print(f"Warning: Batch affinity prediction failed: {e}")
-            print("Using default energies for all interfaces")
+            logger.error(f"Batch affinity prediction failed: {e}")
+            logger.error("Using default energies for all interfaces")
             # Set default energies
             R = 0.008314
             T = 298.0
