@@ -407,12 +407,13 @@ def load_esm2_model(use_cache=True):
             # Load model with explicit CPU device and low memory usage
             model = EsmModel.from_pretrained(
                 "facebook/esm2_t33_650M_UR50D",
-                torch_dtype=torch.float32,
-                low_cpu_mem_usage=True
+                torch_dtype=torch.float32
+                #low_cpu_mem_usage=False
+                #device_map="cpu",
             )
             
-            # Ensure model is on CPU
-            model = model.to('cpu')
+            # Ensure model is on CPU?
+            # model = model.to('cpu')
         
         model.eval()
         torch.set_grad_enabled(False)
