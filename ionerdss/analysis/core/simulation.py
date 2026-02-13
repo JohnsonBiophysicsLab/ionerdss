@@ -142,13 +142,13 @@ class Simulation:
                     comp_dict[match.group(1)] = int(match.group(2))
                 try:
                     comp_ind = self.data.hist_comps.index(comp_dict)
-                    complex_ts[i,:] = self.data.hist_matrix[:,comp_ind].toarray().ravel()
+                    complex_ts[i,:] = self.data.hist_matrix[:,[comp_ind]].toarray().ravel()
                 except ValueError:
                     logger.error(f"Complex {comp} not found in histogram data for simulation {self.id}")
             elif isinstance(comp, dict):
                 try:
                     comp_ind = self.data.hist_comps.index(comp)
-                    complex_ts[i,:] = self.data.hist_matrix[:,comp_ind].toarray().ravel()
+                    complex_ts[i,:] = self.data.hist_matrix[:,[comp_ind]].toarray().ravel()
                 except ValueError:
                     logger.error(f"Complex {comp} not found in histogram data for simulation {self.id}")
             else:
