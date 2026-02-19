@@ -1498,11 +1498,12 @@ class NERDSSExporter:
 
             # arithmetic for sigma/thetas
             sigma_calc = float(np.mean(sigmas))
-            # Clamp sigma to reasonable CG minimum (0.5 nm) to avoid unattainable binding targets
+            
+            # send out a warning for small sigma
             
             if sigma_calc < 0.5:
-                self.workspace_manager.logger.warning("WARNING: small sigma values : %f, set to 0.5; consider increasing binding radius threshold", sigma_calc)
-            sigma = max(sigma_calc, 0.5)
+                self.workspace_manager.logger.warning("WARNING: small sigma values : %f; consider increasing binding radius threshold", sigma_calc)
+            #sigma = max(sigma_calc, 0.5)
             theta1_vals = [a[0] for a in angles_acc]
             theta2_vals = [a[1] for a in angles_acc]
             theta1 = float(np.mean(theta1_vals))
