@@ -42,10 +42,10 @@ tar -xzvf ADFRsuite_x86_64Linux_1.0.tar.gz
 cd ADFRsuite_x86_64Linux_1.0
 ./install.sh
 
-## If you are on a mac, you can use the following command to install ADFR:
+## If you are on a mac, you can use the following command to install ADFR to bypass macOS marking python2 as "untrusted developer":
 
-chmod +x ./examples/install_ADFR.sh
-./examples/install_ADFR.sh
+chmod +x ./examples/install_ADFR_mac.sh
+./examples/install_ADFR_mac.sh
 
 # Set ADFR_PATH environment variable
 # A script cannot permanently modify your shell’s PATH just by echoing export PATH=... inside itself
@@ -55,11 +55,13 @@ export ADFR_PATH="/path/to/ADFRsuite/bin/prepare_receptor"
 
 ### Python Dependencies
 
+It is suggested that the user create a new environment separately because the version with proaffinity enabled uses an earlier version of `numpy` and `scipy`.
+
 ```bash
-pip install torch torch_geometric transformers
+pip install "ionerdss[proaffinity]"
 ```
 
-See `ionerdss/model/proaffinity_requirements.txt` for specific versions.
+See `pyproject.toml` for specific information about dependencies and their versions.
 
 ## Energy Values
 
@@ -86,27 +88,11 @@ The system automatically falls back to default energy if:
 
 ## Performance Notes
 
-- ProAffinity prediction adds ~10-30 seconds per interface
+- ProAffinity prediction adds ~30-90 seconds per interface (hardware dependent)
 - Only runs for valid interfaces (residue_cutoff threshold met)
 - Predictions are cached during the same `coarse_grain()` call
 
-## Advanced Usage
-
-### Using Pre-downloaded PDB Files
-
-```python
-from ionerdss.model.proaffinity_predictor import predict_proaffinity_binding_energy_from_file
-
-energy = predict_proaffinity_binding_energy_from_file(
-    pdb_file='./structures/8erq.pdb',
-    chains='A,B',
-    adfr_path='/path/to/prepare_receptor',
-    verbose=True
-)
-print(f"Binding energy: {energy:.2f} kJ/mol")
-```
-
-### Custom Temperature
+## Custom Temperature
 
 ProAffinity model returns K_d, converted to ΔG using:
 
@@ -124,15 +110,10 @@ Set the `adfr_path` parameter or `ADFR_PATH` environment variable.
 ### "ProAffinity prediction failed"
 Check that:
 1. ADFR tools are installed and accessible
-2. PDB file contains both specified chains
+2. PDB file contains the specified chains
 3. Chains have sufficient interface residues
-
-### Import errors
-Ensure ProAffinity dependencies are installed:
-```bash
-pip install -r ionerdss/model/proaffinity_requirements.txt
-```
 
 ## References
 
-ProAffinity-GNN uses ESM2 protein language model embeddings and graph neural networks to predict binding affinities. See the original ProAffinity paper for methodology details.
+Zhiyuan Zhou, Yueming Yin, Hao Han, Yiping Jia, Jun Hong Koh, Adams Wai-Kin Kong, Yuguang Mu. ProAffinity-GNN: A Novel Approach to Structure-Based Protein–Protein Binding Affinity Prediction via a Curated Data Set and Graph Neural Networks. J. Chem. Inf. Model. 2024, 64, 23, 8796–8808. https://doi.org/10.1021/acs.jcim.4c01850
+
