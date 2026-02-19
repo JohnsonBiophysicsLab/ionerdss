@@ -248,7 +248,7 @@ def generate_ode_model_from_system(
     if len(G_full.nodes) > max_complex_size:
         raise ValueError(
             f"Assembly has {len(G_full.nodes)} molecules, exceeding max_complex_size ({max_complex_size}). "
-            f"Skipping ODE generation. Increase max_complex_size parameter if you want to force calculation."
+            f"Skipping ODE generation. Increase max_complex_size parameter if you want to force calculation (RISKY)."
         )
     
     # Step 2: Generate all unique fully connected subgraphs (species)

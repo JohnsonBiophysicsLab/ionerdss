@@ -383,7 +383,7 @@ class PDBModelBuilder:
                             
                 except Exception as ode_error:
                     self.workspace_manager.logger.warning(
-                        "ODE pipeline failed (continuing with normal workflow): %s", str(ode_error))
+                        "ODE pipeline skipped (continuing with normal workflow): %s", str(ode_error))
                     import traceback
                     self.workspace_manager.logger.debug(traceback.format_exc())
 
