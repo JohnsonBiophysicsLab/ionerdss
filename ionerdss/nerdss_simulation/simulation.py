@@ -6,53 +6,25 @@ import json
 from typing import Dict, Any, List
 import time
 import glob
-from ..model.components.system import System
 from ..util import strip_comment
 
 class Simulation:
     """Class for handling NERDSS simulation configurations and running simulations.
 
     Attributes:
-        model (System): The system model associated with the simulation.
         work_dir (str): The working directory for the simulation.
     """
     
-    def __init__(self, *args) -> None:
+    def __init__(self, work_dir: str) -> None:
         """Initializes the Simulation class.
         
-        This constructor accepts either one or two arguments to provide flexibility
-        in initialization. 
-        
         Args:
-            *args: Variable arguments that can be:
-                - Single argument: work_dir (str) - Working directory path only
-                - Two arguments: model (System), work_dir (str) - Model and directory
-        
-        Raises:
-            ValueError: If number of arguments is not 1 or 2
+            work_dir (str): The working directory for the simulation.
         
         Examples:
-            # Initialize with work directory only
             sim = Simulation("~/my_simulation")
-            
-            # Initialize with model and work directory
-            sim = Simulation(my_model, "/path/to/workdir")
         """
         
-        # Parse arguments based on count
-        if len(args) == 1:
-            # Single argument: work_dir only, no model provided
-            model = None
-            work_dir:str = args[0]
-        elif len(args) == 2:
-            # Two arguments: model and work_dir
-            model:System = args[0]
-            work_dir:str = args[1]
-        else:
-            # Invalid number of arguments
-            raise ValueError("Simulation() accepts 1 or 2 arguments only. "
-                            "Expected: (work_dir) or (model, work_dir)")
-
         # Expand user home directory if path starts with ~
         if work_dir.startswith("~"):
             work_dir = os.path.expanduser(work_dir)
@@ -64,101 +36,9 @@ class Simulation:
         os.makedirs(self.work_dir, exist_ok=True)
         print(f"Working directory set to: {self.work_dir}")
 
-        # Store the model (could be None if not provided)
-        self.model = model
-
         self.parmfile = 'parms.inp'
         self.coordinatefile = 'fixCoordinates.pdb'
-        
-        # Generate default NERDSS input if no model was provided
-        if isinstance(self.model, System):
-            # Model not provided, generate default configuration
-            self.generate_nerdss_input()
 
-    def generate_nerdss_input(self) -> None:
-        """Generates the NERDSS input files based on the model."""
-        # create a directory `nerdss_input` in the working directory
-        input_dir = os.path.join(self.work_dir, "nerdss_input")
-        os.makedirs(input_dir, exist_ok=True)
-
-        # remove existing files and folders in the input directory
-        for filename in os.listdir(input_dir):
-            file_path = os.path.join(input_dir, filename)
-            if os.path.isfile(file_path):
-                os.remove(file_path)
-            elif os.path.isdir(file_path):
-                os.rmdir(file_path)
-
-        for mol in self.model.molecule_types:
-            mol_file = os.path.join(input_dir, f"{mol.name}.mol")
-            d = mol.diffusion_translation
-            dr = mol.diffusion_rotation
-            with open(mol_file, "w") as f:
-                f.write(f"Name = {mol.name}\n")
-                f.write("isLipid = false\n")
-                f.write("isImplicitLipid = false\n")
-                f.write("checkOverlap = true\n")
-                f.write("countTransition = false\n")
-                f.write("transitionMatrixSize = 500\n")
-                f.write("insideCompartment = false\n")
-                f.write("outsideCompartment = false\n")
-                f.write("mass = 1.0\n")
-                f.write("\n")
-                f.write(f"D = [{d}, {d}, {d}]\n\n")
-                f.write(f"Dr = [{dr}, {dr}, {dr}]\n\n")
-
-                f.write("COM\t0.0000\t0.0000\t0.0000\n")
-                
-                for iface in mol.interfaces:
-                    f.write(f"{iface.name}\t{iface.coord.x / 10:.6f}\t{iface.coord.y / 10:.6f}\t{iface.coord.z / 10:.6f}\n")
-                
-                f.write("\nbonds = {}\n".format(len(mol.interfaces)))
-                for iface in mol.interfaces:
-                    f.write(f"com {iface.name}\n")
-
-        inp_file = os.path.join(self.work_dir, "nerdss_input", self.parmfile)
-        with open(inp_file, "w") as f:
-            f.write("start parameters\n")
-            f.write("\tnItr = 1000000\n")
-            f.write("\ttimeStep = 0.1\n")
-            f.write("\ttimeWrite = 10000\n")
-            f.write("\ttrajWrite = 100000\n")
-            f.write("\tpdbWrite = 100000\n")
-            f.write("\trestartWrite = 100000\n")
-            f.write("\tcheckPoint = 100000\n")
-            f.write("\ttransitionWrite = 100000\n")
-            f.write("\tclusterOverlapCheck = false\n")
-            f.write("\tscaleMaxDisplace = 100.0\n")
-            f.write("\toverlapSepLimit = 0.1\n")
-            f.write("end parameters\n\n")
-
-            f.write("start boundaries\n")
-            f.write("\tWaterBox = [1000.0, 1000.0, 1000.0]\n")
-            f.write("\thasCompartment = false\n")
-            f.write("\tcompartmentR = 0\n")
-            f.write("\tcompartmentSiteD = 0\n")
-            f.write("\tcompartmentSiteRho = 0\n")
-            f.write("end boundaries\n\n")
-
-            f.write("start molecules\n")
-            for mol in self.model.molecule_types:
-                f.write(f"\t{mol.name} : 100\n")
-            f.write("end molecules\n\n")
-
-            f.write("start reactions\n")
-            for reaction in self.model.reactions:
-                f.write(f"\t{reaction.name}\n")
-                f.write(f"\t\tonRate3Dka = {reaction.ka}\n")
-                f.write(f"\t\toffRatekb = {reaction.kb}\n")
-                f.write(f"\t\tsigma = {reaction.binding_radius}\n")
-                f.write(f"\t\tnorm1 = {list(reaction.norm1)}\n")
-                f.write(f"\t\tnorm2 = {list(reaction.norm2)}\n")
-                f.write(f"\t\tassocAngles = [{', '.join(map(str, reaction.binding_angles))}]\n")
-                f.write("\t\tlength3Dto2D = 2.0\n")
-                f.write("\t\tbindRadSameCom = 1.5\n")
-                f.write("\t\tloopCoopFactor = 1.0\n")
-                f.write("\t\texcludeVolumeBound = False\n\n")
-            f.write("end reactions\n")
 
     def modify_mol_file(self, mol_name: str, modifications: Dict[str, Any]) -> None:
         """Modifies the parameters of an existing .mol file.
