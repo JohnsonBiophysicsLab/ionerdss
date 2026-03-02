@@ -6,14 +6,14 @@ import json
 from typing import Dict, Any, List
 import time
 import glob
-from ..model.components import Model
+from ..model.components.system import System
 from ..util import strip_comment
 
 class Simulation:
     """Class for handling NERDSS simulation configurations and running simulations.
 
     Attributes:
-        model (Model): The model associated with the simulation.
+        model (System): The system model associated with the simulation.
         work_dir (str): The working directory for the simulation.
     """
     
@@ -26,7 +26,7 @@ class Simulation:
         Args:
             *args: Variable arguments that can be:
                 - Single argument: work_dir (str) - Working directory path only
-                - Two arguments: model (Model), work_dir (str) - Model and directory
+                - Two arguments: model (System), work_dir (str) - Model and directory
         
         Raises:
             ValueError: If number of arguments is not 1 or 2
@@ -46,7 +46,7 @@ class Simulation:
             work_dir:str = args[0]
         elif len(args) == 2:
             # Two arguments: model and work_dir
-            model:Model = args[0]
+            model:System = args[0]
             work_dir:str = args[1]
         else:
             # Invalid number of arguments
@@ -71,7 +71,7 @@ class Simulation:
         self.coordinatefile = 'fixCoordinates.pdb'
         
         # Generate default NERDSS input if no model was provided
-        if isinstance(self.model, Model):
+        if isinstance(self.model, System):
             # Model not provided, generate default configuration
             self.generate_nerdss_input()
 
