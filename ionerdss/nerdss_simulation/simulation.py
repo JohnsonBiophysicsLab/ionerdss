@@ -50,11 +50,10 @@ class Simulation:
         Raises:
             FileNotFoundError: If the specified molecule file does not exist.
         """
-        input_dir = os.path.join(self.work_dir, "nerdss_input")
-        mol_file = os.path.join(input_dir, f"{mol_name}.mol")
+        mol_file = os.path.join(self.work_dir, f"{mol_name}.mol")
         
         if not os.path.exists(mol_file):
-            available_mols = [f.split(".mol")[0] for f in os.listdir(input_dir) if f.endswith(".mol")]
+            available_mols = [f.split(".mol")[0] for f in os.listdir(self.work_dir) if f.endswith(".mol")]
             raise FileNotFoundError(f"Molecule '{mol_name}' not found. Available molecules: {', '.join(available_mols)}")
         
         with open(mol_file, "r") as f:
@@ -80,7 +79,7 @@ class Simulation:
         """
         if filename.strip() not in ["parms.inp", ""]:
             self.parmfile = filename
-        inp_file = os.path.join(self.work_dir, "nerdss_input", self.parmfile)
+        inp_file = os.path.join(self.work_dir, self.parmfile)
         
         if not os.path.exists(inp_file):
             raise FileNotFoundError(f"{filename} file not found.")
@@ -108,10 +107,10 @@ class Simulation:
             if stripped_line.startswith("end boundaries"):
                 in_boundaries_section = False
                 
-                if "isSphere" in modifications and "sphereR" in modifications:
+                if "isSphere" in modifications and "sphereR" in modifications and not waterbox_removed:
                     modified_lines.append(f"\tisSphere = {modifications['isSphere']}\n")
                     modified_lines.append(f"\tsphereR = {modifications['sphereR']}\n")
-                elif "WaterBox" in modifications:
+                elif "WaterBox" in modifications and sphere_removed:
                     modified_lines.append(f"\tWaterBox = {modifications['WaterBox']}\n")
                 
                 modified_lines.append(line)
@@ -146,9 +145,14 @@ class Simulation:
             if in_molecules_section and ":" in stripped_line:
                 mol_name, count = map(str.strip, stripped_line.split(":"))
                 molecule_types.append(mol_name)
-                if mol_name in modifications:
-                    modified_lines.append(f"\t{mol_name} : {modifications[mol_name]}\n")
-                else:
+                # match loosely or exactly
+                found = False
+                for mod_key in modifications:
+                    if mol_name.lower() == mod_key.lower():
+                        modified_lines.append(f"\t{mol_name} : {modifications[mod_key]}\n")
+                        found = True
+                        break
+                if not found:
                     modified_lines.append(line)
                 continue
 
@@ -164,9 +168,14 @@ class Simulation:
                         continue
             
             key = stripped_line.split("=")[0].strip()
-            if key in modifications:
-                modified_lines.append(f"\t{key} = {modifications[key]}\n")
-            else:
+            # Match strictly or case insensitively where appropriate
+            matched = False
+            for mod_key, mod_val in modifications.items():
+                if key.lower() == mod_key.lower():
+                    modified_lines.append(f"\t{key} = {mod_val}\n")
+                    matched = True
+                    break
+            if not matched:
                 modified_lines.append(line)
         
         with open(inp_file, "w") as f:
@@ -187,11 +196,10 @@ class Simulation:
         if not states or any(len(state) != 1 for state in states):
             raise ValueError("States must be single-character values.")
 
-        input_dir = os.path.join(self.work_dir, "nerdss_input")
-        mol_file = os.path.join(input_dir, f"{mol_name}.mol")
+        mol_file = os.path.join(self.work_dir, f"{mol_name}.mol")
         
         if not os.path.exists(mol_file):
-            available_mols = [f.split(".mol")[0] for f in os.listdir(input_dir) if f.endswith(".mol")]
+            available_mols = [f.split(".mol")[0] for f in os.listdir(self.work_dir) if f.endswith(".mol")]
             raise FileNotFoundError(f"Molecule '{mol_name}' not found. Available molecules: {', '.join(available_mols)}")
         
         with open(mol_file, "a") as f:
@@ -207,11 +215,10 @@ class Simulation:
         Raises:
             FileNotFoundError: If the specified molecule file does not exist.
         """
-        input_dir = os.path.join(self.work_dir, "nerdss_input")
-        mol_file = os.path.join(input_dir, f"{mol_name}.mol")
+        mol_file = os.path.join(self.work_dir, f"{mol_name}.mol")
         
         if not os.path.exists(mol_file):
-            available_mols = [f.split(".mol")[0] for f in os.listdir(input_dir) if f.endswith(".mol")]
+            available_mols = [f.split(".mol")[0] for f in os.listdir(self.work_dir) if f.endswith(".mol")]
             raise FileNotFoundError(f"Molecule '{mol_name}' not found. Available molecules: {', '.join(available_mols)}")
         
         with open(mol_file, "r") as f:
@@ -229,7 +236,7 @@ class Simulation:
         if file_name.strip() not in ["parms.inp", ""]:
             self.parmfile = file_name
 
-        inp_file = os.path.join(self.work_dir, "nerdss_input", self.parmfile)
+        inp_file = os.path.join(self.work_dir, self.parmfile)
         
         if not os.path.exists(inp_file):
             print(f"{self.parmfile} file not found.")
@@ -360,8 +367,7 @@ class Simulation:
         if not os.path.exists(nerdss_exec):
             raise FileNotFoundError(f"NERDSS executable not found at {nerdss_exec}. Make sure it is installed and compiled.")
         
-        input_dir = os.path.join(self.work_dir, "nerdss_input")
-        parms_file = os.path.join(input_dir, self.parmfile)
+        parms_file = os.path.join(self.work_dir, self.parmfile)
         
         if not os.path.exists(parms_file):
             raise FileNotFoundError(f"NERDSS input file not found: {parms_file}")
@@ -376,8 +382,10 @@ class Simulation:
             sim_subdir = os.path.join(sim_dir, f"{index}")
             os.makedirs(sim_subdir, exist_ok=True)
             
-            for file in os.listdir(input_dir):
-                shutil.copy(os.path.join(input_dir, file), sim_subdir)
+            # Copy all files from work_dir to sim_subdir that end in .inp, .mol or .pdb over.
+            for file in os.listdir(self.work_dir):
+                if file.endswith('.inp') or file.endswith('.mol') or file.endswith('.pdb'):
+                    shutil.copy(os.path.join(self.work_dir, file), sim_subdir)
             shutil.copy(nerdss_exec, sim_subdir)
             
             output_log = os.path.join(sim_subdir, "output.log")
@@ -724,19 +732,29 @@ class Simulation:
             in_rel = False
         for line in lines:
             line = line.strip()
-            if line.startswith("Name"):
-                in_rel = True
-                continue
+            
+            # Remove comments
+            if '#' in line:
+                line = line.split('#')[0].strip()
+                
             if len(line.split()) == 0: #skip empty lines
                 continue
+                
+            if line.startswith("Name"):
+                in_rel = True
+            
             if line.startswith("COM"):
                 in_rel = False
                 continue
+                
             if in_rel == True:
-                if len((line.split()[2:])) > 2:
-                        mol[line.split()[0]] = [float(x) for x in line.replace("[","").replace(",", "").replace(']',"").split()[2:]]
-                        continue
-                mol[line.split()[0]] = line.split()[2]
+                parts = line.split()
+                if len(parts) >= 3 and parts[1] == "=":
+                    key = parts[0]
+                    if len(parts[2:]) > 1 or "[" in line:
+                         mol[key] = [float(x) for x in line.split("=", 1)[1].replace("[","").replace(",", "").replace(']',"").split()]
+                    else:
+                         mol[key] = parts[2]
             
         print(("The following lines can be used to access your mol information. Copy and paste this output into your code to modify the .mol file"))
         self._print_dict(mol)
