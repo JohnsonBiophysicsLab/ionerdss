@@ -13,7 +13,7 @@
 
 ### 1. From PyPI (Recommended)
 
-Requires Python 3.9 or later.
+Requires Python 3.10 or later.
 
 ```bash
 pip install ioNERDSS
