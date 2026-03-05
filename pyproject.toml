@@ -31,8 +31,6 @@ dependencies = [
     "matplotlib",
     "seaborn",
     "tqdm",
-    "PyQt6",
-    "pyqtgraph",
     "PyOpenGL",
     "biopython",
     "scipy>=1.13.1, <2",

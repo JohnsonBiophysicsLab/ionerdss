@@ -1,7 +1,7 @@
 '''
 This script benchmarks the performance of the subcomplex enumeration methods.
 It measures the time taken to enumerate the subcomplexes.
-Also, when `verify_equivalence = True`, it compares the results of the powerset and Avis-Fukuda reverse search methods.
+Also, when `verify_equivalence = True`, it compares the results of the powerset enumeration and Avis-Fukuda reverse search methods.
 
 Usage:
 python benchmark_subcomplexes.py

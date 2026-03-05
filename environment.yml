@@ -7,7 +7,6 @@ channels:
 dependencies:
   - python=3.10
   - pip
-  - pyqt6
   - pip:
       # Install the local package in editable mode with typical dev dependencies
       # This reads dependencies from pyproject.toml
