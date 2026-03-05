@@ -1504,6 +1504,7 @@ class NERDSSExporter:
             if sigma_calc < 0.5:
                 self.workspace_manager.logger.warning("WARNING: small sigma values : %f; consider increasing binding radius threshold", sigma_calc)
             #sigma = max(sigma_calc, 0.5)
+            sigma = sigma_calc # <- placeholder, disable arbitrary clamping
             theta1_vals = [a[0] for a in angles_acc]
             theta2_vals = [a[1] for a in angles_acc]
             theta1 = float(np.mean(theta1_vals))
@@ -1540,8 +1541,8 @@ class NERDSSExporter:
                 )
 
             # Cache & store
-            self.reaction_params_cache[cache_key] = (sigma, angles)
-            sigma_list.append(sigma); angles_list.append(angles)
+            self.reaction_params_cache[cache_key] = (sigma_calc, angles)
+            sigma_list.append(sigma_calc); angles_list.append(angles)
 
         return sigma_list, angles_list
 
