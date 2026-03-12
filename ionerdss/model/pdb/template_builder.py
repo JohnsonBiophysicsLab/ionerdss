@@ -1790,16 +1790,13 @@ class TemplateBuilder:
                     # --- NEW CHECK: PREVENT DUPLICATE ASSIGNMENT TO SAME CHAIN ---
                     if interface:
                         # If this interface type is already assigned to chain_i OR chain_j,
-                        # we cannot reuse it (must create a new type/index for the second site).
-                        # Note: InterfaceTypeName is specific to the interface definition.
-                        # But wait, if it's heterotypic, maybe it has a partner name?
-                        # The tracking set stores whatever matching_interface_name was assigned.
+                        # skip it
                         
                         if (interface_name in self.chain_assigned_types[interface.chain_i] or 
                             interface_name in self.chain_assigned_types[interface.chain_j]):
                             if self.workspace_manager:
-                                self.workspace_manager.logger.debug(
-                                    "Skipping matching interface type %s for %s<->%s because it is already assigned to one of the chains (forcing new type creation).",
+                                self.workspace_manager.logger.warning(
+                                    "Skipping interface type %s for %s<->%s because it is already assigned to one of the chains.",
                                     interface_name, interface.chain_i, interface.chain_j
                                 )
                             continue
@@ -1981,6 +1978,8 @@ class TemplateBuilder:
                 energy=interface.energy
             )
 
+        partner_signature = signature.flipped() if not is_homodimeric_heterotypic else signature
+
         # Enhanced metadata including detection method information
         base_metadata = {
             'original_chain_i': interface.chain_i,
@@ -2012,6 +2011,10 @@ class TemplateBuilder:
             'interface_subtype': 'pointed_end' if is_homodimeric_heterotypic else 'side_j',
             'complementary_interface': interface_name_i,  # Store the partner interface name
         }
+        if not is_homodimeric_heterotypic:
+            interface_template_j.signature['geometric_signature'] = partner_signature.normalize(
+                self.hyperparams.signature_precision
+            )
 
         # Set up cross-references - this is crucial for homodimeric heterotypic cases
         if is_homodimeric_heterotypic:
@@ -2039,7 +2042,7 @@ class TemplateBuilder:
         self.interface_templates[interface_name_i] = interface_template_i
         self.interface_templates[interface_name_j] = interface_template_j
         self.interface_signatures[interface_name_i] = signature
-        self.interface_signatures[interface_name_j] = signature
+        self.interface_signatures[interface_name_j] = partner_signature
 
         # Add to molecule templates' interface maps
         self.molecule_templates[template_i].interfaces_neighbors_map[interface_name_i] = template_j
