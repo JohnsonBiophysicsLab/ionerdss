@@ -5,6 +5,7 @@ This module generates ODE models from the System architecture using the actual
 graph_based functions for proper species and reaction generation.
 """
 from typing import List, Tuple, Any, Dict
+import numpy as np
 
 import networkx as nx
 from networkx.algorithms.graph_hashing import weisfeiler_lehman_graph_hash
@@ -67,123 +68,230 @@ def _system_to_graph(system: System) -> nx.Graph:
                 # Get energy (average of both sides or just take one, assuming consistency)
                 # Default to 0.0 if not specified (though usually negative for binding)
                 e1 = iface.interface_type.energy if iface.interface_type and iface.interface_type.energy is not None else 0.0
-                e2 = iface.partner_interface.interface_type.energy if iface.partner_interface.interface_type and iface.partner_interface.interface_type.energy is not None else 0.0
-                # Use e1 if both present? Or average? 
-                # In standard definition, InterfaceType stores deltaG.
-                # Assuming symmetric definition or consistent typing.
                 bond_energy = e1 
+                
+                # Dynamic sigma (bond length): distance between COMs
+                # Assuming interfaces meet face-to-face perfectly, sigma is sum of magnitudes of local vectors.
+                len1 = np.linalg.norm(iface.interface_type.local_coord) if iface.interface_type else 0.0
+                len2 = np.linalg.norm(iface.partner_interface.interface_type.local_coord) if iface.partner_interface.interface_type else 0.0
+                bond_sigma = float(len1 + len2)
+                
+                # Dynamic D_tot: sum of translational diffusion constants of the two molecules forming the initial bond
+                dt1 = mol1.molecule_type.D_t_nm2_us if mol1.molecule_type else 0.0
+                dt2 = mol2.molecule_type.D_t_nm2_us if mol2.molecule_type else 0.0
+                bond_D_tot = float(dt1 + dt2)
                 
                 edge_key = frozenset([u, v])
                 if edge_key not in added_edges:
-                    G.add_edge(u, v, type=edge_type, energy=bond_energy)
+                    G.add_edge(u, v, type=edge_type, energy=bond_energy, sigma=bond_sigma, D_tot=bond_D_tot)
                     added_edges.add(edge_key)
                     
     return G
 
+def _calculate_macroscopic_kon(
+    ka: float,
+    sigma: float,
+    D_tot: float,
+) -> float:
+    """
+    Compute the macroscopic (diffusion-influenced) association rate constant using the
+    Smoluchowski-Collins-Kimball (SCK) formula:
+
+        k_on = (1/k_a + 1/(4*pi*sigma*D_tot))^{-1}
+
+    All quantities must be in consistent units **before** calling this helper.
+    Recommended unit system: nm^3/us for rates/diffusion products.
+
+    Args:
+        ka    : Microscopic (activation-limited) on-rate in nm^3/us.
+        sigma : Binding (contact) radius in nm.
+        D_tot : Total relative diffusion coefficient D1 + D2 in nm^2/us.
+
+    Returns:
+        Macroscopic on-rate in nm^3/us.
+    """
+    import math
+    k_diff = 4.0 * math.pi * sigma * D_tot   # diffusion-limited rate, nm^3/us
+    return 1.0 / (1.0 / ka + 1.0 / k_diff)
+
+
 def _calculate_reaction_rates(
-    reactants: List[nx.Graph], 
-    products: List[nx.Graph], 
-    default_kon: float = 120.0
+    reactants: List[nx.Graph],
+    products: List[nx.Graph],
+    default_ka: float = 120.0,
+    m_fwd: int = 1,
+    m_rev: int = 1,
 ) -> Tuple[float, float]:
     """
-    Calculate forward and reverse rates for a reaction based on bond energetics.
-    Uses 'energy' attribute on edges (representing deltaG/kT or similar).
-    
-    Formula:
-    - delta_G_reaction = sum(E_bonds_products) - sum(E_bonds_reactants)
-    - Keq = exp(-delta_G_reaction)
-    - If forming bonds: k_fwd = max(kon_i) approx default_kon. k_rev = k_fwd / Keq
-    - If breaking bonds: k_rev = max(kon_i) approx default_kon. k_fwd = k_rev * Keq
-      (Effectively anchoring the association rate)
+    Calculate forward and reverse rates for a reaction.
+
+    The macroscopic on-rate uses the SCK formula:
+
+        k_on = (1/k_a + 1/(4*pi*sigma*D_tot))^{-1}   [nm^3/us -> uM^-1 s^-1]
+
+    Keq is derived from bond energetics (sum of edge deltaG in RT units):
+
+        Keq_activity = exp(-delta_G_RT)
+        Kc = Keq_activity * C0^(delta_n)     [C0 = 1 M = 10^6 uM]
+
+    The macroscopic off-rate is then:
+
+        k_off = k_on_macro / Kc      [s^-1]
+
+    so that detailed balance is maintained: Keq = k_on / k_off = Kc.
+
+    Args:
+        reactants  : List of NetworkX graphs representing reactant complexes.
+        products   : List of NetworkX graphs representing product complexes.
+        default_ka : Microscopic activation-limited on-rate in nm^3/us. Default: 120.0.
+        sigma      : Binding contact radius in nm. Default: 1.0.
+        D_tot      : Total relative diffusion coefficient D1+D2 in nm^2/us. Default: 10.0.
+
+    Returns:
+        Tuple (k_fwd, k_rev) in (uM^-1 s^-1, s^-1) for association,
+        or (s^-1, s^-1) for isomerization / dissociation.
     """
     import numpy as np
-    
-    # Collect edge energies
-    # Collect edge energies with unit normalization
-    # Constants for normalization
+
+    # ------------------------------------------------------------------
+    # Unit conversion: nm^3/us -> uM^-1 s^-1
+    #   1 nm^3/us = N_A * 1e-24 L * 1e6 /s = 0.602214 uM^-1 s^-1
+    # ------------------------------------------------------------------
+    CONV_NM3_US_TO_UM_S = 0.602214
+
+    # ------------------------------------------------------------------
+    # Bond-energy and dynamic SCK properties from the newly formed bond(s)
+    # ------------------------------------------------------------------
     R_kJ = 0.008314
     T = 298.0
     RT = R_kJ * T
-    
-    def _sum_energy(graphs):
-        total_E_RT = 0.0
-        edges_seen = set()
-        for G in graphs:
-            for u, v, d in G.edges(data=True):
-                key = frozenset([u, v])
-                if key not in edges_seen:
-                    # Get raw energy (stored in edge)
-                    # Could be -1.0 (flag) or kJ/mol
-                    raw_E = d.get('energy', 0.0)
-                    
-                    if raw_E == -1.0:
-                        # Default strong binding: -16 RT
-                        norm_E = -16.0
-                    elif raw_E == 0.0:
-                         # Assume 0 energy
-                         norm_E = 0.0
-                    else:
-                        # Explicit energy in kJ/mol (e.g. from ProAffinity)
-                        # Normalize by RT
-                        norm_E = raw_E / RT
-                        
-                    total_E_RT += norm_E
-                    edges_seen.add(key)
-        return total_E_RT, edges_seen
 
-    E_reactants, r_edges = _sum_energy(reactants)
-    E_products, p_edges = _sum_energy(products)
-    
-    # Delta G of reaction in RT units
-    # G_state = sum(E_bonds_RT). 
-    # Delta G = G_final - G_initial
-    # Typically E_bonds is negative for stability.
-    delta_G = E_products - E_reactants
-    
-    # Unit Conversion Constants
-    # 1. Convert kon from nm^3/us to uM^-1 s^-1
-    #    Factor ~0.6022
-    #    Derivation: 1 nm^3/us = 1e-15 cm^3/s. 
-    #    N_A * 1e-15 * 1e-3 (to L) ... wait.
-    #    Directly: 120 nm^3/us -> ~72 uM^-1 s^-1.
-    #    Precise factor: 0.602214
-    CONV_NM3_US_TO_UM_S = 0.602214
-    
-    # 2. Standard Concentration activity correction for uM units
-    #    C0 = 1 M = 10^6 uM
-    C0_uM = 1.0e6 
-    
-    k_fwd_val = default_kon * CONV_NM3_US_TO_UM_S
-    
-    # Determine reaction molecularity change (delta n)
-    # 2 reactants -> 1 product : delta_n = -1 (Association)
-    # 1 reactant -> 2 products : delta_n = +1 (Dissociation)
-    # 1 -> 1 : delta_n = 0 (Isomerization)
+    def _get_reaction_edges(reactants, products):
+        r_edges = set()
+        for G in reactants:
+            for u, v in G.edges():
+                r_edges.add(frozenset([u, v]))
+        p_edges = set()
+        for G in products:
+            for u, v in G.edges():
+                p_edges.add(frozenset([u, v]))
+        return p_edges - r_edges
+
+    new_edges = _get_reaction_edges(reactants, products)
+    broken_edges = _get_reaction_edges(products, reactants)
     delta_n = len(products) - len(reactants)
-    
-    # Calculate Equilibrium Constant Kc in units of uM^delta_n
-    # K_eq (dimensionless) = exp(-delta_G/RT) [activity based]
-    # Kc = K_eq_activity * (C0_uM)^delta_n
-    
-    Keq_activity = np.exp(-delta_G) # delta_G assumed in RT units
-    Kc = Keq_activity * (C0_uM ** delta_n)
-    
-    # Assign rates
+    C0_uM = 1.0e6
+
+    def _get_edge_properties(edges, source_graphs):
+        types = []
+        energies = []
+        kons = []
+        for edge in edges:
+            u, v = tuple(edge)
+            rxn_sigma, rxn_D_tot = 1.0, 10.0
+            edge_energy = -16.0
+            edge_type = 'unknown'
+            for G in source_graphs:
+                if G.has_edge(u, v):
+                    data = G.edges[u, v]
+                    rxn_sigma = data.get('sigma', 1.0)
+                    rxn_D_tot = data.get('D_tot', 10.0)
+                    edge_type = data.get('type', 'unknown')
+                    val = data.get('energy', -16.0)
+                    # Convert default fallback values directly
+                    if val == -1.0: val = -16.0
+                    edge_energy = float(val)
+                    break
+            types.append(edge_type)
+            energies.append(edge_energy)
+            kons.append(_calculate_macroscopic_kon(ka=default_ka, sigma=rxn_sigma, D_tot=rxn_D_tot))
+        return types, energies, kons
+
+    safe_m_fwd = max(1, m_fwd)
+    safe_m_rev = max(1, m_rev)
+
     if delta_n < 0:
-        # Association dominant (forming bonds)
-        # Anchor forward rate (k_on in uM^-1 s^-1)
-        k_fwd = k_fwd_val
-        k_rev = k_fwd / Kc
-    elif delta_n > 0:
-        # Dissociation dominant (breaking bonds)
-        # Anchor reverse association (if it were occurring)
-        k_rev = k_fwd_val
-        k_fwd = k_rev * Kc
-    else:
-        # Isomerization (1->1)
-        k_rev = k_fwd_val # ~72 s^-1
-        k_fwd = k_rev * Kc
+        # Association
+        types, energies, kons = _get_edge_properties(new_edges, products)
+        if not types:
+            return 0.0, 0.0
+            
+        all_same_type = (len(set(types)) == 1)
         
+        if all_same_type:
+            raw_kon = kons[0]
+            single_energy_kT = energies[0]
+            
+            k_fwd_nm3 = raw_kon * safe_m_fwd
+            k_fwd = k_fwd_nm3 * CONV_NM3_US_TO_UM_S
+            
+            Kc_single = np.exp(-single_energy_kT) / C0_uM  # exp(-E) * C0^-1
+            baseline_k_off = (raw_kon * CONV_NM3_US_TO_UM_S) / Kc_single
+            k_rev = baseline_k_off * safe_m_rev
+        else:
+            fastest_kon = max(kons)
+            n_bonds = len(kons)
+            effective_kon_nm3 = fastest_kon * n_bonds
+            k_fwd = effective_kon_nm3 * CONV_NM3_US_TO_UM_S
+            
+            total_energy_kT = sum(energies)
+            Kc_total = np.exp(-total_energy_kT) / C0_uM
+            
+            k_rev = k_fwd / Kc_total
+
+    elif delta_n > 0:
+        # Dissociation
+        types, energies, kons = _get_edge_properties(broken_edges, reactants)
+        if not types:
+            return 0.0, 0.0
+            
+        all_same_type = (len(set(types)) == 1)
+        
+        if all_same_type:
+            raw_kon = kons[0]
+            single_energy_kT = energies[0]
+            
+            k_rev_nm3 = raw_kon * safe_m_rev
+            k_rev = k_rev_nm3 * CONV_NM3_US_TO_UM_S
+            
+            Kc_single = np.exp(-single_energy_kT) / C0_uM
+            baseline_k_off = (raw_kon * CONV_NM3_US_TO_UM_S) / Kc_single
+            k_fwd = baseline_k_off * safe_m_fwd
+        else:
+            fastest_kon = max(kons)
+            n_bonds = len(kons)
+            effective_kon_nm3 = fastest_kon * n_bonds
+            k_rev = effective_kon_nm3 * CONV_NM3_US_TO_UM_S
+            
+            total_energy_kT = sum(energies)
+            Kc_total = np.exp(-total_energy_kT) / C0_uM
+            
+            k_fwd = k_rev / Kc_total
+
+    else:
+        # Isomerization
+        def _sum_energy_kT(graphs):
+            total_E = 0.0
+            seen = set()
+            for G in graphs:
+                for u, v, d in G.edges(data=True):
+                    k = frozenset([u, v])
+                    if k not in seen:
+                        e = float(d.get('energy', -16.0))
+                        if e == -1.0: e = -16.0
+                        total_E += e
+                        seen.add(k)
+            return total_E
+            
+        delta_G = _sum_energy_kT(products) - _sum_energy_kT(reactants)
+        Kc_total = np.exp(-delta_G)
+        
+        baseline_kon_nm3 = _calculate_macroscopic_kon(ka=default_ka, sigma=1.0, D_tot=10.0)
+        baseline_rate = baseline_kon_nm3 * CONV_NM3_US_TO_UM_S
+        
+        k_fwd = baseline_rate * Kc_total * safe_m_fwd
+        k_rev = baseline_rate * safe_m_rev
+
     return k_fwd, k_rev
 
 def _generate_complex_name(graph: nx.Graph) -> str:
@@ -207,28 +315,95 @@ def _generate_complex_name(graph: nx.Graph) -> str:
     
     return f"{composition}_{g_hash}"
 
+def _node_match(n1, n2):
+    return n1.get('type') == n2.get('type')
+
+def _edge_match(e1, e2):
+    return e1.get('type') == e2.get('type')
+
+def _compute_multiplicity_dimer(G1: nx.Graph, G2: nx.Graph, G_prod: nx.Graph) -> Tuple[int, int]:
+    from itertools import combinations
+    m_rev = 0
+    nodes = list(G_prod.nodes())
+    
+    seen_partitions = set()
+    for size in [len(G1), len(G2)]:
+        for A_nodes in combinations(nodes, size):
+            A_set = frozenset(A_nodes)
+            B_set = frozenset(set(nodes) - A_set)
+            
+            partition_key = frozenset([A_set, B_set])
+            if partition_key in seen_partitions:
+                continue
+            seen_partitions.add(partition_key)
+            
+            c1 = G_prod.subgraph(A_set)
+            c2 = G_prod.subgraph(B_set)
+            
+            if not nx.is_connected(c1) or not nx.is_connected(c2):
+                continue
+                
+            if (nx.is_isomorphic(c1, G1, node_match=_node_match, edge_match=_edge_match) and 
+                nx.is_isomorphic(c2, G2, node_match=_node_match, edge_match=_edge_match)):
+                m_rev += 1
+            elif len(G1) != len(G2) and (nx.is_isomorphic(c1, G2, node_match=_node_match, edge_match=_edge_match) and 
+                  nx.is_isomorphic(c2, G1, node_match=_node_match, edge_match=_edge_match)):
+                m_rev += 1
+
+    m_fwd = max(1, m_rev)
+    
+    return m_fwd, m_rev
+
+def _compute_multiplicity_transformation(G1: nx.Graph, G2: nx.Graph) -> Tuple[int, int]:
+    m_fwd = 0
+    types_in_g2 = set(d.get('type') for u, v, d in G2.edges(data=True))
+    # Number of ways to add an edge in G1 to get G2
+    for u in G1.nodes():
+        for v in G1.nodes():
+            if u != v and not G1.has_edge(u, v):
+                for t in types_in_g2:
+                    G1_temp = G1.copy()
+                    G1_temp.add_edge(u, v, type=t)
+                    if nx.is_isomorphic(G1_temp, G2, node_match=_node_match, edge_match=_edge_match):
+                        m_fwd += 1
+    m_fwd = m_fwd // 2  # Each edge is checked twice due to undirected node pairs
+
+    m_rev = 0
+    # Number of ways to remove an edge in G2 to get G1
+    for u, v, d in list(G2.edges(data=True)):
+        G2_temp = G2.copy()
+        G2_temp.remove_edge(u, v)
+        if nx.is_isomorphic(G2_temp, G1, node_match=_node_match, edge_match=_edge_match):
+            m_rev += 1
+
+    return m_fwd, m_rev
+
 def generate_ode_model_from_system(
-    system: System, 
-    max_complex_size: int = None, 
-    pdb_model=None, 
+    system: System,
+    max_complex_size: int = None,
+    pdb_model=None,
     coarse_grainer=None,
-    include_transformation_reactions: bool = False
+    include_transformation_reactions: bool = False,
+    default_ka: float = 120.0,
 ) -> Tuple[List[str], ReactionSystem]:
     """
     Generate ODE model from a System object using graph_based functions.
-    
+
     This function:
     1. Builds the full assembly graph directly from the System object
     2. Uses get_unique_fully_connected_subgraphs to get all species
     3. Uses find_all_dimer_reactions and find_all_transformable_subgraph_pairs for reactions
-    
+
     Args:
         system: System object containing molecule_types and molecule_instances
         max_complex_size: Maximum number of molecules in a complex (default: 12)
         pdb_model: Ignored (kept for compatibility)
         coarse_grainer: Ignored (kept for compatibility)
         include_transformation_reactions: Whether to include bond rearrangement reactions (default: False)
-    
+        default_ka: Microscopic activation-limited on-rate in nm^3/us. Default: 120.0.
+               Keq is derived from bond energetics; k_off = k_on_macro / Kc.
+               sigma and D_tot are now dynamically fetched from the molecule properties.
+
     Returns:
         Tuple of (complex_names, reaction_system) where:
             - complex_names: List of string identifiers for the complexes
@@ -237,9 +412,9 @@ def generate_ode_model_from_system(
     # Set default max size
     if max_complex_size is None:
         max_complex_size = 12
-        
-    # Default kon used when no other rate information is available
-    DEFAULT_KON = 120.0
+
+    # Default microscopic activation rate ka (nm^3/us)
+    DEFAULT_KA = default_ka
     
     # Step 1: Build the full assembly graph directly from System
     G_full = _system_to_graph(system)
@@ -305,11 +480,15 @@ def generate_ode_model_from_system(
             # Reactants are smaller. So they are within size.
             
             if name1 and name2 and name_product:
-                # Calculate Rates
+                m_fwd, m_rev = _compute_multiplicity_dimer(sub1, sub2, sub_prod)
+                
+                # Calculate Rates using SCK macroscopic formula
                 k_on, k_off = _calculate_reaction_rates(
                     reactants=[sub1, sub2],
                     products=[sub_prod],
-                    default_kon=DEFAULT_KON
+                    default_ka=DEFAULT_KA,
+                    m_fwd=m_fwd,
+                    m_rev=m_rev,
                 )
                 
                 # Forward Reaction (Association)
@@ -336,11 +515,15 @@ def generate_ode_model_from_system(
             name2 = _generate_complex_name(G2)
             
             if name1 and name2:
-                # Calculate Rates
+                m_fwd, m_rev = _compute_multiplicity_transformation(G1, G2)
+                
+                # Calculate Rates using SCK macroscopic formula
                 k_fwd, k_rev = _calculate_reaction_rates(
                     reactants=[G1],
                     products=[G2],
-                    default_kon=DEFAULT_KON
+                    default_ka=DEFAULT_KA,
+                    m_fwd=m_fwd,
+                    m_rev=m_rev,
                 )
                 
                 # Forward

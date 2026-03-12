@@ -251,6 +251,8 @@ def pdb_to_pdbqt(pdbfile: str, adfr_path: str = '', ph: float = 7.4, verbose=Fal
     
     # Locate prepare_receptor
     # if user gives the ADFR path instead of the prepare_receptor executable
+    if adfr_path:
+        adfr_path = os.path.expanduser(adfr_path)
     if adfr_path is None or adfr_path == '':
         # check $ADFR_PATH
         adfr_path = os.getenv('ADFR_PATH', '')

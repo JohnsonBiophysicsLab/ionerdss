@@ -1835,6 +1835,7 @@ class NERDSSExporter:
         omega_dir = unit(np.cross(v1_proj_om, v2_proj_om))
         
         # Determine sign of omega - using full 3D vector comparison (robust for arbitrary orientations)
+        tol_sign = 1e-6
         dot_sigma_omega = np.dot(sigma1_uni, omega_dir)
         if abs(dot_sigma_omega - 1.0) < tol_sign:  # parallel
             omega = -omega
@@ -1950,18 +1951,20 @@ class NERDSSExporter:
         """Write parms.inp file with calculated normal vectors."""
         parms_path = self.output_dir / "parms.inp"
 
-        # Default parameters
-        # NOTE: onRate3Dka and offRatekb are now calculated per-reaction based on interface energies
-        # The values below are only used as fallback defaults if energy data is unavailable
+        # The values below are only used as fallback defaults if energy
+        
+        hyperparams = parms_overrides.get('hyperparams') if parms_overrides else None
+        
+        # Base default parameters
         params = {
-            'nItr': 1e5,
+            'nItr': hyperparams.nerdss_n_itr if hyperparams else 1e5,
             'timestep': 0.5,
             'timeWrite': 1e3,
-            'trajWrite': 1e5,
-            'restartWrite': 1e5,
-            'checkPoint': 1e5,
-            'pdbWrite': 1e5,
-            'overlapSepLimit': 2.0,
+            'trajWrite': hyperparams.nerdss_n_itr/10 if hyperparams else 1e5,
+            'restartWrite': hyperparams.nerdss_n_itr/10 if hyperparams else 1e5,
+            'checkPoint': hyperparams.nerdss_n_itr/10 if hyperparams else 1e5,
+            'pdbWrite': hyperparams.nerdss_n_itr/10 if hyperparams else 1e5,
+            'overlapSepLimit': hyperparams.nerdss_overlap_sep_limit if hyperparams else 2.0,
             'scaleMaxDisplace': 100.0,
         }
         
@@ -2316,22 +2319,18 @@ class NERDSSExporter:
                 return (intf.absolute_coord - rep.com)  # local vector in representative frame
         return None
 
-    def _local_x_with_degeneracy(self, mol_name: str, site_label: str, thr: float = 0.99) -> np.ndarray:
-        """
-        Choose the local base normal for a site in the REPRESENTATIVE frame.
-        Default [0,0,1] (Z-axis); if collinear with the site's local vector (at rep), use [1,0,0].
-        
-        Reverted to 0.99 to match user manual reference frame behavior.
-        """
+    def _local_x_with_degeneracy(self, mol_name: str, site_label: str, thr: float = 0.5) -> np.ndarray:
+        # Default normal is Z-axis
         n_local = np.array([0.0, 0.0, 1.0], dtype=float)
-        p_local = self._rep_local_site_vector(mol_name, site_label)
-        if p_local is None:
-            return n_local
-        nl = np.linalg.norm(p_local)
-        if nl > 1e-12:
-            vhat = p_local / nl
-            if abs(float(np.dot(n_local, vhat))) > thr:
-                return np.array([1.0, 0.0, 0.0], dtype=float)
+
+        site_v = self._rep_local_site_vector(mol_name, site_label)
+        if site_v is not None:
+            site_v_u = site_v / np.linalg.norm(site_v)
+            if abs(np.dot(site_v_u, n_local)) > thr:
+                n_local = np.array([1.0, 0.0, 0.0], dtype=float)
+                if abs(np.dot(site_v_u, n_local)) > thr:
+                    n_local = np.array([0.0, 1.0, 0.0], dtype=float)
+
         return n_local
 
     def _n_global_from_local_x(self, mol_name: str, site_label: str, inst) -> np.ndarray:

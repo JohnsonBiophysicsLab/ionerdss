@@ -284,6 +284,7 @@ for chain, template in chain_mapping.items():
 """
 
 from typing import Dict, List, Tuple, Set, Optional
+from collections import defaultdict
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -898,6 +899,11 @@ class TemplateBuilder:
 
         # Template storage
         self.molecule_templates: Dict[str, MoleculeType] = {}
+
+        # Track which interface types have been assigned to each chain
+        # format: chain_id -> set(interface_type_names)
+        self.chain_assigned_types: Dict[str, Set[str]] = defaultdict(set)
+        
         self.interface_templates: Dict[str, InterfaceType] = {}
         self.interface_signatures: Dict[str, GeometricSignature] = {}
         
@@ -988,12 +994,20 @@ class TemplateBuilder:
 
                 # try direct
                 if signature.is_similar_to(stored_sig_ij, distance_threshold, angle_threshold):
-                    return "ij", cat
+                    # --- NEW CHECK: PREVENT DUPLICATE ASSIGNMENT ---
+                    cand_f = cat["f"]
+                    if not (cand_f in self.chain_assigned_types[interface.chain_i] or 
+                            cand_f in self.chain_assigned_types[interface.chain_j]):
+                        return "ij", cat
 
                 # try flipped
                 stored_sig_ji = GeometricSignature(d_j, d_i, th_j, th_i)
                 if signature.is_similar_to(stored_sig_ji, distance_threshold, angle_threshold):
-                    return "ji", cat
+                     # --- NEW CHECK ---
+                    cand_f = cat["f"]
+                    if not (cand_f in self.chain_assigned_types[interface.chain_i] or 
+                            cand_f in self.chain_assigned_types[interface.chain_j]):
+                        return "ji", cat
 
                 # not this catalog entry → check next
                 continue
@@ -1011,6 +1025,14 @@ class TemplateBuilder:
 
             if ok:
                 # matched_order is either "ij" or "ji"
+                
+                # --- NEW CHECK ---
+                cand_f = cat["f"]
+                if (cand_f in self.chain_assigned_types[interface.chain_i] or 
+                    cand_f in self.chain_assigned_types[interface.chain_j]):
+                     # used by one of these chains -> skip reuse
+                     continue
+                
                 if matched_order == "ij":
                     return "ij", cat
                 elif matched_order == "ji":
@@ -1435,7 +1457,18 @@ class TemplateBuilder:
             
             # Store mapping
             self._store_interface_mapping(interface, type_name_for_i)
-
+            
+            # Track assignment (NEW)
+            self.chain_assigned_types[interface.chain_i].add(type_name_for_i)
+            # For HHT, if i and j get different names (i.e. 'f' vs 'b'), we need to know what j got.
+            # _ensure_hht_canonical_and_assign returns type_name_for_i. 
+            # The name returned is type_name_for_i (the 'f' one usually).
+            if type_name_for_i in self.interface_templates:
+                 partner_type = self.interface_templates[type_name_for_i].partner_interface_type
+                 if partner_type:
+                     type_name_for_j = partner_type.get_name()
+                     self.chain_assigned_types[interface.chain_j].add(type_name_for_j)
+            
             if self.workspace_manager:
                 self.workspace_manager.logger.info(
                     "HHT: assigned %s to (first) %s after canonicalization; chain ordering is now (%s,%s)",
@@ -1448,12 +1481,16 @@ class TemplateBuilder:
 
 
         # --- DEFAULT PATHS (heterodimeric or homodimeric-homotypic) remain unchanged ---
-        matching_interface_name = self._find_matching_interface_type(template_i, template_j, signature)
+        matching_interface_name = self._find_matching_interface_type(template_i, template_j, signature, interface)
         if matching_interface_name:
             interface.interface_type = matching_interface_name
             
             # Store mapping
             self._store_interface_mapping(interface, matching_interface_name)
+            
+            # Track assignment
+            self.chain_assigned_types[interface.chain_i].add(matching_interface_name)
+            self.chain_assigned_types[interface.chain_j].add(matching_interface_name)
 
             if self.workspace_manager:
                 self.workspace_manager.logger.info(
@@ -1472,6 +1509,13 @@ class TemplateBuilder:
                 interface, new_interface_names, template_i, template_j
             )
             interface.interface_type = interface_type_name
+
+        # Track assignment for new type
+        self.chain_assigned_types[interface.chain_i].add(interface.interface_type)
+        if interface.interface_type:    
+             pass
+        
+        self.chain_assigned_types[interface.chain_j].add(interface.interface_type)
 
         # Store mapping
         self._store_interface_mapping(interface, interface.interface_type)
@@ -1710,13 +1754,15 @@ class TemplateBuilder:
             return True
 
     def _find_matching_interface_type(self, template_i: str, template_j: str,
-                                      signature: GeometricSignature) -> Optional[str]:
+                                      signature: GeometricSignature,
+                                      interface: InterfaceString = None) -> Optional[str]:
         """Find existing interface type that matches the given signature.
 
         Args:
             template_i: Template name for chain i.
             template_j: Template name for chain j.
             signature: Geometric signature to match.
+            interface: The interface instance being processed (optional).
 
         Returns:
             Name of matching interface type, or None if no match found.
@@ -1740,6 +1786,24 @@ class TemplateBuilder:
 
                 # Check if signatures are similar
                 if signature.is_similar_to(existing_signature, distance_threshold, angle_threshold):
+                    
+                    # --- NEW CHECK: PREVENT DUPLICATE ASSIGNMENT TO SAME CHAIN ---
+                    if interface:
+                        # If this interface type is already assigned to chain_i OR chain_j,
+                        # we cannot reuse it (must create a new type/index for the second site).
+                        # Note: InterfaceTypeName is specific to the interface definition.
+                        # But wait, if it's heterotypic, maybe it has a partner name?
+                        # The tracking set stores whatever matching_interface_name was assigned.
+                        
+                        if (interface_name in self.chain_assigned_types[interface.chain_i] or 
+                            interface_name in self.chain_assigned_types[interface.chain_j]):
+                            if self.workspace_manager:
+                                self.workspace_manager.logger.debug(
+                                    "Skipping matching interface type %s for %s<->%s because it is already assigned to one of the chains (forcing new type creation).",
+                                    interface_name, interface.chain_i, interface.chain_j
+                                )
+                            continue
+                    
                     if self.workspace_manager:
                         self.workspace_manager.logger.info(
                             "Found matching interface type %s for signature d_i=%.2f, d_j=%.2f, theta_i=%.3f, theta_j=%.3f (thresholds: dist=%.2f, angle=%.3f)",

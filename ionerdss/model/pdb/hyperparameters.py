@@ -7,94 +7,6 @@ This module defines the PDBModelHyperparameters class that contains all
 configurable parameters for the molecular model building process, including
 distance cutoffs, thresholds, and algorithmic choices.
 
-## Hyperparameters Reference
-
-| Hyperparameter | Definition | Default Value |
-|----------------|------------|---------------|
-| **Core Detection Parameters** |
-| `distance_cutoff` | Contact search radius per atom pair for interface detection | 0.6 nm |
-| `residue_cutoff` | Minimum number of contacting residues (on each chain) to accept an interface | 3 residues |
-| **Chain Grouping Parameters** |
-| `rmsd_threshold` | RMSD threshold for structure superposition to determine repeated chains | 2.0 nm |
-| `seq_threshold` | Sequence identity threshold for sequence alignment to determine repeated chains | 0.5 (50%) |
-| `custom_aligner` | Custom Bio.Align.PairwiseAligner for sequence alignment (None uses default settings) | None |
-| `matching_mode` | Mode for determining repeated chains: "default" (mmCIF header with sequence fallback), "sequence" (sequence-based), "structure" (structure-based) | "default" |
-| **Steric Clash Detection** |
-| `steric_clash_mode` | Mode for detecting steric clashes: "off" (disabled), "auto" (automatic Cα clash detection), "custom" (user-provided lists) | "off" |
-| **Template Building Parameters** |
-| `signature_precision` | Number of decimal places for geometric signature normalization to avoid floating-point errors | 6 decimal places |
-| `homodimer_distance_threshold` | Distance threshold for homodimer detection | 0.1 Å |
-| `homodimer_angle_threshold` | Angle threshold for homodimer detection | 0.1 radians |
-| **Ring Regularization Parameters** |
-| `ring_regularization_mode` | Ring structure regularization mode: "off" (disabled), "separate" (individual ring fitting), "uniform" (single fit for all rings) | "uniform" |
-| `ring_geometry` | Target geometry for ring regularization: "cylinder" or "sphere" | "cylinder" |
-| `min_ring_size` | Minimum number of subunits required to form a ring | 3 subunits |
-| **PDB File Format Parameters** |
-| `pdb_file_format` | Format for PDB file download: 'pdb', 'cif', 'mmcif', 'bioassembly1', 'bioassembly2', etc. (case-insensitive) | "bioassembly1" |
-
-
-## Usage Examples
-
-### Basic Usage
-```python
-from ionerdss.model.pdb.hyperparameters import PDBModelHyperparameters
-
-# Use default parameters
-params = PDBModelHyperparameters()
-
-# Customize specific parameters
-params = PDBModelHyperparameters(
-    distance_cutoff=0.8,      # Looser contact detection
-    residue_cutoff=5,         # Require more contacts
-    matching_mode="sequence"  # Force sequence-based grouping
-)
-```
-
-### Configuration Management
-```python
-# Save configuration
-config_dict = params.to_dict()
-
-# Load configuration
-params = PDBModelHyperparameters.from_dict(config_dict)
-
-# Validate parameters
-errors = params.validate()
-if errors:
-    print("Configuration errors:", errors)
-```
-
-### Common Parameter Sets
-
-**High-Resolution Structures:**
-```python
-high_res_params = PDBModelHyperparameters(
-    distance_cutoff=0.5,      # Tight contacts
-    residue_cutoff=5,         # Substantial interfaces
-    rmsd_threshold=1.0,       # Strict structural similarity
-    seq_threshold=0.9         # High sequence identity
-)
-```
-
-**Low-Resolution Structures:**
-```python
-low_res_params = PDBModelHyperparameters(
-    distance_cutoff=1.2,      # Loose contacts
-    residue_cutoff=3,         # Minimal interfaces
-    rmsd_threshold=5.0,       # Permissive structural similarity
-    seq_threshold=0.3         # Low sequence identity
-)
-```
-
-**Ring Structure Processing:**
-```python
-ring_params = PDBModelHyperparameters(
-    ring_regularization_mode="separate",  # Individual ring fitting
-    ring_geometry="sphere",               # Spherical geometry
-    min_ring_size=4                       # Require 4+ subunits
-)
-```
-
 """
 
 from dataclasses import dataclass, field, fields
@@ -229,6 +141,11 @@ class PDBModelHyperparameters:
     nerdss_n_itr: int = field(
         default=int(1e5),
         metadata={"description": "Number of iterations for NERDSS simulation", "unit": "steps"}
+    )
+    
+    nerdss_overlap_sep_limit: float = field(
+        default=2.0,
+        metadata={"description": "Minimum allowed separation distance between molecule centers of mass to prevent steric overlap. Increase this if flexible ring assemblies infinitely spiral.", "unit": "nm"}
     )
     
     # ProAffinity binding energy prediction options
