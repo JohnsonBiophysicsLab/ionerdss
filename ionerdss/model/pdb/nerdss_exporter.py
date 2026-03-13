@@ -98,6 +98,8 @@ class NERDSSExporter:
 
         # Store mapping from interface names to site labels
         self.interface_to_site_map: Dict[str, str] = {}
+        # Store representative-frame site coordinates used during .mol export
+        self.site_local_coords: Dict[str, Dict[str, np.ndarray]] = {}
 
         # Store reaction metadata for rate calculation
         self.reaction_metadata: List[Dict[str, Any]] = []
@@ -313,6 +315,7 @@ class NERDSSExporter:
 
         # Clear mappings and caches for fresh export
         self.interface_to_site_map.clear()
+        self.site_local_coords.clear()
         self.reaction_metadata.clear()
         self.homotypic_interface_map.clear()
         self.homotypic_interface_map.clear()
@@ -1025,6 +1028,7 @@ class NERDSSExporter:
         # Initialize dictionaries to collect interface data
         per_type_local: dict[str, np.ndarray] = {}
         per_type_partner_ids: dict[str, int] = {}
+        self.site_local_coords.setdefault(mol_type.name, {})
 
         # Get ALL interface types for this molecule type
         mol_interface_types = [it for it in self.system.interface_types if it.this_mol_type_name == mol_type.name]
@@ -1059,7 +1063,22 @@ class NERDSSExporter:
                 for inst in all_instances:
                     for iface, partner in inst.interfaces_neighbors_map.items():
                         if iface.interface_type and iface.interface_type.get_name() == tname:
-                            per_type_local[tname] = iface.absolute_coord - inst.com
+                            raw_local = iface.absolute_coord - inst.com
+                            if inst is rep_inst:
+                                per_type_local[tname] = raw_local
+                            else:
+                                R = self._calculate_rotation_from_representative(
+                                    mol_type.name, rep_inst, inst
+                                )
+                                if R is not None:
+                                    per_type_local[tname] = R.T @ raw_local
+                                else:
+                                    per_type_local[tname] = raw_local
+                                    if self.workspace_manager:
+                                        self.workspace_manager.logger.warning(
+                                            "Could not rotate fallback site %s on %s from instance %s into representative frame; using raw local coordinates.",
+                                            tname, mol_type.name, id(inst)
+                                        )
                             per_type_partner_ids[tname] = id(partner) if partner else -1
                             found = True
                             break
@@ -1079,6 +1098,7 @@ class NERDSSExporter:
             site_label = self._get_base_site_label(mol_type.name, interface_type_name)
             # Store mapping for *every* concrete type we found
             self.interface_to_site_map[interface_type_name] = site_label
+            self.site_local_coords[mol_type.name][site_label] = np.asarray(local_coord, dtype=float)
             interfaces.append({
                 "type_name": interface_type_name,
                 "site_label": site_label,
@@ -1923,6 +1943,7 @@ class NERDSSExporter:
         """
         # Clear state
         self.interface_to_site_map.clear()
+        self.site_local_coords.clear()
         self.reaction_metadata.clear()
         self.homotypic_interface_map.clear()
         self.calculated_normals.clear()
@@ -2306,6 +2327,8 @@ class NERDSSExporter:
 
     def _rep_local_site_vector(self, mol_name: str, site_label: str) -> Optional[np.ndarray]:
         """Return the representative instance's LOCAL coordinate of this site (p_local)."""
+        if mol_name in self.site_local_coords and site_label in self.site_local_coords[mol_name]:
+            return np.asarray(self.site_local_coords[mol_name][site_label], dtype=float)
         rep = self._get_representative_instance(mol_name)
         if rep is None:
             return None
