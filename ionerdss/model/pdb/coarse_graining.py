@@ -578,7 +578,7 @@ class CoarseGrainer:
 
         # Find hitting indices
         hit_i_indices = np.where([len(nbrs) > 0 for nbrs in neighbor_lists])[0]
-        hit_j_indices = {j_idx for nbrs in neighbor_lists for j_idx in nbrs}
+        hit_j_indices = np.array(sorted({j_idx for nbrs in neighbor_lists for j_idx in nbrs}))
         
         n_i_hits = len(hit_i_indices)
         n_j_hits = len(hit_j_indices)
@@ -586,61 +586,93 @@ class CoarseGrainer:
         if n_i_hits < self.hyperparams.interface_detect_n_residue_cutoff or n_j_hits < self.hyperparams.interface_detect_n_residue_cutoff:
             return []
             
-        # Collect all points involved in the interface (from both sides) to cluster them
-        # We need to map back to which chain they belong to after clustering
+        detected_interfaces = []
+
+        # Optionally disable spatial patch splitting and treat the whole contacting
+        # chain-pair surface as a single interface.
+        if not getattr(self.hyperparams, "split_spatial_interface_patches", False):
+            interface_coord_i = coords_i[hit_i_indices].mean(axis=0)
+            interface_coord_j = coords_j[hit_j_indices].mean(axis=0)
+
+            contacting_residues_i = {residues_i[idx]['id'] for idx in hit_i_indices}
+            contacting_residues_j = {residues_j[idx]['id'] for idx in hit_j_indices}
+
+            residue_details_i = []
+            for idx in hit_i_indices:
+                residue_data = residues_i[idx]
+                residue_details_i.append(ResidueInfo(
+                    residue_id=residue_data['id'],
+                    residue_name=residue_data['name'],
+                    position=coords_i[idx].copy(),
+                    chain_id=chain_i
+                ))
+
+            residue_details_j = []
+            for idx in hit_j_indices:
+                residue_data = residues_j[idx]
+                residue_details_j.append(ResidueInfo(
+                    residue_id=residue_data['id'],
+                    residue_name=residue_data['name'],
+                    position=coords_j[idx].copy(),
+                    chain_id=chain_j
+                ))
+
+            detected_interfaces.append(InterfaceString(
+                chain_i=chain_i,
+                chain_j=chain_j,
+                coord_i=interface_coord_i,
+                coord_j=interface_coord_j,
+                residues_i=contacting_residues_i,
+                residues_j=contacting_residues_j,
+                residue_details_i=residue_details_i,
+                residue_details_j=residue_details_j,
+                energy=-1.0
+            ))
+
+            if self.parser.workspace_manager:
+                self.parser.workspace_manager.logger.debug(
+                    f"Found single merged interface {chain_i}-{chain_j} with "
+                    f"{len(hit_i_indices)}/{len(hit_j_indices)} residues "
+                    f"(spatial patch splitting disabled)"
+                )
+
+            return detected_interfaces
+
+        # Otherwise keep the existing clustering-based splitting
         points_i = coords_i[hit_i_indices]
-        points_j = coords_j[list(hit_j_indices)]
-        
+        points_j = coords_j[hit_j_indices]
+
         all_points = np.vstack((points_i, points_j))
-        
-        # Cluster the interface points to separate distinct patches
-        # Separation threshold: 15 Angstroms (generous, to split distinct sites)
-        separation_threshold = 15.0 
-        
+
+        separation_threshold = max(15.0, r_cut_angstrom * 2.0)
         if len(all_points) > 1:
             z = linkage(all_points, method='single')
             labels = fcluster(z, separation_threshold, criterion='distance')
         else:
             labels = np.array([1])
-            
+
         num_clusters = labels.max()
-        detected_interfaces = []
-        
-        # Re-map original indices to boolean masks for splitting
-        mask_i_base = np.zeros(len(coords_i), dtype=bool)
-        mask_i_base[hit_i_indices] = True # All hitting residues
-        
-        # We need to correspond labels back to hit_i_indices and hit_j_indices
-        # labels[:len(hit_i_indices)] correspond to points_i
-        # labels[len(hit_i_indices):] correspond to points_j
-        
+
         labels_i = labels[:len(hit_i_indices)]
         labels_j = labels[len(hit_i_indices):]
-        
-        hit_j_indices_list = list(hit_j_indices)
-        
+
         for cluster_id in range(1, num_clusters + 1):
-            # Extract subset of indices for this cluster
             cluster_mask_i_local = (labels_i == cluster_id)
             cluster_mask_j_local = (labels_j == cluster_id)
-            
-            # Global indices for this cluster
+
             cluster_indices_i = hit_i_indices[cluster_mask_i_local]
-            cluster_indices_j = np.array(hit_j_indices_list)[cluster_mask_j_local]
-            
+            cluster_indices_j = hit_j_indices[cluster_mask_j_local]
+
             if len(cluster_indices_i) < self.hyperparams.interface_detect_n_residue_cutoff or \
-               len(cluster_indices_j) < self.hyperparams.interface_detect_n_residue_cutoff:
+            len(cluster_indices_j) < self.hyperparams.interface_detect_n_residue_cutoff:
                 continue
 
-            # Calculate centroids for this cluster
             interface_coord_i = coords_i[cluster_indices_i].mean(axis=0)
             interface_coord_j = coords_j[cluster_indices_j].mean(axis=0)
-            
-            # Residue IDs
+
             contacting_residues_i = {residues_i[idx]['id'] for idx in cluster_indices_i}
             contacting_residues_j = {residues_j[idx]['id'] for idx in cluster_indices_j}
-            
-            # Detailed Info
+
             residue_details_i = []
             for idx in cluster_indices_i:
                 residue_data = residues_i[idx]
@@ -660,7 +692,7 @@ class CoarseGrainer:
                     position=coords_j[idx].copy(),
                     chain_id=chain_j
                 ))
-            
+
             detected_interfaces.append(InterfaceString(
                 chain_i=chain_i,
                 chain_j=chain_j,
@@ -672,10 +704,11 @@ class CoarseGrainer:
                 residue_details_j=residue_details_j,
                 energy=-1.0
             ))
-            
+
             if self.parser.workspace_manager:
                 self.parser.workspace_manager.logger.debug(
-                    f"Cluster {cluster_id}: Found interface {chain_i}-{chain_j} with {len(cluster_indices_i)}/{len(cluster_indices_j)} residues"
+                    f"Cluster {cluster_id}: Found interface {chain_i}-{chain_j} "
+                    f"with {len(cluster_indices_i)}/{len(cluster_indices_j)} residues"
                 )
 
         return detected_interfaces
