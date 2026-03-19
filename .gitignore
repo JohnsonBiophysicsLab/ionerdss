@@ -133,14 +133,20 @@ test_simularium.ipynb
 /7pe2*
 /8y7s*
 /1dlh*
-#/5l93*
+/5l93*
 /8ixa*
 /2ms2*
 /5l93*
 /analysis_5l93*
 /7uhy*
 /8y7s*
+/7pg9*
+/ionerdss/tmp_7pg9*
+/4yd9*
 /dode*
+/8erq*
+/tutorials/8erq_dir/*
+8erq copy*
 
 #debug txt
 check_path_output.txt
@@ -167,7 +173,9 @@ repro_serialization.py
 ref_angles.py
 reconstruction_test.py
 verify_angles*
-#test.py
+test_*.py
+test *.py
+run_debug.py
 test_simple*
 nerdss_output/
 tutorials/6bno_dir/
