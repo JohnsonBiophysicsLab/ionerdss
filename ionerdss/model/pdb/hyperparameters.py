@@ -48,6 +48,10 @@ class PDBModelHyperparameters:
         default=0.2,
         metadata={"description": "Angle threshold (radians) for assigning interfaces to the same type during template building. ~11 degrees. More restrictive than the previous 0.5 radians default.", "unit": "radians"}
     )
+    split_spatial_interface_patches: bool = field(
+        default=False,
+        metadata={"description": "Split interfaces into spatial patches for faster template building"}
+    )
 
     # Chain grouping parameters
     chain_grouping_rmsd_threshold: float = field(
