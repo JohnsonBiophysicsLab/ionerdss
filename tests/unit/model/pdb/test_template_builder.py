@@ -7,6 +7,7 @@ Tests the TemplateBuilder class and its template generation capabilities.
 import unittest
 from unittest.mock import Mock, patch
 import numpy as np
+from collections import defaultdict
 
 from ionerdss.model.pdb.template_builder import (
     TemplateBuilder, GeometricSignature
@@ -425,6 +426,7 @@ class TestTemplateBuilder(unittest.TestCase):
         builder = TemplateBuilder.__new__(TemplateBuilder)
         builder.workspace_manager = self.workspace_manager
         builder.interface_templates = {}
+        builder.chain_assigned_types = defaultdict(set)
 
         # Mock finding existing match
         with patch.object(builder, '_find_matching_interface_type', return_value="A_B_1"):
@@ -447,6 +449,7 @@ class TestTemplateBuilder(unittest.TestCase):
         builder = TemplateBuilder.__new__(TemplateBuilder)
         builder.workspace_manager = self.workspace_manager
         builder.interface_templates = {}
+        builder.chain_assigned_types = defaultdict(set)
 
         # Mock no existing match and new type creation
         with patch.object(builder, '_find_matching_interface_type', return_value=None):
