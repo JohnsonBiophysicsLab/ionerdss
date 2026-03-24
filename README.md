@@ -1,14 +1,12 @@
-![ioNERDSS Banner](https://raw.githubusercontent.com/JohnsonBiophysicsLab/ionerdss/main/website/assets/banner.png)
-
----
-
 [![Documentation](https://img.shields.io/badge/docs-GitHub%20Pages-blue)](https://johnsonbiophysicslab.github.io/ionerdss/)
 [![Run Unit Tests](https://github.com/JohnsonBiophysicsLab/ionerdss/actions/workflows/unittest.yml/badge.svg?branch=main&event=push)](https://github.com/JohnsonBiophysicsLab/ionerdss/actions/workflows/unittest.yml)
 ![PyPI](https://img.shields.io/pypi/v/ioNERDSS.svg)
 ![PyPI - Downloads](https://img.shields.io/pypi/dm/ioNERDSS.svg)
 ![PyPI - Wheel](https://img.shields.io/pypi/wheel/ioNERDSS.svg)
 
----
+
+![ioNERDSS Banner](https://raw.githubusercontent.com/JohnsonBiophysicsLab/ionerdss/main/website/assets/banner.png)
+
 
 > ### Try NERDSS / ioNERDSS online  
 > Try NERDSS / ioNERDSS on the webserver at **nerdssdemo.org** without local installation.  
