@@ -120,6 +120,7 @@ proaffinity-gnn/pdbfiles
 *.cif.gz
 *.log
 *.png
+!website/assets/banner.png
 *.pml
 *.json
 /sim_params_*
