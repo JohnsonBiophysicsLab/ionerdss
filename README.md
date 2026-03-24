@@ -13,7 +13,7 @@
 >[![Webserver](https://img.shields.io/badge/Webserver-nerdssdemo.org-blue?style=for-the-badge&logo=internet-explorer)](https://nerdssdemo.org)
 
 
-[![Documentation](https://img.shields.io/badge/Learn%20More-Website-9cf?style=for-the-badge&logo=info)](https://johnsonbiophysicslab.github.io/ionerdss/)
+[![Documentation](https://img.shields.io/badge/Documentation-NERDSS%20site-lightgrey?style=for-the-badge&logo=readthedocs)](https://johnsonbiophysicslab.github.io/ionerdss/)
 [![Article](https://img.shields.io/badge/Article-bioRxiv-orange?style=for-the-badge&logo=readme)](https://www.biorxiv.org/content/10.64898/2026.01.27.702082v1)
 [![PyPI](https://img.shields.io/badge/PyPI-ioNERDSS-blue?style=for-the-badge&logo=pypi)](https://pypi.org/project/ioNERDSS/)
 [![Learn More](https://img.shields.io/badge/Learn%20More-Website-9cf?style=for-the-badge&logo=info)](https://johnsonbiophysicslab.github.io/NERDSS/)
