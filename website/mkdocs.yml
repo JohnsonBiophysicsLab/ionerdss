@@ -1,0 +1,35 @@
+site_name: ioNERDSS Documentation
+site_description: Documentation for building, simulating, and analyzing NERDSS workflows with ioNERDSS.
+site_url: https://johnsonbiophysicslab.github.io/ionerdss/
+repo_url: https://github.com/JohnsonBiophysicsLab/ionerdss
+repo_name: JohnsonBiophysicsLab/ionerdss
+edit_uri: edit/main/website/docs/
+
+theme:
+  name: mkdocs
+
+nav:
+  - Home: index.md
+  - Getting Started: getting-started.md
+  - Tutorials: tutorials.md
+  - API Reference:
+      - Overview: api/index.md
+      - Top-Level API: api/top-level.md
+      - PDB Modeling: api/pdb.md
+      - Analysis: api/analysis.md
+      - Simulation: api/simulation.md
+      - ODE Pipeline: api/ode.md
+      - System Model: api/system.md
+  - Development: development.md
+
+plugins:
+  - search
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - def_list
+  - footnotes
+  - tables
+  - toc:
+      permalink: true

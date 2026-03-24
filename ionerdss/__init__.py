@@ -4,7 +4,7 @@ NERDSS simulations and analyzing results.
 ================================================
 
 Documentation is available in the docstrings and
-online at https://ionerdss.readthedocs.io/en/
+online at https://johnsonbiophysicslab.github.io/ionerdss/
  
  __version__       --- SciPy version string
 
@@ -77,4 +77,3 @@ def __getattr__(name):
             raise AttributeError(
                 f"Module 'ionerdss' has no attribute '{name}'"
             )
-

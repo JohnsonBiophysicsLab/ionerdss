@@ -25,7 +25,6 @@ classifiers = [
     "Programming Language :: Python :: 3"
 ]
 dependencies = [
-    # required for pytorch
     "numpy>=1.26.4, <3",
     "pandas",
     "matplotlib",
@@ -37,14 +36,12 @@ dependencies = [
     "scikit-learn",
     "requests",
     "ipympl",
-    "networkx"  # Core dependency for graph-based molecular modeling
+    "networkx"
 ]
 
 [project.optional-dependencies]
-# Dependencies for running the test suite
 test = ["pytest", "pytest-cov"]
 
-# ProAffinity dependcencies
 proaffinity = [
   "numpy==1.26.4",
   "scipy==1.13.1",
@@ -60,33 +57,25 @@ proaffinity = [
   "accelerate>=0.26",
 ]
 
-# Dependencies for advanced rendering with Ovito
 ovito_rendering = ["ovito", "imageio", "Pillow"]
 
-# Dependencies for interactive development (Jupyter notebooks)
 jupyter = ["jupyter", "jupyterlab", "ipykernel", "ipywidgets"]
 
-# Dependencies for building documentation
-docs = ["furo", "nbsphinx"]
+docs = [
+    "mkdocs>=1.6",
+]
 
-# Install all optional dependencies at once
 all = [
-    # test dependencies
-    "pytest", 
+    "pytest",
     "pytest-cov",
-    # ovito_rendering dependencies
-    "ovito", 
-    "imageio", 
+    "ovito",
+    "imageio",
     "Pillow",
-    # jupyter dependencies
-    "jupyter", 
-    "jupyterlab", 
-    "ipykernel", 
+    "jupyter",
+    "jupyterlab",
+    "ipykernel",
     "ipywidgets",
-    # docs dependencies
-    "furo",
-    "nbsphinx",
-    # proaffinity
+    "mkdocs>=1.6",
     "ioNERDSS[proaffinity]",
 ]
 

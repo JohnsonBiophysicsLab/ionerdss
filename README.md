@@ -1,162 +1,130 @@
-# ionerdss
-[![Documentation Status](https://readthedocs.org/projects/ionerdss/badge/?version=latest)](https://ionerdss.readthedocs.io/en/latest/?badge=latest)
+![ioNERDSS Banner](https://raw.githubusercontent.com/JohnsonBiophysicsLab/ionerdss/main/website/assets/banner.png)
+
+---
+
+[![Documentation](https://img.shields.io/badge/docs-GitHub%20Pages-blue)](https://johnsonbiophysicslab.github.io/ionerdss/)
 [![Run Unit Tests](https://github.com/JohnsonBiophysicsLab/ionerdss/actions/workflows/unittest.yml/badge.svg?branch=main&event=push)](https://github.com/JohnsonBiophysicsLab/ionerdss/actions/workflows/unittest.yml)
 ![PyPI](https://img.shields.io/pypi/v/ioNERDSS.svg)
 ![PyPI - Downloads](https://img.shields.io/pypi/dm/ioNERDSS.svg)
 ![PyPI - Wheel](https://img.shields.io/pypi/wheel/ioNERDSS.svg)
 
-**ionerdss** is a Python library that provides user‐friendly tools for setting up and analyzing output from the [NERDSS](https://github.com/JohnsonBiophysicsLab/NERDSS) reaction‐diffusion simulator.
-
 ---
+
+> ### Try NERDSS / ioNERDSS online  
+> Try NERDSS / ioNERDSS on the webserver at **nerdssdemo.org** without local installation.  
+>
+> [![Webserver](https://img.shields.io/badge/Webserver-nerdssdemo.org-blue?style=for-the-badge&logo=internet-explorer)](https://nerdssdemo.org)
+> [![Documentation](https://img.shields.io/badge/Documentation-NERDSS%20site-lightgrey?style=for-the-badge&logo=readthedocs)](https://johnsonbiophysicslab.github.io/NERDSS/)
+> [![Article](https://img.shields.io/badge/Article-bioRxiv-orange?style=for-the-badge&logo=readme)](https://www.biorxiv.org/content/10.64898/2026.01.27.702082v1)
+> [![GitHub](https://img.shields.io/badge/GitHub-Repository-black?style=for-the-badge&logo=github)](https://github.com/JohnsonBiophysicsLab/NERDSS)
+> [![PyPI](https://img.shields.io/badge/PyPI-ioNERDSS-blue?style=for-the-badge&logo=pypi)](https://pypi.org/project/ioNERDSS/)
+> [![Learn More](https://img.shields.io/badge/Learn%20More-Website-9cf?style=for-the-badge&logo=info)](https://johnsonbiophysicslab.github.io/NERDSS/)
+
+**ionerdss** is a Python library for building NERDSS-ready models from structures, running simulation workflows, and analyzing simulation outputs.
 
 ## Installation
 
-### 1. From PyPI (Recommended)
+### 1. From PyPI
 
-Requires Python 3.9 or later.
+Requires Python 3.10 or later.
 
 ```bash
 pip install ioNERDSS
 ```
-To include optional features, you can specify them during installation:
+
+To include optional features:
+
 ```bash
-# Example: Install with ODE solver and rendering tools
 pip install "ioNERDSS[ode,ovito_rendering]"
 ```
 
-### 2. For Development (from GitHub)
+### 2. For development
 
-**Quick Start (Clone and Test):**
 ```bash
-# Requires Python 3.9+
 git clone https://github.com/JohnsonBiophysicsLab/ionerdss.git
 cd ionerdss
-pip install -e ".[test,jupyter]"  # Essential dev dependencies
+pip install -e ".[test,jupyter]"
 pytest
 ```
 
-**Detailed Setup for Contributors:**
+For the full contributor environment:
 
-If you want to contribute to development, work with examples, or need a specific environment setup:
-
-**Prerequisites:**
-*   [Git](https://git-scm.com/)
-*   Python 3.9+
-*   Your choice of environment manager: `conda`, `venv`, etc.
-*   Optionally, [uv](https://github.com/astral-sh/uv) for faster performance
-
-**Setup Instructions:**
-
-1.  **Clone the repository:**
-    ```bash
-    git clone https://github.com/JohnsonBiophysicsLab/ionerdss.git
-    cd ionerdss
-    ```
-
-2.  **Create and activate an environment:**
-
-    *   **Using `conda` (Recommended for full environment):**
-        ```bash
-        conda env create -f env/environment.yml
-        conda activate ionerdss-dev
-        ```
-    *   **Using `uv` and `venv` (Fastest):**
-        ```bash
-        python -m venv .venv
-        source .venv/bin/activate  # On Windows: .venv\Scripts\activate
-        uv pip install -r env/requirements-dev.txt
-        ```
-    *   **Using `pip` and `venv`:**
-        ```bash
-        python -m venv .venv
-        source .venv/bin/activate  # On Windows: .venv\Scripts\activate
-        pip install -r env/requirements-dev.txt
-        ```
-
-This installs `ionerdss` in editable mode with testing and Jupyter dependencies for typical development.
-
-**For comprehensive development** (including heavy rendering and documentation tools):
 ```bash
 pip install -e ".[all]"
 ```
-
----
-
-## Running Tests
-
-To run the unit tests locally, ensure you have installed the development environment (which includes `pytest` and `pytest-cov`).
-
-Then, from the project root folder, run:
-```bash
-pytest
-```
-
----
 
 ## Usage
 
 ```python
 import ionerdss as ion
 
-# Create a PDB model from structure
-model = ion.PDBModel(pdb_id="1abc")
-model.generate_model()
+system = ion.build_system_from_pdb(
+    source="6bno",
+    workspace_path="6bno_dir",
+    ode_enabled=True,
+)
 
-# Run analysis on simulation data
-analysis = ion.Analysis("path/to/simulation/data")
-analysis.plot_time_evolution()
+analyzer = ion.Analyzer("path/to/simulation/root")
+analyzer.plot.free_energy()
 ```
 
-## Examples
+## Tutorials
 
-The `examples/` directory contains hands-on Jupyter notebooks demonstrating real molecular systems:
+Current examples live under `tutorials/` and are the supported starting point for notebook-based workflows:
 
-- **`Homo-3mer-5VA4.ipynb`** - 3-component homogeneous assembly
-- **`Hetero-30mer-4YD9.ipynb`** - 30-component heterogeneous system  
-- **`Homo-720mer-6MX4.ipynb`** - Large 720-component viral capsid
-- **`book_chapter_example_system_1.ipynb`** - Comprehensive tutorial example
+- `tutorials/quick_start_6bno.ipynb`
+- `tutorials/ionerdss_tutorial_5l93.ipynb`
+- `tutorials/ionerdss_tutorial_6bno.ipynb`
+- `tutorials/ionerdss_tutorial_8y7s.ipynb`
+- `tutorials/additional_examples/4yd9.ipynb`
 
-To run the examples locally:
+Open them locally with Jupyter:
+
 ```bash
 git clone https://github.com/JohnsonBiophysicsLab/ionerdss.git
 cd ionerdss
-pip install -e ".[jupyter]"  # Install with Jupyter support
-jupyter lab examples/
+pip install -e ".[jupyter]"
+jupyter lab tutorials/
 ```
 
-For additional tutorials, see the [online documentation](https://ionerdss.readthedocs.io/en/latest/ionerdss_tutorials.html).
+Hosted documentation and tutorial index:
+
+- Docs: [johnsonbiophysicslab.github.io/ionerdss](https://johnsonbiophysicslab.github.io/ionerdss/)
+- Tutorials page: [Tutorials](https://johnsonbiophysicslab.github.io/ionerdss/tutorials/)
 
 ### Run a quick trial with our server
+
 Go to the [NERDSS server](http://52.15.142.249:5000/).
 
----
-
 ## Documentation
-- **User Guide:** [ionerdss user guide](https://ionerdss.readthedocs.io/en/latest/ionerdss_documentation_v1_1.html).
-- **API Reference:** [API](https://ionerdss.readthedocs.io/en/latest/ionerdss.html).
 
-You can also build the docs locally using Sphinx:
+The documentation site is published with GitHub Pages from the `website/` folder.
+
+To preview it locally:
+
 ```bash
-# Ensure you are in your activated environment
-pip install -e ".[docs]"  # Install documentation dependencies
-sphinx-apidoc -o website/source ionerdss
-cd website
-make html
+pip install -e ".[docs]"
+pip install -r website/requirements.txt
+mkdocs serve -f website/mkdocs.yml
 ```
-Then open `website/build/html/index.html` in your browser.
 
----
+Then open `http://127.0.0.1:8000/`.
 
-## Docker Development Environment
+## Running tests
 
-For isolated development with Jupyter Lab:
 ```bash
-docker build --no-cache -t ionerdss_dev . 
+pytest
+```
+
+## Docker development environment
+
+```bash
+docker build --no-cache -t ionerdss_dev .
 docker run -it --rm -v $(pwd):/app -p 8888:8888 ionerdss_dev
 ```
+
 This creates a containerized environment with Jupyter Lab accessible at `http://localhost:8888`.
 
----
-
 ## License
-This project is licensed under the GPL‐3.0 License.
+
+This project is licensed under the GPL-3.0 License.

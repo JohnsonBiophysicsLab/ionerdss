@@ -1,80 +1,32 @@
-# Website and Documentation (ReadTheDocs)
+# Website and Documentation (GitHub Pages)
 
-This folder contains the source files used to build the public-facing documentation website hosted on [Read the Docs](https://readthedocs.org/).
+This folder contains the MkDocs source for the public documentation site published with GitHub Pages.
+
+## Local preview
+
+```bash
+pip install -e ".[docs]"
+pip install -r website/requirements.txt
+mkdocs serve -f website/mkdocs.yml
+```
+
+Then open `http://127.0.0.1:8000/`.
 
 ## Structure
 
-```
-
+```text
 website/
-├── source/             # .rst source files for Sphinx (and images)
-│   ├── index.rst
-│   ├── guide.rst
-│   └── figures/
-│       └── diagram.png
-├── example.ipynb       # Jupyter notebook shown on the website
-├── Makefile            # Standard Sphinx Makefile (Linux/macOS)
-├── make.bat            # Windows batch file for Sphinx
-├── requirements.txt    # Python dependencies to build the docs
-└── conf.py             # Sphinx configuration file
-
-````
-
-## Build Instructions (Locally)
-
-To build the documentation locally for preview:
-
-1. Create a virtual environment:
-
-```bash
-python -m venv .venv
-source .venv/bin/activate  # or .venv\Scripts\activate on Windows
-pip install -r requirements.txt
-````
-
-2. Build the HTML:
-
-```bash
-make html
+├── docs/                 # Markdown source pages
+├── mkdocs.yml            # Site navigation and theme configuration
+└── requirements.txt      # Extra packages for local docs builds
 ```
 
-3. Open the output in your browser:
+## Publishing
 
-```bash
-open _build/html/index.html  # or manually open _build/html/index.html
-```
+GitHub Actions builds this folder and deploys it to GitHub Pages using `.github/workflows/docs.yml`.
 
-## Modifying Content
+## Editing guidance
 
-* Edit or add `.rst` files inside `source/`.
-* Images and figures should go into `source/figures/`.
-* To embed a notebook, make sure `nbsphinx` is installed and list the notebook in `index.rst`.
-
-## ReadTheDocs Integration
-
-ReadTheDocs builds the site automatically from this folder using `.readthedocs.yaml` in the root of the repository.
-
-If this folder is renamed (e.g., from `docs/` to `website/`), **you must update** the following line in `.readthedocs.yaml`:
-
-```yaml
-sphinx:
-  configuration: website/conf.py
-```
-
-## Testing Notebook Rendering
-
-To preview notebooks rendered in docs:
-
-* Ensure `nbsphinx`, `ipykernel`, and `jupyter` are in `requirements.txt`
-* Run:
-
-```bash
-jupyter nbconvert --execute --to html example.ipynb
-```
-
-## For Developers
-
-* Only modify this folder if you’re updating the website/docs.
-* When adding a new `.rst`, be sure to link it in `source/index.rst` or via `toctree`.
-* Test your changes locally with `make html` before pushing.
-
+- Keep tutorials aligned with the notebooks in `tutorials/`.
+- Prefer current package docstrings as the source of truth for API behavior.
+- When adding a page, register it in `mkdocs.yml`.

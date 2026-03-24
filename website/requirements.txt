@@ -1,16 +1,1 @@
-furo
-nbsphinx
-numpy
-pandas
-matplotlib
-seaborn
-tqdm
-pyqt6
-pyqtgraph
-PyOpenGL
-biopython
-scipy
-scikit-learn
-requests
-ipympl
-pytest
+mkdocs>=1.6
