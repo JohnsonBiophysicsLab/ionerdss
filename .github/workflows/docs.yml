@@ -35,12 +35,12 @@ jobs:
           pip install -r website/requirements.txt
 
       - name: Build site
-        run: mkdocs build --config-file website/mkdocs.yml --site-dir website/site
+        run: mkdocs build --config-file website/mkdocs.yml --site-dir "${{ github.workspace }}/website/site"
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: website/site
+          path: ${{ github.workspace }}/website/site
 
   deploy:
     needs: build
