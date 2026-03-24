@@ -23,21 +23,9 @@ system = builder.build_system(workspace_path="6bno_dir")
 
 ## `PDBModelHyperparameters`
 
-This dataclass controls the builder behavior. Common fields include:
+`PDBModelHyperparameters` controls the behavior of the full PDB-to-NERDSS pipeline. It is documented on a separate page because the parameter surface is large and the fields affect different stages of the workflow.
 
-- `interface_detect_distance_cutoff`
-- `interface_detect_n_residue_cutoff`
-- `chain_grouping_matching_mode`
-- `generate_visualizations`
-- `generate_nerdss_files`
-- `nerdss_water_box`
-- `nerdss_total_molecule_count`
-- `predict_affinity`
-- `ode_enabled`
-- `ode_time_span`
-- `ode_solver_method`
-- `count_transition`
-- `transition_matrix_size`
+See [PDBModelHyperparameters](pdb-hyperparameters.md) for a full parameter-by-parameter reference.
 
 Example:
 
@@ -58,3 +46,10 @@ system = builder.build_system(workspace_path="workspace")
 ## Hyperparameter helpers
 
 The helper functions in `ionerdss.model.pdb.api` support exporting, importing, printing, and updating hyperparameters without manually rebuilding the dataclass each time.
+
+Useful helpers include:
+
+- `set_hyperparameters(builder, **kwargs)`: create or update the builder's hyperparameter object.
+- `export_hyperparameters(builder, filepath)`: save a builder configuration to JSON.
+- `import_hyperparameters(builder, filepath)`: load a saved configuration into a builder.
+- `print_hyperparameters(builder)`: inspect the current values attached to a builder.

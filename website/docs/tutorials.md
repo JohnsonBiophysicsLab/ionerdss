@@ -19,14 +19,3 @@ The maintained examples now live in the repository-level `tutorials/` folder. Th
 pip install -e ".[jupyter]"
 jupyter lab tutorials/
 ```
-
-## Expected tutorial artifacts
-
-Several tutorials already include generated outputs in sibling directories such as:
-
-- `tutorials/5l93_dir/`
-- `tutorials/6bno_dir/`
-- `tutorials/8erq_dir/`
-- `tutorials/8y7s_dir/`
-
-Those folders are useful for understanding the workspace layout created by the model-building pipeline.

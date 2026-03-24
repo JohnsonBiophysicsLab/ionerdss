@@ -6,10 +6,10 @@
 pip install ioNERDSS
 ```
 
-Optional extras:
+Optional extras (for proaffinity-GNN predicition of protein-protein interaction free energy and jupyter notebook):
 
 ```bash
-pip install "ioNERDSS[ode,ovito_rendering]"
+pip install "ioNERDSS[proaffinity]"
 pip install "ioNERDSS[jupyter]"
 ```
 

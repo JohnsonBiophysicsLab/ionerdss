@@ -16,6 +16,7 @@ nav:
       - Overview: api/index.md
       - Top-Level API: api/top-level.md
       - PDB Modeling: api/pdb.md
+      - PDBModelHyperparameters: api/pdb-hyperparameters.md
       - Analysis: api/analysis.md
       - Simulation: api/simulation.md
       - ODE Pipeline: api/ode.md
