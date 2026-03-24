@@ -10,13 +10,13 @@
 
 > ### Try NERDSS / ioNERDSS online  
 > Try NERDSS / ioNERDSS on the webserver at **nerdssdemo.org** without local installation.  
->
-> [![Webserver](https://img.shields.io/badge/Webserver-nerdssdemo.org-blue?style=for-the-badge&logo=internet-explorer)](https://nerdssdemo.org)
-> [![Documentation](https://img.shields.io/badge/Documentation-NERDSS%20site-lightgrey?style=for-the-badge&logo=readthedocs)](https://johnsonbiophysicslab.github.io/NERDSS/)
-> [![Article](https://img.shields.io/badge/Article-bioRxiv-orange?style=for-the-badge&logo=readme)](https://www.biorxiv.org/content/10.64898/2026.01.27.702082v1)
-> [![GitHub](https://img.shields.io/badge/GitHub-Repository-black?style=for-the-badge&logo=github)](https://github.com/JohnsonBiophysicsLab/NERDSS)
-> [![PyPI](https://img.shields.io/badge/PyPI-ioNERDSS-blue?style=for-the-badge&logo=pypi)](https://pypi.org/project/ioNERDSS/)
-> [![Learn More](https://img.shields.io/badge/Learn%20More-Website-9cf?style=for-the-badge&logo=info)](https://johnsonbiophysicslab.github.io/NERDSS/)
+>[![Webserver](https://img.shields.io/badge/Webserver-nerdssdemo.org-blue?style=for-the-badge&logo=internet-explorer)](https://nerdssdemo.org)
+
+
+[![Documentation](https://img.shields.io/badge/Learn%20More-Website-9cf?style=for-the-badge&logo=info)](https://johnsonbiophysicslab.github.io/ionerdss/)
+[![Article](https://img.shields.io/badge/Article-bioRxiv-orange?style=for-the-badge&logo=readme)](https://www.biorxiv.org/content/10.64898/2026.01.27.702082v1)
+[![PyPI](https://img.shields.io/badge/PyPI-ioNERDSS-blue?style=for-the-badge&logo=pypi)](https://pypi.org/project/ioNERDSS/)
+[![Learn More](https://img.shields.io/badge/Learn%20More-Website-9cf?style=for-the-badge&logo=info)](https://johnsonbiophysicslab.github.io/NERDSS/)
 
 **ionerdss** is a Python library for building NERDSS-ready models from structures, running simulation workflows, and analyzing simulation outputs.
 
@@ -33,8 +33,12 @@ pip install ioNERDSS
 To include optional features:
 
 ```bash
-pip install "ioNERDSS[ode,ovito_rendering]"
+pip install "ioNERDSS[jupyter]"
+pip install "ioNERDSS[ovito_rendering]"
+pip install "ioNERDSS[proaffinity]"
 ```
+
+The ODE pipeline does not require a separate extra; it is included in the main package install.
 
 ### 2. For development
 
@@ -102,7 +106,6 @@ To preview it locally:
 
 ```bash
 pip install -e ".[docs]"
-pip install -r website/requirements.txt
 mkdocs serve -f website/mkdocs.yml
 ```
 
