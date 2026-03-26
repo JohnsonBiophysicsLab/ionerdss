@@ -1,4 +1,18 @@
-# written by Hassan Sohail
+"""
+Simularium Converter Module
+
+This module provides functionality to convert NERDSS simulation output files 
+into Simularium-compatible formats (.simularium binary or JSON). It processes
+molecular structure files (.mol), simulation parameters (parms.inp), and PDB 
+trajectory data to generate visualization-ready output that can be viewed in 
+the Simularium viewer.
+
+Note: Requires the optional `simulariumio` dependency to be installed 
+(e.g., via `pip install "ioNERDSS[simularium]"`).
+
+@author: Hassan Sohail
+@modified: Yue Moon Ying (2026)
+"""
 import os
 import glob
 import re
@@ -6,19 +20,18 @@ import colorsys
 import numpy as np
 
 import sys
-import os
+import logging
 
-# Define the relative path to simulariumio repo
-relative_path = os.path.join(os.path.abspath(os.path.dirname(__file__)), '../../..', 'simulariumio/')
-# Convert the relative path to an absolute path
-absolute_path_to_add = os.path.abspath(relative_path)
-# Add the absolute path to sys.path
-sys.path.append(absolute_path_to_add)
+logger = logging.getLogger(__name__)
 
-from simulariumio.nerdss import NerdssConverter, NerdssData
-from simulariumio import MetaData, DisplayData, DISPLAY_TYPE, CameraData, UnitData
-from simulariumio.filters import TranslateFilter
-from simulariumio.writers import BinaryWriter, JsonWriter
+try:
+    from simulariumio.nerdss import NerdssConverter, NerdssData
+    from simulariumio import MetaData, DisplayData, DISPLAY_TYPE, CameraData, UnitData
+    from simulariumio.filters import TranslateFilter
+    from simulariumio.writers import BinaryWriter, JsonWriter
+    SIMULARIUM_AVAILABLE = True
+except ImportError:
+    SIMULARIUM_AVAILABLE = False
 
 def parse_parms(filename):
     """
@@ -141,19 +154,14 @@ def build_display_data(input_dir):
     """
     # Patterns for files
     mol_pattern = os.path.join(input_dir, "*.mol")
-    inp_pattern = os.path.join(input_dir, "*.inp")
-
     mol_files = sorted(glob.glob(mol_pattern))
-    inp_files = sorted(glob.glob(inp_pattern))
 
     if not mol_files:
         raise FileNotFoundError(f"No .mol files found in '{input_dir}'")
-    if not inp_files:
-        raise FileNotFoundError(f"No .inp file found in '{input_dir}'")
-    if len(inp_files) > 1:
-        raise FileExistsError(f"Multiple .inp files found in '{input_dir}': {inp_files}")
-
-    params_file = inp_files[0]
+    
+    params_file = os.path.join(input_dir, "parms.inp")
+    if not os.path.isfile(params_file):
+        raise FileNotFoundError(f"'parms.inp' not found in '{input_dir}'")
 
     # Parse each .mol
     parsed = [parse_mol_file(fp) for fp in mol_files]
@@ -206,6 +214,13 @@ def convert_simularium(input_dir: str, output_name: str, pdb_folder: str = '', o
 
     Raises FileNotFoundError or FileExistsError if those files/folders are missing.
     """
+    if not SIMULARIUM_AVAILABLE:
+        logger.warning(
+            "simulariumio is not installed. "
+            "Please install ioNERDSS with the 'simularium' optional dependency "
+            "(e.g., pip install 'ioNERDSS[simularium]') to enable conversion."
+        )
+        return
     # 1) Verify input_dir exists
     if not os.path.isdir(input_dir):
         raise FileNotFoundError(f"Input folder '{input_dir}' does not exist.")
