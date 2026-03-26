@@ -61,7 +61,10 @@ ovito_rendering = ["ovito", "imageio", "Pillow"]
 
 jupyter = ["jupyter", "jupyterlab", "ipykernel", "ipywidgets"]
 
-simularium = ["simulariumio"]
+simularium = [
+    "simulariumio",
+    "MDAnalysis"     # for simulariumio reading NERDSS PDB files
+]
 
 docs = [
     "mkdocs>=1.6",
