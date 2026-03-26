@@ -1,0 +1,6 @@
+recursive-include ionerdss *.pkl
+recursive-include ionerdss *.json
+recursive-include ionerdss *.csv
+recursive-include ionerdss *.txt
+recursive-include ionerdss *.inp
+recursive-include ionerdss *.mol
