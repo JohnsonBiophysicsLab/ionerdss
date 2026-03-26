@@ -57,11 +57,11 @@ def parse_parms(filename):
                 section = None
 
             if section == "parameters":
-                if line.startswith("pdbWrite"):
-                    pdb_write = int(line.split("=", 1)[1].strip())
-                elif line.startswith("timeStep"):
+                if line.lower().startswith("pdbwrite"):
+                    pdb_write = int(float(line.split("=", 1)[1].strip()))
+                elif line.lower().startswith("timestep"):
                     time_step = float(line.split("=", 1)[1].strip())
-            elif section == "boundaries" and line.startswith("WaterBox"):
+            elif section == "boundaries" and line.lower().startswith("waterbox"):
                 nums = re.search(r"\[([^\]]+)\]", line).group(1)
                 water_box = [float(x) for x in nums.split(",")]
 
@@ -245,29 +245,44 @@ def convert_simularium(input_dir: str, output_name: str, pdb_folder: str = '', o
     # 4) Build the dictionary of DisplayData from the .mol files
     display_data = build_display_data(input_dir)
 
-    # 5) Construct a NerdssData object
-    nerdss_data = NerdssData(
-        path_to_pdb_files=pdb_folder,
-        meta_data=MetaData(
-            box_size=box_array,
-            trajectory_title=output_name,
-            camera_defaults=CameraData(position=np.array([0, 0, box_array[2] / 2])),
-        ),
-        display_data=display_data,
-        time_units=UnitData("µs", time_step),
-        spatial_units=UnitData("nm", 1),
-    )
+    # 5) Construct a NerdssData object using a temporary directory with only valid PDBs
+    import tempfile
+    import shutil
+    import re
+    
+    with tempfile.TemporaryDirectory() as tmpdir:
+        valid_pdb_pattern = re.compile(r"^\d+\.pdb$")
+        for f in os.listdir(pdb_folder):
+            if valid_pdb_pattern.match(f):
+                src = os.path.join(pdb_folder, f)
+                dst = os.path.join(tmpdir, f)
+                try:
+                    os.symlink(os.path.abspath(src), dst)
+                except OSError:
+                    shutil.copy2(src, dst)
 
-    # 6) Center everything in the box
-    converter = NerdssConverter(nerdss_data)
-    translate_filter = TranslateFilter(default_translation=box_array / -2)
-    filtered_data = converter.filter_data([translate_filter])
+        nerdss_data = NerdssData(
+            path_to_pdb_files=tmpdir,
+            meta_data=MetaData(
+                box_size=box_array,
+                trajectory_title=output_name,
+                camera_defaults=CameraData(position=np.array([0, 0, box_array[2] / 2])),
+            ),
+            display_data=display_data,
+            time_units=UnitData("µs", time_step),
+            spatial_units=UnitData("nm", 1),
+        )
 
-    # 7) Write a binary .simularium file
-    if output_format.lower() == 'binary':
-        BinaryWriter.save(filtered_data, output_name, False)
-    elif output_format.lower() == 'json':
-        JsonWriter.save(filtered_data, output_name, False)
+        # 6) Center everything in the box
+        converter = NerdssConverter(nerdss_data)
+        translate_filter = TranslateFilter(default_translation=box_array / -2)
+        filtered_data = converter.filter_data([translate_filter])
+
+        # 7) Write a binary .simularium file
+        if output_format.lower() == 'binary':
+            BinaryWriter.save(filtered_data, output_name, False)
+        elif output_format.lower() == 'json':
+            JsonWriter.save(filtered_data, output_name, False)
     # After this, a file named f"{output_name}.simularium" appears in cwd.
 
 if __name__ == "__main__":
