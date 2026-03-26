@@ -174,8 +174,6 @@ repro_serialization.py
 ref_angles.py
 reconstruction_test.py
 verify_angles*
-test_*.py
-test *.py
 run_debug.py
 test_simple*
 nerdss_output/
@@ -188,3 +186,8 @@ tutorials/8y7s_dir/
 /test_debug
 /4v6x_dir
 /debug_*
+test_7pg9.py
+test_symmetry.py
+test_sim.py
+test copy.py
+test copy 2.py
