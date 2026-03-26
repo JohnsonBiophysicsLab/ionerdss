@@ -42,7 +42,8 @@ submodules = {
     'Analyzer': ['.analysis', 'Analyzer'],
     'ODEPipelineConfig': ['.ode.ode_pipeline', 'ODEPipelineConfig'],
     'run_ode_pipeline': ['.ode.ode_pipeline', 'run_ode_pipeline'],
-    'build_system_from_pdb': ['.api', 'build_system_from_pdb']
+    'build_system_from_pdb': ['.api', 'build_system_from_pdb'],
+    'visualize_trajectory_ovito': ['.ovito_visualizer', 'visualize_trajectory_ovito']
 }
 
 __all__ = list(submodules.keys()) + [
