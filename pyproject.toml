@@ -61,6 +61,8 @@ ovito_rendering = ["ovito", "imageio", "Pillow"]
 
 jupyter = ["jupyter", "jupyterlab", "ipykernel", "ipywidgets"]
 
+simularium = ["simulariumio"]
+
 docs = [
     "mkdocs>=1.6",
 ]
