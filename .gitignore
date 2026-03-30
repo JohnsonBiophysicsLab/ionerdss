@@ -195,3 +195,5 @@ example_visualization.simularium
 tutorials/6bno_visualization.simularium
 example_simularium_converter.py
 *.gif
+/tutorials/7pg9_dir
+/tutorials/tutorials_output/*
