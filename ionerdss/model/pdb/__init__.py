@@ -47,6 +47,18 @@ from .chain_grouping import ChainGrouper
 from .template_builder import TemplateBuilder
 from .system_builder import SystemBuilder
 from .main import PDBModelBuilder
+from . import validation
+from .structure_validation import (
+    StructureAlignmentResult,
+    StructureValidationArtifacts,
+    StructureValidationConfig,
+    StructureValidationSimulationResult,
+    align_structure_to_design,
+    build_validation_molecule_counts,
+    get_designed_structure_coordinates,
+    get_structure_validation_counts,
+    prepare_structure_validation,
+)
 
 # Import high-level API functions
 from .api import (
@@ -65,10 +77,20 @@ __all__ = [
     'TemplateBuilder',
     'SystemBuilder',
     'PDBModelBuilder',
+    'validation',
+    'StructureAlignmentResult',
+    'StructureValidationArtifacts',
+    'StructureValidationConfig',
+    'StructureValidationSimulationResult',
     
     # High-level API functions
+    'align_structure_to_design',
+    'build_validation_molecule_counts',
     'set_hyperparameters',
     'export_hyperparameters',
     'import_hyperparameters',
     'print_hyperparameters',
+    'get_designed_structure_coordinates',
+    'get_structure_validation_counts',
+    'prepare_structure_validation',
 ]
