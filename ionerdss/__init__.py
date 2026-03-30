@@ -43,6 +43,11 @@ submodules = {
     'ODEPipelineConfig': ['.ode.ode_pipeline', 'ODEPipelineConfig'],
     'run_ode_pipeline': ['.ode.ode_pipeline', 'run_ode_pipeline'],
     'build_system_from_pdb': ['.api', 'build_system_from_pdb'],
+    'prepare_structure_validation_for_system': ['.api', 'prepare_structure_validation_for_system'],
+    'compare_structure_to_design': ['.api', 'compare_structure_to_design'],
+    'StructureValidationConfig': ['.model.pdb.structure_validation', 'StructureValidationConfig'],
+    'StructureValidationArtifacts': ['.model.pdb.structure_validation', 'StructureValidationArtifacts'],
+    'StructureAlignmentResult': ['.model.pdb.structure_validation', 'StructureAlignmentResult'],
     'visualize_trajectory_ovito': ['.ovito_visualizer', 'visualize_trajectory_ovito']
 }
 
