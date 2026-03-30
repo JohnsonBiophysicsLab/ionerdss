@@ -413,6 +413,8 @@ class Simulation:
                                 time.sleep(2)
                             
                             progress_bars[index].close()
+                    else:
+                        process.wait()
         
         if parallel and verbose:
             for index, process in processes:
