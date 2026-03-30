@@ -16,6 +16,7 @@ from typing import Dict, Iterable, Mapping, MutableMapping, Optional, Sequence, 
 import json
 import shutil
 import warnings
+from collections import Counter, defaultdict
 
 import numpy as np
 
@@ -70,6 +71,7 @@ class StructureValidationSimulationResult:
     histogram_file: Path
     final_coords_file: Path
     system_psf_file: Path
+    restart_file: Path
     full_assembly_found: bool
     warning_message: Optional[str]
     first_full_assembly_time: Optional[float]
@@ -267,9 +269,9 @@ def align_structure_to_design(
     )
 
 
-def _parse_psf_com_records(system_psf_file: Union[str, Path]) -> list[Tuple[int, str]]:
-    """Return `(atom_index, mol_name)` entries for COM atoms in PSF order."""
-    records: list[Tuple[int, str]] = []
+def _parse_psf_com_records(system_psf_file: Union[str, Path]) -> list[Tuple[int, int, str]]:
+    """Return `(atom_index, mol_id, mol_name)` entries for COM atoms in PSF order."""
+    records: list[Tuple[int, int, str]] = []
     natom = None
     with open(system_psf_file, "r", encoding="utf-8") as handle:
         for line in handle:
@@ -284,9 +286,10 @@ def _parse_psf_com_records(system_psf_file: Union[str, Path]) -> list[Tuple[int,
             if len(parts) >= 5:
                 atom_index = int(parts[0]) - 1
                 mol_name = parts[1]
+                mol_id = int(parts[2])
                 atom_name = parts[3]
                 if atom_name == "COM":
-                    records.append((atom_index, mol_name))
+                    records.append((atom_index, mol_id, mol_name))
                 natom -= 1
                 if natom == 0:
                     break
@@ -307,22 +310,120 @@ def _parse_xyz_coordinates(xyz_file: Union[str, Path]) -> np.ndarray:
     return np.asarray(coords, dtype=float)
 
 
+def _parse_restart_molecule_partners(restart_file: Union[str, Path]) -> Dict[int, set[int]]:
+    """Parse final-frame molecule connectivity from a NERDSS restart file."""
+    lines = Path(restart_file).read_text(encoding="utf-8", errors="replace").splitlines()
+
+    start_idx = None
+    for idx, line in enumerate(lines):
+        if line.strip() == "#All Molecules and coordinates":
+            start_idx = idx
+            break
+    if start_idx is None:
+        raise ValueError(f"Could not find molecule section in restart file: {restart_file}")
+
+    header_parts = lines[start_idx + 1].split()
+    if not header_parts:
+        raise ValueError(f"Malformed molecule section header in restart file: {restart_file}")
+    molecule_count = int(header_parts[0])
+
+    adjacency: Dict[int, set[int]] = defaultdict(set)
+    idx = start_idx + 2
+    for _ in range(molecule_count):
+        header = lines[idx].split()
+        if len(header) < 2:
+            raise ValueError(f"Malformed molecule block header in restart file near line {idx + 1}")
+        mol_id = int(header[0])
+        idx += 1  # radius / metadata line
+        idx += 1  # COM coordinate line
+        idx += 1  # auxiliary line
+        idx += 1  # auxiliary line
+        idx += 1  # move to partner list line
+
+        partner_line = lines[idx].split()
+        if not partner_line:
+            raise ValueError(f"Malformed partner list in restart file near line {idx + 1}")
+        partner_count = int(partner_line[0])
+        partner_ids = [int(value) for value in partner_line[1:1 + partner_count]]
+        idx += 1
+
+        iface_count_line = lines[idx].split()
+        if not iface_count_line:
+            raise ValueError(f"Malformed interface count in restart file near line {idx + 1}")
+        iface_count = int(iface_count_line[0])
+        idx += 1
+
+        for partner_id in partner_ids:
+            if partner_id != mol_id:
+                adjacency[mol_id].add(partner_id)
+                adjacency[partner_id].add(mol_id)
+
+        idx += 3 * iface_count
+        idx += 6
+
+    return adjacency
+
+
 def _extract_observed_com_coordinates(
     system_psf_file: Union[str, Path],
     final_coords_file: Union[str, Path],
+    restart_file: Union[str, Path],
     target_counts: Mapping[str, int],
 ) -> Dict[str, Tuple[float, float, float]]:
-    """Extract COM coordinates keyed by molecule type from final NERDSS outputs."""
+    """Extract COM coordinates from one connected final-frame assembly."""
     if any(count != 1 for count in target_counts.values()):
         raise ValueError("Observed coordinate extraction currently requires one copy per molecule type.")
 
     com_records = _parse_psf_com_records(system_psf_file)
     xyz_coords = _parse_xyz_coordinates(final_coords_file)
+    adjacency = _parse_restart_molecule_partners(restart_file)
 
-    observed: Dict[str, Tuple[float, float, float]] = {}
-    for atom_index, mol_name in com_records:
-        if mol_name in target_counts and mol_name not in observed:
-            observed[mol_name] = tuple(xyz_coords[atom_index].tolist())
+    mol_id_to_name: Dict[int, str] = {}
+    mol_id_to_coord: Dict[int, Tuple[float, float, float]] = {}
+    for atom_index, mol_id, mol_name in com_records:
+        mol_id_to_name[mol_id] = mol_name
+        mol_id_to_coord[mol_id] = tuple(xyz_coords[atom_index].tolist())
+        adjacency.setdefault(mol_id, set())
+
+    matching_components: list[list[int]] = []
+    visited: set[int] = set()
+    for mol_id in sorted(mol_id_to_name):
+        if mol_id in visited:
+            continue
+
+        component: list[int] = []
+        stack = [mol_id]
+        visited.add(mol_id)
+        while stack:
+            current = stack.pop()
+            component.append(current)
+            for neighbor in sorted(adjacency.get(current, ())):
+                if neighbor in mol_id_to_name and neighbor not in visited:
+                    visited.add(neighbor)
+                    stack.append(neighbor)
+
+        component_counts = Counter(mol_id_to_name[node_id] for node_id in component)
+        if dict(component_counts) == dict(target_counts):
+            matching_components.append(sorted(component))
+
+    if not matching_components:
+        raise ValueError(
+            "No connected component in the final restart snapshot matches the designed "
+            f"target composition {dict(target_counts)}."
+        )
+
+    selected_component = min(matching_components, key=lambda component: (component[0], component))
+    if len(matching_components) > 1:
+        warnings.warn(
+            "Multiple full assemblies matching the validation target were present in the final "
+            f"snapshot; selecting the component with the smallest molecule id set {selected_component}.",
+            RuntimeWarning,
+        )
+
+    observed = {
+        mol_id_to_name[mol_id]: mol_id_to_coord[mol_id]
+        for mol_id in selected_component
+    }
 
     missing = sorted(set(target_counts) - set(observed))
     if missing:
@@ -358,6 +459,7 @@ def run_structure_validation_simulation(
     histogram_file = simulation_dir / "DATA" / "histogram_complexes_time.dat"
     final_coords_file = simulation_dir / "DATA" / "final_coords.xyz"
     system_psf_file = simulation_dir / "DATA" / "system.psf"
+    restart_file = simulation_dir / "DATA" / "restart.dat"
 
     hist_times, hist_comps, hist_matrix = parse_complex_histogram(histogram_file)
     target_comp = dict(artifacts.molecule_counts)
@@ -377,11 +479,20 @@ def run_structure_validation_simulation(
     warning_message = None
     observed_coordinates = None
     if full_assembly_found:
-        observed_coordinates = _extract_observed_com_coordinates(
-            system_psf_file=system_psf_file,
-            final_coords_file=final_coords_file,
-            target_counts=artifacts.molecule_counts,
-        )
+        try:
+            observed_coordinates = _extract_observed_com_coordinates(
+                system_psf_file=system_psf_file,
+                final_coords_file=final_coords_file,
+                restart_file=restart_file,
+                target_counts=artifacts.molecule_counts,
+            )
+        except ValueError as exc:
+            warning_message = (
+                "Validation warning: the target composition appeared in the histogram, but no "
+                "matching connected assembly was found in the final restart snapshot. "
+                f"{exc}"
+            )
+            warnings.warn(warning_message, RuntimeWarning)
     else:
         warning_message = (
             "Validation warning: no full assembly matching the designed one-copy target "
@@ -394,6 +505,7 @@ def run_structure_validation_simulation(
         histogram_file=histogram_file,
         final_coords_file=final_coords_file,
         system_psf_file=system_psf_file,
+        restart_file=restart_file,
         full_assembly_found=full_assembly_found,
         warning_message=warning_message,
         first_full_assembly_time=first_full_assembly_time,

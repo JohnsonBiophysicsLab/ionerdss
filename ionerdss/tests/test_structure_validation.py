@@ -12,6 +12,7 @@ from ionerdss.model.components.types import MoleculeType
 from ionerdss.model import pdb
 from ionerdss.model.pdb.nerdss_exporter import NERDSSExporter
 from ionerdss.model.pdb.structure_validation import (
+    _extract_observed_com_coordinates,
     align_structure_to_design,
     get_designed_structure_coordinates,
     get_structure_validation_counts,
@@ -139,3 +140,86 @@ def test_titration_sites_follow_mol_file_and_skip_com_ref():
             os.chdir(old_cwd)
 
     assert sites == ["al1", "ah1"]
+
+
+def test_observed_structure_extraction_uses_one_connected_component():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmp_path = Path(tmpdir)
+        psf_path = tmp_path / "system.psf"
+        xyz_path = tmp_path / "final_coords.xyz"
+        restart_path = tmp_path / "restart.dat"
+
+        psf_path.write_text(
+            "\n".join(
+                [
+                    "PSF",
+                    "",
+                    "    6 !NATOM",
+                    "       1    A    0  COM    O    0          0    1.0         0",
+                    "       2    H    4  COM    O    0          0    1.0         0",
+                    "       3    L    2  COM    O    0          0    1.0         0",
+                    "       4    A    3  COM    O    0          0    1.0         0",
+                    "       5    H    1  COM    O    0          0    1.0         0",
+                    "       6    L    5  COM    O    0          0    1.0         0",
+                ]
+            ),
+            encoding="utf-8",
+        )
+
+        xyz_path.write_text(
+            "\n".join(
+                [
+                    "6",
+                    "mol output final",
+                    "A 0.0 0.0 0.0",
+                    "H 10.0 0.0 0.0",
+                    "L 0.0 1.0 0.0",
+                    "A 10.0 10.0 0.0",
+                    "H 1.0 0.0 0.0",
+                    "L 10.0 11.0 0.0",
+                ]
+            ),
+            encoding="utf-8",
+        )
+
+        def _restart_block(mol_id: int, partners: list[int]) -> list[str]:
+            return [
+                f"{mol_id} 0 0 0 0",
+                "0 0 0 0 0 0",
+                "0.0 0.0 0.0",
+                "0",
+                "0",
+                " ".join([str(len(partners))] + [str(pid) for pid in partners]),
+                "0",
+                "0",
+                "0",
+                "0",
+                "0",
+                "0",
+                "0",
+            ]
+
+        restart_lines = [
+            "#All Molecules and coordinates",
+            "6 6",
+        ]
+        restart_lines.extend(_restart_block(0, [1, 2]))
+        restart_lines.extend(_restart_block(1, [0, 2]))
+        restart_lines.extend(_restart_block(2, [0, 1]))
+        restart_lines.extend(_restart_block(3, [4, 5]))
+        restart_lines.extend(_restart_block(4, [3, 5]))
+        restart_lines.extend(_restart_block(5, [3, 4]))
+        restart_path.write_text("\n".join(restart_lines), encoding="utf-8")
+
+        observed = _extract_observed_com_coordinates(
+            system_psf_file=psf_path,
+            final_coords_file=xyz_path,
+            restart_file=restart_path,
+            target_counts={"A": 1, "H": 1, "L": 1},
+        )
+
+    assert observed == {
+        "A": (0.0, 0.0, 0.0),
+        "H": (1.0, 0.0, 0.0),
+        "L": (0.0, 1.0, 0.0),
+    }
