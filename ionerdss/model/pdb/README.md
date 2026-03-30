@@ -554,6 +554,92 @@ def analyze_pdb_set(pdb_ids, output_dir):
 
 ## Integration Examples
 
+### Tutorial: Build a 6BNO-Based NERDSS Model
+
+This walkthrough uses the current high-level PDB pipeline to:
+
+- download and parse `6BNO`
+- tune interface detection and chain grouping
+- export `nerdss_files/`
+- launch a NERDSS simulation with `parms.inp`
+
+```python
+from pathlib import Path
+import subprocess
+
+from ionerdss.model.pdb.main import PDBModelBuilder
+from ionerdss.model.pdb.hyperparameters import PDBModelHyperparameters
+from ionerdss.model.pdb.parser import PDBParser
+
+# Choose an output workspace for all generated files
+save_folder = Path("6bno_tutorial")
+
+# Optional: inspect the deposited structure before building the coarse-grained model.
+# Because "6bno" is a 4-character PDB ID, PDBParser will download it automatically.
+parser = PDBParser("6bno")
+print(f"PDB ID: {parser.get_pdb_id()}")
+print(f"Detected chains: {parser.get_chain_ids()}")
+
+# Configure the interface-detection and grouping settings from this tutorial.
+hyperparams = PDBModelHyperparameters(
+    interface_detect_distance_cutoff=0.7,
+    interface_detect_n_residue_cutoff=2,
+    chain_grouping_seq_threshold=0.5,
+    generate_nerdss_files=True,
+    generate_visualizations=True,
+    nerdss_water_box=[500.0, 500.0, 500.0],
+    nerdss_total_molecule_count=75,
+)
+
+# Build the ionerdss System and export NERDSS input files into save_folder/nerdss_files.
+builder = PDBModelBuilder(source="6bno", hyperparams=hyperparams)
+system = builder.build_system(workspace_path=str(save_folder))
+
+print("Molecule types:", [mol.name for mol in system.molecule_types])
+print("NERDSS files written to:", save_folder / "nerdss_files")
+
+# Run NERDSS with the generated parms.inp file.
+nerdss_dir = save_folder / "nerdss_files"
+nerdss_cmd = "~/Workspace/Reaction_ode/nerdss_development/bin/nerdss -f parms.inp"
+
+subprocess.run(
+    nerdss_cmd,
+    shell=True,
+    cwd=nerdss_dir,
+    executable="/bin/bash",
+    check=True,
+)
+```
+
+What this configuration changes:
+
+- `interface_detect_distance_cutoff=0.7`: considers atom pairs within 0.7 nm as potential contacts when identifying interfaces.
+- `interface_detect_n_residue_cutoff=2`: keeps interfaces that have at least two contacting residues on each side.
+- `chain_grouping_seq_threshold=0.5`: groups repeated chains when their sequence identity is at least 50%.
+
+Where to look after the build finishes:
+
+- `6bno_tutorial/logs/pipeline.log`: step-by-step pipeline log
+- `6bno_tutorial/nerdss_files/parms.inp`: NERDSS simulation parameters
+- `6bno_tutorial/nerdss_files/system.inp`: initial system composition
+- `6bno_tutorial/outputs/reports/`: validation and summary reports
+- `6bno_tutorial/visualizations/`: coarse-grained plots and PyMOL helper files
+
+If you want a shorter version, the public wrapper exposes the same hyperparameters directly:
+
+```python
+from ionerdss import build_system_from_pdb
+
+system = build_system_from_pdb(
+    source="6bno",
+    workspace_path="6bno_tutorial",
+    interface_detect_distance_cutoff=0.7,
+    interface_detect_n_residue_cutoff=2,
+    chain_grouping_seq_threshold=0.5,
+    generate_nerdss_files=True,
+)
+```
+
 ### Integration with NERDSS
 
 ```python
@@ -597,6 +683,49 @@ simulation_config = {
 
 nerdss_files = pdb_to_nerdss_simulation("1ABC", "/simulation_workspace", simulation_config)
 ```
+
+### Tutorial: Build a Synthetic Dodecahedron and Run NERDSS
+
+The platonic-solid generator is useful when you want a designed reference assembly
+instead of a structure inferred from a deposited PDB file. The example below matches
+the workflow in your snippet.
+
+```python
+from pathlib import Path
+import subprocess
+
+from ionerdss import build_system_from_plat
+
+save_folder = Path("dode_tutorial")
+
+sys, rxn = build_system_from_plat(
+    solid_type="dode",
+    radius=8,
+    sigma=1,
+    output_nerdss=True,
+    output_dir=str(save_folder),
+)
+
+print(f"Built {len(sys.molecule_types.molecule_types)} molecule type(s)")
+print(f"Built {len(rxn)} reaction rule(s)")
+
+print("\nNow running NERDSS simulation...\n")
+
+nerdss_dir = save_folder / "nerdss_files"
+nerdss_cmd = "~/Workspace/Reaction_ode/nerdss_development/bin/nerdss -f parms.inp"
+
+subprocess.run(
+    nerdss_cmd,
+    shell=True,
+    cwd=nerdss_dir,
+    executable="/bin/bash",
+    check=True,
+)
+```
+
+In this case, `build_system_from_plat(..., output_nerdss=True)` writes the same
+`nerdss_files/` directory structure, so the simulation launch step is identical to
+the `6BNO` tutorial.
 
 ### Integration with Molecular Viewers
 
