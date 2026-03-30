@@ -485,6 +485,11 @@ from .template_builder import TemplateBuilder
 from .file_manager import WorkspaceManager
 from .visualizer import PDBVisualizer
 from .ring_regularizer import RingRegularizer
+from .structure_validation import (
+    StructureValidationArtifacts,
+    StructureValidationConfig,
+    prepare_structure_validation,
+)
 
 from .template_builder import _enforce_identical_local_geometry_after_com
 
@@ -1351,4 +1356,24 @@ class SystemBuilder:
             molecule_counts=molecule_counts,
             box_nm=box_nm,
             parms_overrides=parms_overrides
+        )
+
+    def export_structure_validation_setup(
+        self,
+        box_nm: Tuple[float, float, float] = (100.0, 100.0, 100.0),
+        titration_on_rate: float = 1.0e-5,
+        target_filename: str = "structure_validation_target.json",
+        parms_overrides: Optional[Dict[str, Any]] = None,
+    ) -> StructureValidationArtifacts:
+        """Export the special one-copy-per-type structure validation setup."""
+        config = StructureValidationConfig(
+            box_nm=box_nm,
+            titration_on_rate=titration_on_rate,
+            target_filename=target_filename,
+        )
+        return prepare_structure_validation(
+            system=self.system,
+            workspace_manager=self.workspace_manager,
+            config=config,
+            parms_overrides=parms_overrides,
         )
