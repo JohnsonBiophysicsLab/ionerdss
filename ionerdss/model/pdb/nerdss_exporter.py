@@ -67,6 +67,7 @@ from ionerdss.utils.vectors import convert_to_unit, get_magnitude
 from ionerdss.utils.angles import signed_angle_arccos
 from ionerdss.model.pdb import interface_naming
 from .file_manager import WorkspaceManager
+from ionerdss.model.titrate.parms_titrator import parse_mol_file
 
 
 #------------ exporter class ---------------
@@ -362,8 +363,9 @@ class NERDSSExporter:
                     "  %s: %s", file_type, file_path)
                 
         # DEBUG: Print representative instance information
-        for mol_type in self.system.molecule_types:
-            self._debug_representative_instance(mol_type.name)
+        if self.workspace_manager:
+            for mol_type in self.system.molecule_types:
+                self._debug_representative_instance(mol_type.name)
 
         return output_files
 
@@ -949,7 +951,7 @@ class NERDSSExporter:
     def _get_representative_instance(self, mol_type_name: str):
         """Get representative instance with maximum interfaces for a molecule type."""
         representative_instance = None
-        max_interfaces = 0
+        max_interfaces = -1
 
         for mol_instance in self.system.molecule_instances:
             if mol_instance.molecule_type and mol_instance.molecule_type.name == mol_type_name:
@@ -1223,6 +1225,21 @@ class NERDSSExporter:
                         required_sites.append(site)
         
         return sorted(required_sites)
+
+    def _get_titration_site_labels(self, mol_name: str) -> List[str]:
+        """Return titration site labels from the exported .mol file.
+
+        This mirrors the standalone titration helper: include every coordinate
+        label except COM/REF, using the order encoded in the .mol file.
+        """
+        mol_file = self.output_dir / f"{mol_name}.mol"
+        if mol_file.exists():
+            return parse_mol_file(str(mol_file))
+
+        if mol_name in self.site_local_coords:
+            return sorted(self.site_local_coords[mol_name])
+
+        return []
 
     def _generate_reactions(self) -> List[str]:
         """Generate BNGL reaction strings with proper handling of failed homotypic interfaces."""
@@ -1522,7 +1539,11 @@ class NERDSSExporter:
             # send out a warning for small sigma
             
             if sigma_calc < 0.5:
-                self.workspace_manager.logger.warning("WARNING: small sigma values : %f; consider increasing binding radius threshold", sigma_calc)
+                if self.workspace_manager:
+                    self.workspace_manager.logger.warning(
+                        "WARNING: small sigma values : %f; consider increasing binding radius threshold",
+                        sigma_calc,
+                    )
             #sigma = max(sigma_calc, 0.5)
             sigma = sigma_calc # <- placeholder, disable arbitrary clamping
             theta1_vals = [a[0] for a in angles_acc]
@@ -2008,6 +2029,10 @@ class NERDSSExporter:
             safe_overrides = parms_overrides.copy()
             if 'hyperparams' in safe_overrides:
                 del safe_overrides['hyperparams']
+            if 'force_off_ratekb' in safe_overrides:
+                del safe_overrides['force_off_ratekb']
+            if 'titration_on_rate_3d_ka' in safe_overrides:
+                del safe_overrides['titration_on_rate_3d_ka']
             params.update(safe_overrides)
 
         # --- Time Step Logic ---
@@ -2047,6 +2072,11 @@ class NERDSSExporter:
         reaction_re = re.compile(
             r"^\s*([A-Za-z0-9_]+)\(([A-Za-z0-9_]+)\)\s*\+\s*([A-Za-z0-9_]+)\(([A-Za-z0-9_]+)\)"
         )
+        forced_off_rate = None
+        titration_on_rate = None
+        if parms_overrides:
+            forced_off_rate = parms_overrides.get("force_off_ratekb")
+            titration_on_rate = parms_overrides.get("titration_on_rate_3d_ka")
 
         with open(parms_path, 'w', encoding='utf-8') as f:
             # Parameters section
@@ -2093,6 +2123,18 @@ class NERDSSExporter:
             # Reactions section
             f.write("start reactions\n")
             f.write("    \n")
+            if titration_on_rate is not None:
+                f.write("    # Titration reactions\n")
+                for mol_name in molecule_counts:
+                    if self._get_representative_instance(mol_name) is None:
+                        continue
+
+                    site_labels = self._get_titration_site_labels(mol_name)
+                    interfaces_str = ", ".join(site_labels)
+                    f.write(f"    0 -> {mol_name}({interfaces_str})\n")
+                    f.write(f"    onRate3Dka = {titration_on_rate} # M/s\n")
+                    f.write("    \n")
+
             f.write("    # Binding reactions\n")
 
             for i, reaction in enumerate(reactions):
@@ -2125,6 +2167,8 @@ class NERDSSExporter:
                     ka_val, kb_val = self.precalculated_rates[rate_key]
                 elif rate_key_rev in self.precalculated_rates:
                     ka_val, kb_val = self.precalculated_rates[rate_key_rev]
+                elif forced_off_rate is not None:
+                    kb_val = forced_off_rate
                 else:
                     # Calculate from energy if available
                     # Standard Concentration C0 ~ 0.6022 nm^-3 (1 Molar)
@@ -2168,8 +2212,11 @@ class NERDSSExporter:
 
                     exp_term = math.exp(exponent)
                     kb_us = prefactor_us * exp_term # units: us^-1
-                    
+
                     kb_val = kb_us * 1e6 # Convert to s^-1
+
+                if forced_off_rate is not None:
+                    kb_val = forced_off_rate
 
                 f.write(f"    onRate3Dka = {ka_val}\n")
                 f.write(f"    offRatekb = {kb_val}\n")
