@@ -20,6 +20,7 @@ system = builder.build_system(workspace_path="6bno_dir")
 - Assemble the final `System`.
 - Optionally generate visualization artifacts and NERDSS input files.
 - Optionally run the ODE pipeline when enabled in hyperparameters.
+- Optionally export the one-copy structure-validation workflow when requested through the public API.
 
 ## `PDBModelHyperparameters`
 
@@ -42,6 +43,13 @@ hyperparams = PDBModelHyperparameters(
 builder = PDBModelBuilder("1ABC", hyperparams=hyperparams)
 system = builder.build_system(workspace_path="workspace")
 ```
+
+The top-level wrapper `ionerdss.build_system_from_pdb(...)` also supports:
+
+- `structure_validation=True`
+- `structure_validation_options={...}`
+
+to export the validation-ready NERDSS files alongside the main workspace.
 
 ## Hyperparameter helpers
 
