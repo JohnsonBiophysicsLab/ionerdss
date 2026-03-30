@@ -21,6 +21,7 @@ from .chain_grouping import ChainGrouper
 from .template_builder import TemplateBuilder
 from .system_builder import SystemBuilder
 from .file_manager import WorkspaceManager
+from .structure_validation import StructureValidationArtifacts
 
 
 class PDBModelBuilder:
@@ -52,12 +53,17 @@ class PDBModelBuilder:
         self.pdb_id: Optional[str] = None # pdb_id to be set from source
         self.parser: Optional[PDBParser] = None
         self.hyperparams = hyperparams
+        self.system_builder: Optional[SystemBuilder] = None
+        self.system: Optional[System] = None
+        self.structure_validation_artifacts: Optional[StructureValidationArtifacts] = None
 
     def build_system(self, workspace_path: str,
                      hyperparams: PDBModelHyperparameters = None,
                      molecule_counts: Optional[Dict[str, int]] = None,
                      box_nm: Tuple[float, float, float] = (
                          100.0, 100.0, 100.0),
+                     structure_validation: bool = False,
+                     structure_validation_options: Optional[Dict[str, Any]] = None,
                      nerdss_params: Optional[Dict[str, Any]] = None,
                      **kwargs) -> System:
         """Build complete ionerdss System from PDB source.
@@ -75,6 +81,8 @@ class PDBModelBuilder:
             generate_nerdss_files: Whether to generate NERDSS simulation files. Default False.
             molecule_counts: Number of molecules per type for NERDSS. Default 10 each.
             box_nm: Simulation box size in nm for NERDSS. Default (100, 100, 100).
+            structure_validation: Export the one-copy-per-type validation setup.
+            structure_validation_options: Options for validation export.
             nerdss_params: Additional NERDSS parameters. Default None.
             **kwargs: Additional hyperparameters.
 
@@ -116,6 +124,11 @@ class PDBModelBuilder:
                 hyperparams = self.hyperparams
             if hyperparams is None:
                 hyperparams = PDBModelHyperparameters()
+            if kwargs:
+                hyperparams_config = hyperparams.to_dict()
+                hyperparams_config.update(kwargs)
+                hyperparams = PDBModelHyperparameters.from_dict(hyperparams_config)
+            self.hyperparams = hyperparams
 
             self.workspace_manager.logger.info(
                 "Hyperparameters: %s", hyperparams)
@@ -196,8 +209,10 @@ class PDBModelBuilder:
                 units=units,
                 workspace_manager=self.workspace_manager
             )
+            self.system_builder = system_builder
 
             system = system_builder.get_system()
+            self.system = system
 
             # Calculate default molecule counts if not provided (using stoichiometry)
             if molecule_counts is None:
@@ -259,6 +274,21 @@ class PDBModelBuilder:
                 for file_type, file_path in nerdss_files.items():
                     self.workspace_manager.logger.info(
                         "Generated NERDSS file %s: %s", file_type, file_path)
+
+            if structure_validation:
+                self.workspace_manager.logger.info(
+                    "Step 7a: Exporting structure validation setup...")
+                validation_options = dict(structure_validation_options or {})
+                validation_artifacts = system_builder.export_structure_validation_setup(
+                    box_nm=tuple(validation_options.pop("box_nm", box_nm)),
+                    titration_on_rate=validation_options.pop("titration_on_rate", 1.0e-5),
+                    target_filename=validation_options.pop(
+                        "target_filename",
+                        "structure_validation_target.json",
+                    ),
+                    parms_overrides=validation_options.pop("parms_overrides", None),
+                )
+                self.structure_validation_artifacts = validation_artifacts
 
             # Step 7.5: Run ODE pipeline (if enabled)
             if hyperparams.ode_enabled:
@@ -458,6 +488,24 @@ class PDBModelBuilder:
                 self.workspace_manager.logger.error(
                     "Pipeline failed: %s", str(e))
             raise e
+
+    def export_structure_validation_setup(
+        self,
+        box_nm: Tuple[float, float, float] = (100.0, 100.0, 100.0),
+        titration_on_rate: float = 1.0e-5,
+        target_filename: str = "structure_validation_target.json",
+        parms_overrides: Optional[Dict[str, Any]] = None,
+    ) -> StructureValidationArtifacts:
+        """Export the one-copy-per-type, irreversible validation simulation."""
+        if self.system_builder is None:
+            raise ValueError("No system has been built yet. Call build_system() first.")
+
+        return self.system_builder.export_structure_validation_setup(
+            box_nm=box_nm,
+            titration_on_rate=titration_on_rate,
+            target_filename=target_filename,
+            parms_overrides=parms_overrides,
+        )
 
     def _looks_like_pdb_id(self, source: str) -> bool:
         """Check if source looks like a PDB ID."""
