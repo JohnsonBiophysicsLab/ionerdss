@@ -2006,7 +2006,7 @@ class NERDSSExporter:
             'restartWrite': hyperparams.nerdss_n_itr/10 if hyperparams else 1e5,
             'checkPoint': hyperparams.nerdss_n_itr/10 if hyperparams else 1e5,
             'pdbWrite': hyperparams.nerdss_n_itr/10 if hyperparams else 1e5,
-            'overlapSepLimit': hyperparams.nerdss_overlap_sep_limit if hyperparams else 2.0,
+            'overlapSepLimit': hyperparams.nerdss_overlap_sep_limit if hyperparams else 0.1,
             'scaleMaxDisplace': 100.0,
         }
         

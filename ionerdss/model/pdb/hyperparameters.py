@@ -148,7 +148,7 @@ class PDBModelHyperparameters:
     )
     
     nerdss_overlap_sep_limit: float = field(
-        default=2.0,
+        default=0.1,
         metadata={"description": "Minimum allowed separation distance between molecule centers of mass to prevent steric overlap. Increase this if flexible ring assemblies infinitely spiral.", "unit": "nm"}
     )
     
