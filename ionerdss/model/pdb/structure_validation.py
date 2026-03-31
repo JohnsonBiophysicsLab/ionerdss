@@ -152,6 +152,7 @@ def write_structure_validation_target(
     system: System,
     output_path: Union[str, Path],
     molecule_counts: Optional[Mapping[str, int]] = None,
+    designed_coordinates: Optional[Mapping[str, Sequence[float]]] = None,
 ) -> Path:
     """Write the designed validation target to JSON."""
     output = Path(output_path)
@@ -159,7 +160,10 @@ def write_structure_validation_target(
 
     payload = {
         "molecule_counts": dict(molecule_counts or get_structure_validation_counts(system)),
-        "designed_coordinates": get_designed_structure_coordinates(system),
+        "designed_coordinates": {
+            key: tuple(float(value) for value in coords)
+            for key, coords in (designed_coordinates or get_designed_structure_coordinates(system)).items()
+        },
     }
 
     with open(output, "w", encoding="utf-8") as handle:
@@ -173,6 +177,7 @@ def prepare_structure_validation(
     workspace_manager=None,
     config: Optional[StructureValidationConfig] = None,
     parms_overrides: Optional[MutableMapping[str, object]] = None,
+    designed_coordinates: Optional[Mapping[str, Sequence[float]]] = None,
 ) -> StructureValidationArtifacts:
     """Export the special NERDSS input deck for structure validation."""
     config = config or StructureValidationConfig()
@@ -180,6 +185,10 @@ def prepare_structure_validation(
         system,
         initial_molecule_count=config.initial_molecule_count,
     )
+    final_designed_coordinates = {
+        key: tuple(float(value) for value in coords)
+        for key, coords in (designed_coordinates or get_designed_structure_coordinates(system)).items()
+    }
 
     exporter = NERDSSExporter(system, workspace_manager)
     export_overrides = dict(parms_overrides or {})
@@ -201,6 +210,7 @@ def prepare_structure_validation(
         system=system,
         output_path=target_file,
         molecule_counts=molecule_counts,
+        designed_coordinates=final_designed_coordinates,
     )
 
     parms_path = nerdss_files.get("parms")
@@ -212,7 +222,7 @@ def prepare_structure_validation(
 
     return StructureValidationArtifacts(
         molecule_counts=molecule_counts,
-        designed_coordinates=get_designed_structure_coordinates(system),
+        designed_coordinates=final_designed_coordinates,
         target_file=target_file,
         nerdss_files=nerdss_files,
     )

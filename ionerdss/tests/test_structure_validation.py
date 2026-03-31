@@ -111,6 +111,33 @@ def test_setup_simulation_writes_titration_file():
     assert artifacts.nerdss_files["parms_titrate"].name == "parms_titrate.inp"
 
 
+def test_setup_simulation_uses_supplied_designed_coordinates():
+    system = System(workspace_path=".")
+    type_a = MoleculeType(name="A")
+    system.molecule_types.add(type_a)
+    system.molecule_instances.add(_make_instance("a_only", type_a, [0.0, 0.0, 0.0], interface_count=0))
+
+    designed_coordinates = {"A": (9.0, 8.0, 7.0)}
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        old_cwd = Path.cwd()
+        try:
+            import os
+            os.chdir(tmpdir)
+            artifacts = pdb.validation.setup_simulation(
+                system,
+                initial_molecule_count=1,
+                designed_coordinates=designed_coordinates,
+            )
+            import json
+            payload = json.loads(Path(artifacts.target_file).read_text(encoding="utf-8"))
+        finally:
+            os.chdir(old_cwd)
+
+    assert artifacts.designed_coordinates == designed_coordinates
+    assert payload["designed_coordinates"] == {"A": [9.0, 8.0, 7.0]}
+
+
 def test_titration_sites_follow_mol_file_and_skip_com_ref():
     system = System(workspace_path=".")
 

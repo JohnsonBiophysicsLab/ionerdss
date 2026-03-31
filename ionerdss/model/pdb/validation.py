@@ -51,6 +51,7 @@ def prepare(
     titration_on_rate: float = 1.0e-5,
     target_filename: str = "structure_validation_target.json",
     parms_overrides: Optional[Dict[str, Any]] = None,
+    designed_coordinates: Optional[Mapping[str, Sequence[float]]] = None,
 ) -> StructureValidationArtifacts:
     """Prepare the one-copy-per-type irreversible validation simulation."""
     config = StructureValidationConfig(
@@ -63,6 +64,7 @@ def prepare(
         workspace_manager=workspace_manager,
         config=config,
         parms_overrides=parms_overrides,
+        designed_coordinates=designed_coordinates,
     )
 
 
@@ -76,6 +78,7 @@ def setup_simulation(
     target_filename: str = "structure_validation_target.json",
     titration_parms_filename: str = "parms_titrate.inp",
     parms_overrides: Optional[Dict[str, Any]] = None,
+    designed_coordinates: Optional[Mapping[str, Sequence[float]]] = None,
 ) -> StructureValidationArtifacts:
     """Set up the validation simulation with one of each, titration, and irreversible binding."""
     config = StructureValidationConfig(
@@ -90,6 +93,7 @@ def setup_simulation(
         workspace_manager=workspace_manager,
         config=config,
         parms_overrides=parms_overrides,
+        designed_coordinates=designed_coordinates,
     )
 
 

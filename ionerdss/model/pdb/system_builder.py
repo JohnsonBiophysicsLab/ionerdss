@@ -488,6 +488,7 @@ from .ring_regularizer import RingRegularizer
 from .structure_validation import (
     StructureValidationArtifacts,
     StructureValidationConfig,
+    get_structure_validation_counts,
     prepare_structure_validation,
 )
 
@@ -1366,6 +1367,13 @@ class SystemBuilder:
         parms_overrides: Optional[Dict[str, Any]] = None,
     ) -> StructureValidationArtifacts:
         """Export the special one-copy-per-type structure validation setup."""
+        designed_coordinates = {}
+        for mol_name in get_structure_validation_counts(self.system):
+            chain_data = self.parser.get_chain_data(mol_name)
+            designed_coordinates[mol_name] = tuple(
+                self.parser.convert_coords_to_nm(chain_data["com"]).tolist()
+            )
+
         config = StructureValidationConfig(
             box_nm=box_nm,
             titration_on_rate=titration_on_rate,
@@ -1376,4 +1384,5 @@ class SystemBuilder:
             workspace_manager=self.workspace_manager,
             config=config,
             parms_overrides=parms_overrides,
+            designed_coordinates=designed_coordinates,
         )
