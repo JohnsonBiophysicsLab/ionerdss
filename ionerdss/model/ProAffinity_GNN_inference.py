@@ -745,7 +745,7 @@ def run_proaffinity_inference(
 
     for fasta in seq2:
         input2 = tokenizer(fasta, return_tensors="pt")
-        output1 = model(**input2)
+        output2 = model(**input2)
         last_hidden_state2 = output2.last_hidden_state
         last_hidden_state2 = torch.squeeze(last_hidden_state2)
         # get the token from the 2nd to the 2nd last one
