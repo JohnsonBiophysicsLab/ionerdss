@@ -18,6 +18,8 @@ warnings.filterwarnings('ignore', message='.*You should probably TRAIN this mode
 import os
 os.environ['TRANSFORMERS_NO_ADVISORY_WARNINGS'] = '1'
 
+from pathlib import Path
+
 # Suppress all transformers warnings
 import logging
 logging.getLogger("transformers").setLevel(logging.ERROR)
@@ -838,6 +840,21 @@ def run_proaffinity_inference(
     devicename = "cuda" if torch.cuda.is_available() else "cpu"
     device = torch.device(devicename)
     model = GraphNetwork(in_channels, hidden_channels, out_channels, edge_dim, num_layers, num_timesteps, dropout, linear_out1, linear_out2).to(device)
+
+    # hardening for safety
+    # Resolve this script's directory, then pin weights to model.pkl beside it
+    script_dir = Path(__file__).resolve().parent
+    trusted_weights = (script_dir / "model.pkl").resolve()
+
+    # Optional: only allow override if it resolves to the exact same file
+    requested_weights = Path(weights_path).resolve()
+    if requested_weights != trusted_weights:
+        raise ValueError(
+            f"Refusing to load untrusted weights path: {requested_weights}. "
+            f"Expected: {trusted_weights}"
+            f"This is to prevent loading malicious weights in PyTorch < 2.6, which is required for ProAffinity package."
+            f"See https://nvd.nist.gov/vuln/detail/CVE-2025-32434 for more details."
+        )
 
     state_dict = torch.load(weights_path, map_location=devicename, weights_only=True)
 
