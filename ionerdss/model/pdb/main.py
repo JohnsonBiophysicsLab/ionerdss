@@ -11,6 +11,7 @@ from typing import Optional, Union, Dict, Any, Tuple
 from pathlib import Path
 import logging
 import math
+import numpy as np
 
 from ionerdss.model.components.system import System
 from ionerdss.model.components.units import Units
@@ -152,6 +153,30 @@ class PDBModelBuilder:
                 workspace_manager=self.workspace_manager
             )
             self.pdb_id = self.parser.get_pdb_id() or pdb_id
+
+            # Safety check: Cap nerdss_overlap_sep_limit using chain COM distances
+            if not hyperparams.disable_overlap_sep_limit_check:
+                coms = [chain_data['com'] for chain_data in self.parser.chain_data.values() if 'com' in chain_data]
+                if len(coms) > 1:
+                    min_dist_angstrom = float('inf')
+                    for i in range(len(coms)):
+                        for j in range(i + 1, len(coms)):
+                            d = np.linalg.norm(coms[i] - coms[j])
+                            if d < min_dist_angstrom:
+                                min_dist_angstrom = d
+                    
+                    # Convert to nm
+                    min_dist_nm = min_dist_angstrom / 10.0
+                    safe_limit = 0.9 * min_dist_nm
+
+                    if hyperparams.nerdss_overlap_sep_limit > safe_limit:
+                        self.workspace_manager.logger.warning(
+                            f"nerdss_overlap_sep_limit ({hyperparams.nerdss_overlap_sep_limit:.3f} nm) is dangerously large "
+                            f"(> 0.9 * minimum chain COM distance {min_dist_nm:.3f} nm). "
+                            f"Overwriting with safe limit: {safe_limit:.3f} nm. "
+                            f"To bypass this safety check, set `disable_overlap_sep_limit_check=True`."
+                        )
+                        hyperparams.nerdss_overlap_sep_limit = safe_limit
 
             # Step 2: Coarse-grain structure
             self.workspace_manager.logger.info(

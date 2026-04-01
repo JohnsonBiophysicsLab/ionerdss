@@ -152,6 +152,11 @@ class PDBModelHyperparameters:
         metadata={"description": "Minimum allowed separation distance between molecule centers of mass to prevent steric overlap. Increase this if flexible ring assemblies infinitely spiral.", "unit": "nm"}
     )
     
+    disable_overlap_sep_limit_check: bool = field(
+        default=False,
+        metadata={"description": "Disable the safety check that automatically caps nerdss_overlap_sep_limit to 0.9 * minimum chain COM distance"}
+    )
+    
     # ProAffinity binding energy prediction options
     predict_affinity: bool = field(
         default=False,
