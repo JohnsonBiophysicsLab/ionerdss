@@ -196,6 +196,16 @@ def build_chain_type_groups(chain_type_map: Dict[str, str]) -> Dict[str, list[st
     return {chain_type: sorted(chain_ids) for chain_type, chain_ids in sorted(grouped.items())}
 
 
+def build_chain_type_color_map(chain_types: Iterable[str]) -> Dict[str, str]:
+    """Assign a stable PyMOL color name to each chain type."""
+    unique_types = sorted(set(chain_types))
+    color_map: Dict[str, str] = {}
+    for color_index, chain_type in enumerate(unique_types):
+        color_name, _ = DEFAULT_TYPE_COLORS[color_index % len(DEFAULT_TYPE_COLORS)]
+        color_map[chain_type] = color_name
+    return color_map
+
+
 def _estimate_content_anchor(
     image_path: Path,
     *,
@@ -310,10 +320,18 @@ def export_pymol_pdb_movie(
     base_dir = Path(base_dir)
     pdb_dir = Path(pdb_dir)
 
+    # 1. Load all PDBs
+    print(f"Loading PDB files from: {pdb_dir.resolve()}")
     pdb_files = find_numeric_pdb_files(pdb_dir)
     timestep_width_us, _ = parse_timestep_width_us(base_dir)
-    chain_type_map = resolve_chain_type_mapping(base_dir, pdb_files[0])
-    chain_type_groups = build_chain_type_groups(chain_type_map)
+    frame_chain_type_maps = {
+        pdb_path.stem: resolve_chain_type_mapping(base_dir, pdb_path) for pdb_path in pdb_files
+    }
+    chain_type_color_map = build_chain_type_color_map(
+        chain_type
+        for chain_type_map in frame_chain_type_maps.values()
+        for chain_type in chain_type_map.values()
+    )
 
     obj_names: list[str] = []
     for pdb_path in pdb_files:
@@ -332,21 +350,30 @@ def export_pymol_pdb_movie(
     cmd.set("shininess", 10)
     cmd.set("hash_max", 300)
 
+    # 2. Define Colors
+    print("Defining Colors...")
+    for color_index, chain_type in enumerate(sorted(chain_type_color_map)):
+        color_name = chain_type_color_map[chain_type]
+        _, rgb = DEFAULT_TYPE_COLORS[color_index % len(DEFAULT_TYPE_COLORS)]
+        cmd.set_color(color_name, list(rgb))
+
     for obj_name in obj_names:
+        chain_type_groups = build_chain_type_groups(frame_chain_type_maps[obj_name])
         cmd.show("spheres", f"{obj_name} and name COM")
         cmd.alter(f"{obj_name} and name COM", "vdw=1.5")
         cmd.rebuild(f"{obj_name} and name COM")
         cmd.set("sphere_scale", 1.0, f"{obj_name} and name COM")
 
-        for color_index, (chain_type, chain_ids) in enumerate(chain_type_groups.items()):
-            color_name, rgb = DEFAULT_TYPE_COLORS[color_index % len(DEFAULT_TYPE_COLORS)]
-            cmd.set_color(color_name, list(rgb))
+        for chain_type, chain_ids in chain_type_groups.items():
+            color_name = chain_type_color_map[chain_type]
             for chain_id in chain_ids:
                 cmd.color(color_name, f"/{obj_name}///{chain_id}/COM")
 
     cmd.reset()
     cmd.zoom("all", buffer=1.0, complete=0)
 
+    # 3. Create Animation
+    print("Creating Animation...")
     n_frames = len(obj_names)
     cmd.disable("all")
     cmd.mset(f"1 x{n_frames}")
@@ -391,5 +418,13 @@ def export_pymol_pdb_movie(
                 pad_y=timestamp_pad_y,
                 anchor=anchor,
             )
+
+    # Print ffmpeg commands to create a movie
+    print(f"Exported frames to: {out_dir.resolve()}")
+    print(f"To create a movie with ffmpeg:")
+    print("Low-res MP4:")
+    print("  ffmpeg -framerate 10 -i " + str(out_dir.resolve()) + "/frame%04d.png -vf scale=1280:-2 -c:v libx264 -crf 28 -pix_fmt yuv420p movie_lowres.mp4")
+    print("\nHigh-res MP4:")
+    print("  ffmpeg -framerate 10 -i " + str(out_dir.resolve()) + "/frame%04d.png -c:v libx264 -crf 16 -preset slow -pix_fmt yuv420p movie_highres.mp4")
 
     return out_dir
