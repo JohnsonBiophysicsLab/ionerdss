@@ -5,6 +5,7 @@ from PIL import Image
 
 from ionerdss.analysis.visualization.pymol_movie import (
     add_timestamp_overlay_to_frame,
+    build_chain_type_color_map,
     resolve_chain_type_mapping,
 )
 
@@ -67,3 +68,17 @@ def test_timestamp_overlay_reuses_first_frame_anchor(tmp_path: Path) -> None:
     )
 
     assert reused_anchor == anchor
+
+
+def test_chain_type_colors_stay_stable_across_frames() -> None:
+    frame_one = {"A0": "alpha", "B0": "beta"}
+    frame_two = {"A1": "alpha", "C0": "gamma"}
+
+    color_map = build_chain_type_color_map(
+        chain_type
+        for frame in (frame_one, frame_two)
+        for chain_type in frame.values()
+    )
+
+    assert color_map["alpha"] == color_map["alpha"]
+    assert color_map["beta"] != color_map["gamma"]
