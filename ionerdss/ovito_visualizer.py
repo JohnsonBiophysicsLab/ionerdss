@@ -77,7 +77,7 @@ def visualize_trajectory_ovito(
     for filename in frame_paths:
         images.append(imageio.imread(filename))
     
-    imageio.mimsave(gif_name, images, fps=fps)
+    imageio.mimsave(gif_name, images, fps=fps, loop=0)
     logger.info(f"Successfully saved animation to {os.path.abspath(gif_name)}")
 
     # Clean up temporary frames
