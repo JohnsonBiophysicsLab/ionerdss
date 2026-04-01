@@ -357,18 +357,20 @@ def export_pymol_pdb_movie(
         _, rgb = DEFAULT_TYPE_COLORS[color_index % len(DEFAULT_TYPE_COLORS)]
         cmd.set_color(color_name, list(rgb))
 
+    print("Coloring Chains...")
     for obj_name in obj_names:
         chain_type_groups = build_chain_type_groups(frame_chain_type_maps[obj_name])
-        cmd.show("spheres", f"{obj_name} and name COM")
-        cmd.alter(f"{obj_name} and name COM", "vdw=1.5")
-        cmd.rebuild(f"{obj_name} and name COM")
-        cmd.set("sphere_scale", 1.0, f"{obj_name} and name COM")
+        cmd.show("spheres", "all and name COM")
+        cmd.alter("all and name COM", "vdw=1.5")
+        cmd.rebuild("all and name COM")
+        cmd.set("sphere_scale", 1.0, "all and name COM")
 
         for chain_type, chain_ids in chain_type_groups.items():
             color_name = chain_type_color_map[chain_type]
             for chain_id in chain_ids:
                 cmd.color(color_name, f"/{obj_name}///{chain_id}/COM")
 
+    print("Resetting View...")
     cmd.reset()
     cmd.zoom("all", buffer=1.0, complete=0)
 
