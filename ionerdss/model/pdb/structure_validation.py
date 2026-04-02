@@ -411,75 +411,90 @@ def _parse_restart_snapshot(
     adjacency: Dict[int, set[int]] = defaultdict(set)
     restart_coords: Dict[int, Tuple[float, float, float]] = {}
     idx = start_idx + 2
-    for block_idx in range(molecule_count):
+    for _ in range(molecule_count):
         header = lines[idx].split()
-        if len(header) < 2:
+        if len(header) < 5:
             raise ValueError(f"Malformed molecule block header in restart file near line {idx + 1}")
         mol_id = int(header[0])
-        block_start = idx
-        coord_tokens = lines[block_start + 2].split()
+        idx += 1
+
+        metadata_tokens = lines[idx].split()
+        if len(metadata_tokens) < 6:
+            raise ValueError(f"Malformed molecule metadata line in restart file near line {idx + 1}")
+        idx += 1
+
+        coord_tokens = lines[idx].split()
         if len(coord_tokens) < 3:
-            raise ValueError(f"Malformed coordinate line in restart file near line {block_start + 3}")
+            raise ValueError(f"Malformed coordinate line in restart file near line {idx + 1}")
         restart_coords[mol_id] = (
             float(coord_tokens[0]),
             float(coord_tokens[1]),
             float(coord_tokens[2]),
         )
+        idx += 1
 
-        # Real restart.dat files write floating-point metadata immediately after
-        # the block header and use a compact two-line-per-interface layout.
-        # Older synthetic tests in this repo used a simplified integer-only
-        # metadata line and an older three-line-per-interface layout.
-        metadata_tokens = lines[block_start + 1].split()
-        real_restart_layout = any(
-            any(ch in token.lower() for ch in (".", "e"))
-            for token in metadata_tokens
-        )
+        free_list_line = lines[idx].split()
+        if not free_list_line:
+            raise ValueError(f"Malformed free interface list in restart file near line {idx + 1}")
+        free_list_size = int(free_list_line[0])
+        idx += 1
 
-        if real_restart_layout:
-            partner_idx = block_start + 4
-        else:
-            partner_idx = block_start + 5
+        bound_list_line = lines[idx].split()
+        if not bound_list_line:
+            raise ValueError(f"Malformed bound interface list in restart file near line {idx + 1}")
+        bound_list_size = int(bound_list_line[0])
+        idx += 1
 
-        partner_line = lines[partner_idx].split()
+        partner_line = lines[idx].split()
         if not partner_line:
-            raise ValueError(f"Malformed partner list in restart file near line {partner_idx + 1}")
+            raise ValueError(f"Malformed bound partner list in restart file near line {idx + 1}")
         partner_count = int(partner_line[0])
         partner_ids = [int(value) for value in partner_line[1:1 + partner_count]]
+        idx += 1
+
+        iface_count_line = lines[idx].split()
+        if not iface_count_line:
+            raise ValueError(f"Malformed interface count in restart file near line {idx + 1}")
+        iface_count = int(iface_count_line[0])
+        idx += 1
+
+        if bound_list_size != partner_count:
+            raise ValueError(
+                "Mismatch between bound interface count and bound partner count in "
+                f"{restart_file} near line {idx}."
+            )
 
         for partner_id in partner_ids:
             if partner_id != mol_id:
                 adjacency[mol_id].add(partner_id)
                 adjacency[partner_id].add(mol_id)
 
-        if block_idx == molecule_count - 1:
-            idx = len(lines)
-            continue
+        for _iface_idx in range(iface_count):
+            iface_line = lines[idx].split()
+            if len(iface_line) < 6:
+                raise ValueError(f"Malformed interface header in restart file near line {idx + 1}")
+            is_bound = int(iface_line[5])
+            idx += 1
 
-        next_mol_id = mol_id + 1
-        next_idx = None
-        for candidate_idx in range(block_start + 1, len(lines) - 1):
-            candidate = lines[candidate_idx].split()
-            if len(candidate) != 5:
-                continue
-            if candidate[0] != str(next_mol_id):
-                continue
-            candidate_metadata = lines[candidate_idx + 1].split()
-            candidate_real_layout = any(
-                any(ch in token.lower() for ch in (".", "e"))
-                for token in candidate_metadata
-            )
-            if candidate_real_layout != real_restart_layout:
-                continue
-            next_idx = candidate_idx
-            break
+            iface_coord_line = lines[idx].split()
+            if len(iface_coord_line) < 3:
+                raise ValueError(f"Malformed interface coordinate line in restart file near line {idx + 1}")
+            idx += 1
 
-        if next_idx is None:
-            raise ValueError(
-                f"Could not locate the next molecule block after molecule id {mol_id} in {restart_file}"
-            )
+            if is_bound:
+                bound_partner_line = lines[idx].split()
+                if len(bound_partner_line) < 3:
+                    raise ValueError(f"Malformed bound interface payload in restart file near line {idx + 1}")
+                idx += 1
 
-        idx = next_idx
+        for list_name in ("prevlist", "prevmyface", "prevpface", "prevnorm", "ps_prev", "prevsep"):
+            list_line = lines[idx].split()
+            if not list_line:
+                raise ValueError(f"Malformed {list_name} list in restart file near line {idx + 1}")
+            list_size = int(list_line[0])
+            if len(list_line) < 1 + list_size:
+                raise ValueError(f"Truncated {list_name} list in restart file near line {idx + 1}")
+            idx += 1
 
     return adjacency, restart_coords
 

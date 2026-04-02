@@ -211,13 +211,14 @@ def test_observed_structure_extraction_uses_one_connected_component():
         )
 
         def _restart_block(mol_id: int, partners: list[int], coord) -> list[str]:
+            bound_iface_line = " ".join([str(len(partners))] + [str(i) for i in range(len(partners))])
             return [
                 f"{mol_id} 0 0 0 0",
                 "1.0 0 0 0 0 0",
                 f"{coord[0]} {coord[1]} {coord[2]}",
                 "4 0 1 2 3",
+                bound_iface_line,
                 " ".join([str(len(partners))] + [str(pid) for pid in partners]),
-                "0",
                 "4",
                 "0 0 0 0 \0 0",
                 "0.0 0.0 0.0",
@@ -302,13 +303,14 @@ def test_restart_snapshot_search_falls_back_to_restart_directory():
         )
 
         def _restart_block(mol_id: int, partners: list[int], coord) -> list[str]:
+            bound_iface_line = " ".join([str(len(partners))] + [str(i) for i in range(len(partners))])
             return [
                 f"{mol_id} 0 0 0 0",
                 "1.0 0 0 0 0 0",
                 f"{coord[0]} {coord[1]} {coord[2]}",
                 "4 0 1 2 3",
+                bound_iface_line,
                 " ".join([str(len(partners))] + [str(pid) for pid in partners]),
-                "0",
                 "4",
                 "0 0 0 0 \0 0",
                 "0.0 0.0 0.0",
