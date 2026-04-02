@@ -12,6 +12,7 @@ from ionerdss.model.components.types import MoleculeType
 from ionerdss.model import pdb
 from ionerdss.model.pdb.nerdss_exporter import NERDSSExporter
 from ionerdss.model.pdb.structure_validation import (
+    _find_observed_com_coordinates_in_restart_snapshots,
     _extract_observed_com_coordinates,
     align_structure_to_design,
     get_designed_structure_coordinates,
@@ -209,15 +210,23 @@ def test_observed_structure_extraction_uses_one_connected_component():
             encoding="utf-8",
         )
 
-        def _restart_block(mol_id: int, partners: list[int]) -> list[str]:
+        def _restart_block(mol_id: int, partners: list[int], coord) -> list[str]:
             return [
                 f"{mol_id} 0 0 0 0",
-                "0 0 0 0 0 0",
-                "0.0 0.0 0.0",
-                "0",
-                "0",
+                "1.0 0 0 0 0 0",
+                f"{coord[0]} {coord[1]} {coord[2]}",
+                "4 0 1 2 3",
                 " ".join([str(len(partners))] + [str(pid) for pid in partners]),
                 "0",
+                "4",
+                "0 0 0 0 \0 0",
+                "0.0 0.0 0.0",
+                "1 1 0 0 \0 0",
+                "0.0 0.0 0.0",
+                "2 2 0 0 \0 0",
+                "0.0 0.0 0.0",
+                "3 3 0 0 \0 0",
+                "0.0 0.0 0.0",
                 "0",
                 "0",
                 "0",
@@ -230,12 +239,12 @@ def test_observed_structure_extraction_uses_one_connected_component():
             "#All Molecules and coordinates",
             "6 6",
         ]
-        restart_lines.extend(_restart_block(0, [1, 2]))
-        restart_lines.extend(_restart_block(1, [0, 2]))
-        restart_lines.extend(_restart_block(2, [0, 1]))
-        restart_lines.extend(_restart_block(3, [4, 5]))
-        restart_lines.extend(_restart_block(4, [3, 5]))
-        restart_lines.extend(_restart_block(5, [3, 4]))
+        restart_lines.extend(_restart_block(0, [1, 2], (0.0, 0.0, 0.0)))
+        restart_lines.extend(_restart_block(1, [0, 2], (1.0, 0.0, 0.0)))
+        restart_lines.extend(_restart_block(2, [0, 1], (0.0, 1.0, 0.0)))
+        restart_lines.extend(_restart_block(3, [4, 5], (10.0, 10.0, 0.0)))
+        restart_lines.extend(_restart_block(4, [3, 5], (10.0, 0.0, 0.0)))
+        restart_lines.extend(_restart_block(5, [3, 4], (10.0, 11.0, 0.0)))
         restart_path.write_text("\n".join(restart_lines), encoding="utf-8")
 
         observed = _extract_observed_com_coordinates(
@@ -245,6 +254,104 @@ def test_observed_structure_extraction_uses_one_connected_component():
             target_counts={"A": 1, "H": 1, "L": 1},
         )
 
+    assert observed == {
+        "A": (0.0, 0.0, 0.0),
+        "H": (1.0, 0.0, 0.0),
+        "L": (0.0, 1.0, 0.0),
+    }
+
+
+def test_restart_snapshot_search_falls_back_to_restart_directory():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmp_path = Path(tmpdir)
+        data_dir = tmp_path / "DATA"
+        restart_dir = tmp_path / "RESTART"
+        data_dir.mkdir()
+        restart_dir.mkdir()
+
+        psf_path = data_dir / "system.psf"
+        xyz_path = data_dir / "final_coords.xyz"
+        primary_restart_path = data_dir / "restart.dat"
+        older_restart_path = restart_dir / "restart_000100.dat"
+
+        psf_path.write_text(
+            "\n".join(
+                [
+                    "PSF",
+                    "",
+                    "    3 !NATOM",
+                    "       1    A    0  COM    O    0          0    1.0         0",
+                    "       2    H    1  COM    O    0          0    1.0         0",
+                    "       3    L    2  COM    O    0          0    1.0         0",
+                ]
+            ),
+            encoding="utf-8",
+        )
+
+        xyz_path.write_text(
+            "\n".join(
+                [
+                    "3",
+                    "mol output final",
+                    "A 100.0 0.0 0.0",
+                    "H 200.0 0.0 0.0",
+                    "L 300.0 0.0 0.0",
+                ]
+            ),
+            encoding="utf-8",
+        )
+
+        def _restart_block(mol_id: int, partners: list[int], coord) -> list[str]:
+            return [
+                f"{mol_id} 0 0 0 0",
+                "1.0 0 0 0 0 0",
+                f"{coord[0]} {coord[1]} {coord[2]}",
+                "4 0 1 2 3",
+                " ".join([str(len(partners))] + [str(pid) for pid in partners]),
+                "0",
+                "4",
+                "0 0 0 0 \0 0",
+                "0.0 0.0 0.0",
+                "1 1 0 0 \0 0",
+                "0.0 0.0 0.0",
+                "2 2 0 0 \0 0",
+                "0.0 0.0 0.0",
+                "3 3 0 0 \0 0",
+                "0.0 0.0 0.0",
+                "0",
+                "0",
+                "0",
+                "0",
+                "0",
+                "0",
+            ]
+
+        primary_lines = [
+            "#All Molecules and coordinates",
+            "3 3",
+        ]
+        primary_lines.extend(_restart_block(0, [], (10.0, 0.0, 0.0)))
+        primary_lines.extend(_restart_block(1, [], (20.0, 0.0, 0.0)))
+        primary_lines.extend(_restart_block(2, [], (30.0, 0.0, 0.0)))
+        primary_restart_path.write_text("\n".join(primary_lines), encoding="utf-8")
+
+        older_lines = [
+            "#All Molecules and coordinates",
+            "3 3",
+        ]
+        older_lines.extend(_restart_block(0, [1, 2], (0.0, 0.0, 0.0)))
+        older_lines.extend(_restart_block(1, [0, 2], (1.0, 0.0, 0.0)))
+        older_lines.extend(_restart_block(2, [0, 1], (0.0, 1.0, 0.0)))
+        older_restart_path.write_text("\n".join(older_lines), encoding="utf-8")
+
+        observed, used_restart = _find_observed_com_coordinates_in_restart_snapshots(
+            system_psf_file=psf_path,
+            final_coords_file=xyz_path,
+            restart_file=primary_restart_path,
+            target_counts={"A": 1, "H": 1, "L": 1},
+        )
+
+    assert used_restart == older_restart_path
     assert observed == {
         "A": (0.0, 0.0, 0.0),
         "H": (1.0, 0.0, 0.0),

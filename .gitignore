@@ -198,3 +198,5 @@ example_simularium_converter.py
 /tutorials/7pg9_dir
 /tutorials/tutorials_output/*
 /test_overlap_dir*
+/benchmark/trials
+benchmark_results.csv

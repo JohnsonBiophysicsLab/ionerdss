@@ -14,6 +14,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, Iterable, Mapping, MutableMapping, Optional, Sequence, Tuple, Union
 import json
+import re
 import shutil
 import warnings
 from collections import Counter, defaultdict
@@ -35,7 +36,7 @@ class StructureValidationConfig:
 
     box_nm: Tuple[float, float, float] = (100.0, 100.0, 100.0)
     initial_molecule_count: int = 1
-    titration_on_rate: float = 1.0e-5
+    titration_on_rate: Union[float, Dict[str, float]] = 1.0e-5
     target_filename: str = "structure_validation_target.json"
     titration_parms_filename: str = "parms_titrate.inp"
 
@@ -45,6 +46,7 @@ class StructureValidationArtifacts:
     """Files and metadata generated for the validation simulation."""
 
     molecule_counts: Dict[str, int]
+    target_counts: Dict[str, int]
     designed_coordinates: Dict[str, Tuple[float, float, float]]
     target_file: Path
     nerdss_files: Dict[str, Path]
@@ -127,25 +129,44 @@ def get_representative_instances(system: System) -> Dict[str, MoleculeInstance]:
 
 
 def get_structure_validation_counts(system: System) -> Dict[str, int]:
-    """Return the validation stoichiometry: one copy per exported molecule type."""
-    return {mol_name: 1 for mol_name in get_representative_instances(system)}
+    """Return the exact stoichiometry required for the designed assembly validation."""
+    counts = {}
+    for inst in system.molecule_instances:
+        if inst.molecule_type:
+            name = inst.molecule_type.name
+            counts[name] = counts.get(name, 0) + 1
+    return dict(sorted(counts.items()))
 
 
 def build_validation_molecule_counts(system: System, initial_molecule_count: int = 1) -> Dict[str, int]:
     """Return validation counts with a configurable initial copy number per molecule type."""
+    target_counts = get_structure_validation_counts(system)
     return {
-        mol_name: int(initial_molecule_count)
-        for mol_name in get_representative_instances(system)
+        mol_name: int(initial_molecule_count) * count
+        for mol_name, count in target_counts.items()
     }
 
 
 def get_designed_structure_coordinates(system: System) -> Dict[str, Tuple[float, float, float]]:
-    """Return representative COM coordinates for the designed coarse-grained assembly."""
-    representatives = get_representative_instances(system)
-    return {
-        mol_name: tuple(np.asarray(instance.com, dtype=float).tolist())
-        for mol_name, instance in representatives.items()
-    }
+    """Return COM coordinates for every monomer in the designed coarse-grained assembly."""
+    designed = {}
+    target_counts = get_structure_validation_counts(system)
+    
+    type_counts = {}
+    for inst in system.molecule_instances:
+        if inst.molecule_type:
+            name = inst.molecule_type.name
+            copy_idx = type_counts.get(name, 0)
+            type_counts[name] = copy_idx + 1
+            
+            if target_counts.get(name, 1) > 1:
+                key = f"{name}_{copy_idx}"
+            else:
+                key = name
+                
+            designed[key] = tuple(float(x) for x in inst.com)
+            
+    return designed
 
 
 def write_structure_validation_target(
@@ -185,6 +206,8 @@ def prepare_structure_validation(
         system,
         initial_molecule_count=config.initial_molecule_count,
     )
+    target_counts = get_structure_validation_counts(system)
+    
     final_designed_coordinates = {
         key: tuple(float(value) for value in coords)
         for key, coords in (designed_coordinates or get_designed_structure_coordinates(system)).items()
@@ -209,7 +232,7 @@ def prepare_structure_validation(
     target_file = write_structure_validation_target(
         system=system,
         output_path=target_file,
-        molecule_counts=molecule_counts,
+        molecule_counts=target_counts,
         designed_coordinates=final_designed_coordinates,
     )
 
@@ -222,6 +245,7 @@ def prepare_structure_validation(
 
     return StructureValidationArtifacts(
         molecule_counts=molecule_counts,
+        target_counts=target_counts,
         designed_coordinates=final_designed_coordinates,
         target_file=target_file,
         nerdss_files=nerdss_files,
@@ -234,6 +258,7 @@ def align_structure_to_design(
     *,
     labels: Optional[Iterable[str]] = None,
     backend: str = "kabsch",
+    plot: bool = False,
 ) -> StructureAlignmentResult:
     """Rigidly align an observed structure onto the designed target and compute RMSD."""
     designed_labels, designed_xyz = _as_xyz_array(designed_coordinates, labels=labels)
@@ -267,6 +292,50 @@ def align_structure_to_design(
     aligned_observed = apply_rigid_transform(rotation_matrix, translation_vector, observed_xyz)
     deltas = aligned_observed - designed_xyz
     rmsd = float(np.sqrt(np.mean(np.sum(deltas * deltas, axis=1))))
+
+    if plot:
+        try:
+            import matplotlib.pyplot as plt
+            
+            fig = plt.figure(figsize=(12, 10))
+            
+            # Plot 1: Unaligned Observed vs Designed
+            ax1 = fig.add_subplot(221, projection='3d')
+            ax1.scatter(designed_xyz[:, 0], designed_xyz[:, 1], designed_xyz[:, 2], 
+                        c='blue', label='Designed', marker='o', alpha=0.7)
+            ax1.scatter(observed_xyz[:, 0], observed_xyz[:, 1], observed_xyz[:, 2], 
+                        c='red', label='Observed (Unaligned)', marker='^', alpha=0.7)
+            ax1.set_title('Before Alignment')
+            ax1.legend()
+            
+            # Plot 2: Aligned Observed vs Designed
+            ax2 = fig.add_subplot(222, projection='3d')
+            ax2.scatter(designed_xyz[:, 0], designed_xyz[:, 1], designed_xyz[:, 2], 
+                        c='blue', label='Designed', marker='o', alpha=0.7)
+            ax2.scatter(aligned_observed[:, 0], aligned_observed[:, 1], aligned_observed[:, 2], 
+                        c='green', label='Observed (Aligned)', marker='^', alpha=0.7)
+            ax2.set_title(f'After Alignment (RMSD: {rmsd:.4f} nm)')
+            ax2.legend()
+            
+            # Plot 3: Designed Only
+            ax3 = fig.add_subplot(223, projection='3d')
+            ax3.scatter(designed_xyz[:, 0], designed_xyz[:, 1], designed_xyz[:, 2], 
+                        c='blue', label='Designed', marker='o', alpha=0.7)
+            ax3.set_title('After Alignment (Designed Only)')
+            ax3.legend()
+
+            # Plot 4: Observed Aligned Only
+            ax4 = fig.add_subplot(224, projection='3d')
+            ax4.scatter(aligned_observed[:, 0], aligned_observed[:, 1], aligned_observed[:, 2], 
+                        c='green', label='Observed (Aligned)', marker='^', alpha=0.7)
+            ax4.set_title('After Alignment (Observed Only)')
+            ax4.legend()
+            
+            plt.tight_layout()
+            plt.show()
+        except ImportError:
+            import logging
+            logging.getLogger(__name__).warning("matplotlib is required for plotting structure alignment.")
 
     return StructureAlignmentResult(
         labels=designed_labels,
@@ -320,8 +389,10 @@ def _parse_xyz_coordinates(xyz_file: Union[str, Path]) -> np.ndarray:
     return np.asarray(coords, dtype=float)
 
 
-def _parse_restart_molecule_partners(restart_file: Union[str, Path]) -> Dict[int, set[int]]:
-    """Parse final-frame molecule connectivity from a NERDSS restart file."""
+def _parse_restart_snapshot(
+    restart_file: Union[str, Path],
+) -> Tuple[Dict[int, set[int]], Dict[int, Tuple[float, float, float]]]:
+    """Parse molecule connectivity and COM coordinates from a NERDSS restart file."""
     lines = Path(restart_file).read_text(encoding="utf-8", errors="replace").splitlines()
 
     start_idx = None
@@ -338,61 +409,137 @@ def _parse_restart_molecule_partners(restart_file: Union[str, Path]) -> Dict[int
     molecule_count = int(header_parts[0])
 
     adjacency: Dict[int, set[int]] = defaultdict(set)
+    restart_coords: Dict[int, Tuple[float, float, float]] = {}
     idx = start_idx + 2
-    for _ in range(molecule_count):
+    for block_idx in range(molecule_count):
         header = lines[idx].split()
         if len(header) < 2:
             raise ValueError(f"Malformed molecule block header in restart file near line {idx + 1}")
         mol_id = int(header[0])
-        idx += 1  # radius / metadata line
-        idx += 1  # COM coordinate line
-        idx += 1  # auxiliary line
-        idx += 1  # auxiliary line
-        idx += 1  # move to partner list line
+        block_start = idx
+        coord_tokens = lines[block_start + 2].split()
+        if len(coord_tokens) < 3:
+            raise ValueError(f"Malformed coordinate line in restart file near line {block_start + 3}")
+        restart_coords[mol_id] = (
+            float(coord_tokens[0]),
+            float(coord_tokens[1]),
+            float(coord_tokens[2]),
+        )
 
-        partner_line = lines[idx].split()
+        # Real restart.dat files write floating-point metadata immediately after
+        # the block header and use a compact two-line-per-interface layout.
+        # Older synthetic tests in this repo used a simplified integer-only
+        # metadata line and an older three-line-per-interface layout.
+        metadata_tokens = lines[block_start + 1].split()
+        real_restart_layout = any(
+            any(ch in token.lower() for ch in (".", "e"))
+            for token in metadata_tokens
+        )
+
+        if real_restart_layout:
+            partner_idx = block_start + 4
+        else:
+            partner_idx = block_start + 5
+
+        partner_line = lines[partner_idx].split()
         if not partner_line:
-            raise ValueError(f"Malformed partner list in restart file near line {idx + 1}")
+            raise ValueError(f"Malformed partner list in restart file near line {partner_idx + 1}")
         partner_count = int(partner_line[0])
         partner_ids = [int(value) for value in partner_line[1:1 + partner_count]]
-        idx += 1
-
-        iface_count_line = lines[idx].split()
-        if not iface_count_line:
-            raise ValueError(f"Malformed interface count in restart file near line {idx + 1}")
-        iface_count = int(iface_count_line[0])
-        idx += 1
 
         for partner_id in partner_ids:
             if partner_id != mol_id:
                 adjacency[mol_id].add(partner_id)
                 adjacency[partner_id].add(mol_id)
 
-        idx += 3 * iface_count
-        idx += 6
+        if block_idx == molecule_count - 1:
+            idx = len(lines)
+            continue
 
+        next_mol_id = mol_id + 1
+        next_idx = None
+        for candidate_idx in range(block_start + 1, len(lines) - 1):
+            candidate = lines[candidate_idx].split()
+            if len(candidate) != 5:
+                continue
+            if candidate[0] != str(next_mol_id):
+                continue
+            candidate_metadata = lines[candidate_idx + 1].split()
+            candidate_real_layout = any(
+                any(ch in token.lower() for ch in (".", "e"))
+                for token in candidate_metadata
+            )
+            if candidate_real_layout != real_restart_layout:
+                continue
+            next_idx = candidate_idx
+            break
+
+        if next_idx is None:
+            raise ValueError(
+                f"Could not locate the next molecule block after molecule id {mol_id} in {restart_file}"
+            )
+
+        idx = next_idx
+
+    return adjacency, restart_coords
+
+
+def _parse_restart_molecule_partners(restart_file: Union[str, Path]) -> Dict[int, set[int]]:
+    """Parse final-frame molecule connectivity from a NERDSS restart file."""
+    adjacency, _ = _parse_restart_snapshot(restart_file)
     return adjacency
+
+
+def _restart_snapshot_sort_key(restart_path: Path) -> Tuple[Tuple[int, ...], str]:
+    """Sort restart snapshot files from earliest to latest by embedded numeric suffixes."""
+    numeric_parts = tuple(int(part) for part in re.findall(r"\d+", restart_path.stem))
+    return numeric_parts, restart_path.name
+
+
+def _iter_restart_snapshot_candidates(primary_restart_file: Union[str, Path]) -> list[Path]:
+    """Return candidate restart snapshots, starting with DATA/restart.dat then RESTART newest-to-oldest."""
+    primary = Path(primary_restart_file)
+    candidates: list[Path] = []
+    if primary.exists():
+        candidates.append(primary)
+
+    simulation_dir = primary.parent.parent
+    restart_dir = simulation_dir / "RESTART"
+    if restart_dir.is_dir():
+        restart_files = [
+            path for path in restart_dir.iterdir()
+            if path.is_file() and path.suffix == ".dat"
+        ]
+        for path in sorted(restart_files, key=_restart_snapshot_sort_key, reverse=True):
+            if path not in candidates:
+                candidates.append(path)
+
+    return candidates
 
 
 def _extract_observed_com_coordinates(
     system_psf_file: Union[str, Path],
-    final_coords_file: Union[str, Path],
+    final_coords_file: Optional[Union[str, Path]],
     restart_file: Union[str, Path],
     target_counts: Mapping[str, int],
 ) -> Dict[str, Tuple[float, float, float]]:
     """Extract COM coordinates from one connected final-frame assembly."""
-    if any(count != 1 for count in target_counts.values()):
-        raise ValueError("Observed coordinate extraction currently requires one copy per molecule type.")
-
     com_records = _parse_psf_com_records(system_psf_file)
-    xyz_coords = _parse_xyz_coordinates(final_coords_file)
-    adjacency = _parse_restart_molecule_partners(restart_file)
+    xyz_coords = None
+    if final_coords_file is not None and Path(final_coords_file).exists():
+        xyz_coords = _parse_xyz_coordinates(final_coords_file)
+    adjacency, restart_coords = _parse_restart_snapshot(restart_file)
 
     mol_id_to_name: Dict[int, str] = {}
     mol_id_to_coord: Dict[int, Tuple[float, float, float]] = {}
     for atom_index, mol_id, mol_name in com_records:
         mol_id_to_name[mol_id] = mol_name
-        mol_id_to_coord[mol_id] = tuple(xyz_coords[atom_index].tolist())
+        if mol_id in restart_coords:
+            mol_id_to_coord[mol_id] = restart_coords[mol_id]
+        elif xyz_coords is not None:
+            mol_id_to_coord[mol_id] = tuple(xyz_coords[atom_index].tolist())
+        else:
+            raise ValueError(f"Missing coordinates for molecule id {mol_id} in restart snapshot {restart_file}")
         adjacency.setdefault(mol_id, set())
 
     matching_components: list[list[int]] = []
@@ -430,16 +577,51 @@ def _extract_observed_com_coordinates(
             RuntimeWarning,
         )
 
-    observed = {
-        mol_id_to_name[mol_id]: mol_id_to_coord[mol_id]
-        for mol_id in selected_component
-    }
+    observed = {}
+    type_counts: Dict[str, int] = {}
+    for mol_id in selected_component:
+        mol_name = mol_id_to_name[mol_id]
+        copy_idx = type_counts.get(mol_name, 0)
+        type_counts[mol_name] = copy_idx + 1
+        
+        if target_counts.get(mol_name, 1) > 1:
+            key = f"{mol_name}_{copy_idx}"
+        else:
+            key = mol_name
+            
+        observed[key] = mol_id_to_coord[mol_id]
 
-    missing = sorted(set(target_counts) - set(observed))
+    missing = sorted(set(target_counts) - set(type_counts))
     if missing:
         raise ValueError(f"Missing COM coordinates for molecule types: {missing}")
 
     return observed
+
+
+def _find_observed_com_coordinates_in_restart_snapshots(
+    system_psf_file: Union[str, Path],
+    final_coords_file: Optional[Union[str, Path]],
+    restart_file: Union[str, Path],
+    target_counts: Mapping[str, int],
+) -> Tuple[Dict[str, Tuple[float, float, float]], Path]:
+    """Search DATA and RESTART snapshots for a matching connected full assembly."""
+    errors: list[str] = []
+    for candidate_restart in _iter_restart_snapshot_candidates(restart_file):
+        try:
+            observed = _extract_observed_com_coordinates(
+                system_psf_file=system_psf_file,
+                final_coords_file=final_coords_file if candidate_restart == Path(restart_file) else None,
+                restart_file=candidate_restart,
+                target_counts=target_counts,
+            )
+            return observed, candidate_restart
+        except Exception as exc:
+            errors.append(f"{candidate_restart.name}: {exc}")
+
+    raise ValueError(
+        "No matching connected assembly was found in DATA/restart.dat or any RESTART snapshot. "
+        + " | ".join(errors)
+    )
 
 
 def run_structure_validation_simulation(
@@ -472,7 +654,7 @@ def run_structure_validation_simulation(
     restart_file = simulation_dir / "DATA" / "restart.dat"
 
     hist_times, hist_comps, hist_matrix = parse_complex_histogram(histogram_file)
-    target_comp = dict(artifacts.molecule_counts)
+    target_comp = dict(artifacts.target_counts)
 
     first_full_assembly_time = None
     full_assembly_found = False
@@ -488,21 +670,21 @@ def run_structure_validation_simulation(
 
     warning_message = None
     observed_coordinates = None
+    selected_restart_file = restart_file
     if full_assembly_found:
         try:
-            observed_coordinates = _extract_observed_com_coordinates(
+            observed_coordinates, selected_restart_file = _find_observed_com_coordinates_in_restart_snapshots(
                 system_psf_file=system_psf_file,
                 final_coords_file=final_coords_file,
                 restart_file=restart_file,
-                target_counts=artifacts.molecule_counts,
+                target_counts=artifacts.target_counts,
             )
-        except ValueError as exc:
-            warning_message = (
-                "Validation warning: the target composition appeared in the histogram, but no "
-                "matching connected assembly was found in the final restart snapshot. "
+        except Exception as exc:
+            raise ValueError(
+                "The target composition appeared in the histogram, but no matching connected "
+                "assembly was found in DATA/restart.dat or any RESTART snapshot. "
                 f"{exc}"
-            )
-            warnings.warn(warning_message, RuntimeWarning)
+            ) from exc
     else:
         warning_message = (
             "Validation warning: no full assembly matching the designed one-copy target "
@@ -515,7 +697,7 @@ def run_structure_validation_simulation(
         histogram_file=histogram_file,
         final_coords_file=final_coords_file,
         system_psf_file=system_psf_file,
-        restart_file=restart_file,
+        restart_file=selected_restart_file,
         full_assembly_found=full_assembly_found,
         warning_message=warning_message,
         first_full_assembly_time=first_full_assembly_time,

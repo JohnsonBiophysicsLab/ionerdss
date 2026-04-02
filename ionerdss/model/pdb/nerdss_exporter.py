@@ -2132,7 +2132,12 @@ class NERDSSExporter:
                     site_labels = self._get_titration_site_labels(mol_name)
                     interfaces_str = ", ".join(site_labels)
                     f.write(f"    0 -> {mol_name}({interfaces_str})\n")
-                    f.write(f"    onRate3Dka = {titration_on_rate} # M/s\n")
+                    
+                    mol_rate = titration_on_rate
+                    if isinstance(titration_on_rate, dict):
+                        mol_rate = titration_on_rate.get(mol_name, 1.0e-5)
+                        
+                    f.write(f"    onRate3Dka = {mol_rate} # M/s\n")
                     f.write("    \n")
 
             f.write("    # Binding reactions\n")

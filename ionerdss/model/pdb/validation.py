@@ -74,7 +74,7 @@ def setup_simulation(
     workspace_manager=None,
     box_nm: Sequence[float] = (100.0, 100.0, 100.0),
     initial_molecule_count: int = 1,
-    titration_on_rate: float = 1.0e-5,
+    titration_on_rate: Union[float, Dict[str, float]] = 1.0e-5,
     target_filename: str = "structure_validation_target.json",
     titration_parms_filename: str = "parms_titrate.inp",
     parms_overrides: Optional[Dict[str, Any]] = None,
@@ -102,12 +102,14 @@ def compare(
     observed_coordinates: Union[CoordinateInput, Mapping[str, Sequence[float]]],
     *,
     backend: str = "kabsch",
+    plot: bool = False,
 ) -> StructureAlignmentResult:
     """Align an observed structure onto the designed target and compute RMSD."""
     return align_structure_to_design(
         designed_coordinates=designed_coordinates,
         observed_coordinates=observed_coordinates,
         backend=backend,
+        plot=plot,
     )
 
 
@@ -116,12 +118,14 @@ def align_structure(
     observed_coordinates: Union[CoordinateInput, Mapping[str, Sequence[float]]],
     *,
     backend: str = "kabsch",
+    plot: bool = False,
 ) -> StructureAlignmentResult:
     """Align an observed validation structure onto the designed target."""
     return align_structure_to_design(
         designed_coordinates=designed_coordinates,
         observed_coordinates=observed_coordinates,
         backend=backend,
+        plot=plot,
     )
 
 
