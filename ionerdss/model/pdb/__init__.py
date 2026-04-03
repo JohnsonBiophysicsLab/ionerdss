@@ -55,7 +55,7 @@ from .structure_validation import (
     StructureValidationSimulationResult,
     align_structure_to_design,
     build_validation_molecule_counts,
-    get_designed_structure_coordinates,
+    get_designed_structure,
     get_structure_validation_counts,
     prepare_structure_validation,
 )
@@ -90,7 +90,7 @@ __all__ = [
     'export_hyperparameters',
     'import_hyperparameters',
     'print_hyperparameters',
-    'get_designed_structure_coordinates',
+    'get_designed_structure',
     'get_structure_validation_counts',
     'prepare_structure_validation',
 ]

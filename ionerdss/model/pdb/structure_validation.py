@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, Iterable, Mapping, MutableMapping, Optional, Sequence, Tuple, Union
+from typing import Any, Dict, Iterable, Mapping, MutableMapping, Optional, Sequence, Tuple, Union
 import json
 import re
 import shutil
@@ -28,6 +28,7 @@ from ionerdss.utils.rigid_transform import apply_rigid_transform, rigid_transfor
 
 
 CoordinateInput = Union[Mapping[str, Sequence[float]], np.ndarray, Sequence[Sequence[float]]]
+DesignedStructureRecord = Dict[str, Any]
 
 
 @dataclass(frozen=True)
@@ -147,26 +148,65 @@ def build_validation_molecule_counts(system: System, initial_molecule_count: int
     }
 
 
-def get_designed_structure_coordinates(system: System) -> Dict[str, Tuple[float, float, float]]:
-    """Return COM coordinates for every monomer in the designed coarse-grained assembly."""
-    designed = {}
-    target_counts = get_structure_validation_counts(system)
-    
-    type_counts = {}
-    for inst in system.molecule_instances:
-        if inst.molecule_type:
-            name = inst.molecule_type.name
-            copy_idx = type_counts.get(name, 0)
-            type_counts[name] = copy_idx + 1
-            
-            if target_counts.get(name, 1) > 1:
-                key = f"{name}_{copy_idx}"
-            else:
-                key = name
-                
-            designed[key] = tuple(float(x) for x in inst.com)
-            
-    return designed
+def get_designed_structure(system: System) -> Dict[str, DesignedStructureRecord]:
+    """Return the designed assembly with global COM and interface coordinates for each instance."""
+    designed: Dict[str, DesignedStructureRecord] = {}
+
+    for molecule_instance in system.molecule_instances:
+        molecule_type = molecule_instance.molecule_type
+        if molecule_type is None:
+            continue
+
+        interfaces = []
+        for interface_instance, partner_instance in molecule_instance.interfaces_neighbors_map.items():
+            if partner_instance is None:
+                continue
+
+            partner_type = getattr(partner_instance, "molecule_type", None)
+            interface_coord = getattr(interface_instance, "absolute_coord", None)
+            if interface_coord is None:
+                continue
+
+            interfaces.append(
+                {
+                    "interface_instance": interface_instance.get_name(),
+                    "interface_type": interface_instance.interface_type.get_name()
+                    if getattr(interface_instance, "interface_type", None) is not None
+                    else None,
+                    "binding_partner_instance": partner_instance.name,
+                    "binding_partner_type": partner_type.name if partner_type is not None else None,
+                    "global_interface_coord": tuple(float(value) for value in interface_coord),
+                }
+            )
+
+        interfaces.sort(
+            key=lambda item: (
+                item["interface_instance"],
+                item["interface_type"] or "",
+                item["binding_partner_instance"],
+                item["binding_partner_type"] or "",
+                item["global_interface_coord"],
+            )
+        )
+
+        designed[molecule_instance.name] = {
+            "instance": molecule_instance.name,
+            "type": molecule_type.name,
+            "global_com_coord": tuple(float(value) for value in molecule_instance.com),
+            "interfaces": interfaces,
+        }
+
+    return dict(sorted(designed.items()))
+
+
+def _designed_structure_to_coordinate_map(
+    designed_structure: Mapping[str, DesignedStructureRecord],
+) -> Dict[str, Tuple[float, float, float]]:
+    """Extract the global COM coordinate map used by validation target serialization."""
+    return {
+        instance_name: tuple(float(value) for value in record["global_com_coord"])
+        for instance_name, record in designed_structure.items()
+    }
 
 
 def write_structure_validation_target(
@@ -183,7 +223,10 @@ def write_structure_validation_target(
         "molecule_counts": dict(molecule_counts or get_structure_validation_counts(system)),
         "designed_coordinates": {
             key: tuple(float(value) for value in coords)
-            for key, coords in (designed_coordinates or get_designed_structure_coordinates(system)).items()
+            for key, coords in (
+                designed_coordinates
+                or _designed_structure_to_coordinate_map(get_designed_structure(system))
+            ).items()
         },
     }
 
@@ -210,7 +253,10 @@ def prepare_structure_validation(
     
     final_designed_coordinates = {
         key: tuple(float(value) for value in coords)
-        for key, coords in (designed_coordinates or get_designed_structure_coordinates(system)).items()
+        for key, coords in (
+            designed_coordinates
+            or _designed_structure_to_coordinate_map(get_designed_structure(system))
+        ).items()
     }
 
     exporter = NERDSSExporter(system, workspace_manager)

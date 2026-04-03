@@ -6,6 +6,7 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
+from ionerdss.model.components.instances import InterfaceInstance
 from ionerdss.model.components.instances import MoleculeInstance
 from ionerdss.model.components.system import System
 from ionerdss.model.components.types import MoleculeType
@@ -15,7 +16,7 @@ from ionerdss.model.pdb.structure_validation import (
     _find_observed_com_coordinates_in_restart_snapshots,
     _extract_observed_com_coordinates,
     align_structure_to_design,
-    get_designed_structure_coordinates,
+    get_designed_structure,
     get_structure_validation_counts,
 )
 
@@ -32,7 +33,7 @@ def _make_instance(name: str, molecule_type: MoleculeType, com, interface_count:
     )
 
 
-def test_validation_counts_use_one_copy_per_molecule_type():
+def test_validation_counts_use_full_designed_stoichiometry():
     system = System(workspace_path=".")
     type_a = MoleculeType(name="A")
     type_b = MoleculeType(name="B")
@@ -44,10 +45,92 @@ def test_validation_counts_use_one_copy_per_molecule_type():
     system.molecule_instances.add(_make_instance("b_only", type_b, [0.0, 2.0, 0.0], interface_count=2))
 
     counts = get_structure_validation_counts(system)
-    coords = get_designed_structure_coordinates(system)
+    coords = get_designed_structure(system)
 
-    assert counts == {"A": 1, "B": 1}
-    assert coords == {"A": (1.0, 0.0, 0.0), "B": (0.0, 2.0, 0.0)}
+    assert counts == {"A": 2, "B": 1}
+    assert coords == {
+        "a_dense": {
+            "instance": "a_dense",
+            "type": "A",
+            "global_com_coord": (1.0, 0.0, 0.0),
+            "interfaces": [],
+        },
+        "a_sparse": {
+            "instance": "a_sparse",
+            "type": "A",
+            "global_com_coord": (0.0, 0.0, 0.0),
+            "interfaces": [],
+        },
+        "b_only": {
+            "instance": "b_only",
+            "type": "B",
+            "global_com_coord": (0.0, 2.0, 0.0),
+            "interfaces": [],
+        },
+    }
+
+
+def test_designed_structure_coordinates_include_global_interface_metadata():
+    system = System(workspace_path=".")
+    type_a = MoleculeType(name="A")
+    type_b = MoleculeType(name="B")
+    system.molecule_types.add(type_a)
+    system.molecule_types.add(type_b)
+
+    instance_a = _make_instance("a0", type_a, [0.0, 0.0, 0.0], interface_count=0)
+    instance_b = _make_instance("b0", type_b, [2.0, 0.0, 0.0], interface_count=0)
+
+    interface_ab = InterfaceInstance(
+        absolute_coord=np.array([0.5, 0.0, 0.0]),
+        this_mol=instance_a,
+        this_mol_name="a0",
+        partner_mol_name="b0",
+        interface_index=0,
+    )
+    interface_ba = InterfaceInstance(
+        absolute_coord=np.array([1.5, 0.0, 0.0]),
+        this_mol=instance_b,
+        this_mol_name="b0",
+        partner_mol_name="a0",
+        interface_index=0,
+    )
+
+    instance_a.interfaces_neighbors_map = {interface_ab: instance_b}
+    instance_b.interfaces_neighbors_map = {interface_ba: instance_a}
+
+    system.molecule_instances.add(instance_a)
+    system.molecule_instances.add(instance_b)
+
+    coords = get_designed_structure(system)
+
+    assert coords["a0"] == {
+        "instance": "a0",
+        "type": "A",
+        "global_com_coord": (0.0, 0.0, 0.0),
+        "interfaces": [
+            {
+                "interface_instance": "a0_b0_0",
+                "interface_type": None,
+                "binding_partner_instance": "b0",
+                "binding_partner_type": "B",
+                "global_interface_coord": (0.5, 0.0, 0.0),
+            }
+        ],
+    }
+    assert coords["b0"] == {
+        "instance": "b0",
+        "type": "B",
+        "global_com_coord": (2.0, 0.0, 0.0),
+        "interfaces": [
+            {
+                "interface_instance": "b0_a0_0",
+                "interface_type": None,
+                "binding_partner_instance": "a0",
+                "binding_partner_type": "A",
+                "global_interface_coord": (1.5, 0.0, 0.0),
+            }
+        ],
+    }
 
 
 def test_align_structure_to_design_recovers_rigid_transform():

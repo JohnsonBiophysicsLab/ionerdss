@@ -347,6 +347,19 @@ class System:
             "interface_type_names": list(self.interface_types.interface_types.keys())
         }
 
+    @property
+    def designed_coordinates(self) -> Dict[str, List[float]]:
+        """Get the target 3D coordinates of all molecules from the original structure.
+
+        Returns:
+            Dictionary mapping molecule instance names to their original [x, y, z] Center of Mass.
+        """
+        coords = {}
+        for instance in self.molecule_instances.molecule_instances.values():
+            if hasattr(instance, 'original_com') and instance.original_com is not None:
+                coords[instance.name] = [float(x) for x in instance.original_com]
+        return coords
+
     def __str__(self) -> str:
         """String representation of the system."""
         return (f"System(pdb_id={self.pdb_id}, "
