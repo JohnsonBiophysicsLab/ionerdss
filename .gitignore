@@ -200,3 +200,9 @@ example_simularium_converter.py
 /test_overlap_dir*
 /benchmark/trials
 benchmark_results.csv
+/8ip3_dir
+/outputs/reports
+test copy 3.py
+test_parse_8ip3.py
+/structures/downloaded
+/pdb_benchmark

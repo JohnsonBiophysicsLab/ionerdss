@@ -956,6 +956,40 @@ class TemplateBuilder:
         """Swap i↔j in the signature (used to detect the same HHT under reversed ordering)."""
         di, dj, ti, tj = self._sig_tuple(sig)
         return (dj, di, tj, ti)
+
+    def _hht_assignment_conflicts(
+        self,
+        interface: "InterfaceString",
+        cat: Dict[str, any],
+        matched_order: str,
+    ) -> bool:
+        """Return True when reusing an HHT family would duplicate an exact site on a chain.
+
+        For HHT reuse, `matched_order` determines which concrete member of the family
+        each chain would receive:
+        - `ij`: chain_i -> f, chain_j -> b
+        - `ji`: chain_i -> b, chain_j -> f
+
+        We only block reuse if that exact concrete type is already assigned to the
+        prospective chain. Reversed reuse is valid when a chain already has the
+        complementary partner type.
+        """
+        name_f = cat["f"]
+        name_b = cat["b"]
+
+        if matched_order == "ij":
+            assigned_i = name_f
+            assigned_j = name_b
+        elif matched_order == "ji":
+            assigned_i = name_b
+            assigned_j = name_f
+        else:
+            return True
+
+        return (
+            assigned_i in self.chain_assigned_types[interface.chain_i]
+            or assigned_j in self.chain_assigned_types[interface.chain_j]
+        )
     
     def _match_existing_hht_signature(
         self,
@@ -994,19 +1028,13 @@ class TemplateBuilder:
 
                 # try direct
                 if signature.is_similar_to(stored_sig_ij, distance_threshold, angle_threshold):
-                    # --- NEW CHECK: PREVENT DUPLICATE ASSIGNMENT ---
-                    cand_f = cat["f"]
-                    if not (cand_f in self.chain_assigned_types[interface.chain_i] or 
-                            cand_f in self.chain_assigned_types[interface.chain_j]):
+                    if not self._hht_assignment_conflicts(interface, cat, "ij"):
                         return "ij", cat
 
                 # try flipped
                 stored_sig_ji = GeometricSignature(d_j, d_i, th_j, th_i)
                 if signature.is_similar_to(stored_sig_ji, distance_threshold, angle_threshold):
-                     # --- NEW CHECK ---
-                    cand_f = cat["f"]
-                    if not (cand_f in self.chain_assigned_types[interface.chain_i] or 
-                            cand_f in self.chain_assigned_types[interface.chain_j]):
+                    if not self._hht_assignment_conflicts(interface, cat, "ji"):
                         return "ji", cat
 
                 # not this catalog entry → check next
@@ -1025,13 +1053,9 @@ class TemplateBuilder:
 
             if ok:
                 # matched_order is either "ij" or "ji"
-                
-                # --- NEW CHECK ---
-                cand_f = cat["f"]
-                if (cand_f in self.chain_assigned_types[interface.chain_i] or 
-                    cand_f in self.chain_assigned_types[interface.chain_j]):
-                     # used by one of these chains -> skip reuse
-                     continue
+
+                if self._hht_assignment_conflicts(interface, cat, matched_order):
+                    continue
                 
                 if matched_order == "ij":
                     return "ij", cat
