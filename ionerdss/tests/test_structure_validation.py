@@ -293,24 +293,24 @@ def test_observed_structure_extraction_uses_one_connected_component():
             encoding="utf-8",
         )
 
-        def _restart_block(mol_id: int, partners: list[int], coord) -> list[str]:
+        def _restart_block(mol_id: int, iface_count: int, partners: list[int], coord) -> list[str]:
             bound_iface_line = " ".join([str(len(partners))] + [str(i) for i in range(len(partners))])
             return [
                 f"{mol_id} 0 0 0 0",
                 "1.0 0 0 0 0 0",
                 f"{coord[0]} {coord[1]} {coord[2]}",
-                "4 0 1 2 3",
+                " ".join([str(iface_count)] + [str(i) for i in range(iface_count)]),
                 bound_iface_line,
                 " ".join([str(len(partners))] + [str(pid) for pid in partners]),
-                "4",
-                "0 0 0 0 \0 0",
-                "0.0 0.0 0.0",
-                "1 1 0 0 \0 0",
-                "0.0 0.0 0.0",
-                "2 2 0 0 \0 0",
-                "0.0 0.0 0.0",
-                "3 3 0 0 \0 0",
-                "0.0 0.0 0.0",
+                str(iface_count),
+                *[
+                    token
+                    for iface_idx in range(iface_count)
+                    for token in (
+                        f"{iface_idx} {iface_idx} 0 0 \0 0",
+                        "0.0 0.0 0.0",
+                    )
+                ],
                 "0",
                 "0",
                 "0",
@@ -320,15 +320,19 @@ def test_observed_structure_extraction_uses_one_connected_component():
             ]
 
         restart_lines = [
+            "#MolTemplates",
+            "0 A 4",
+            "1 H 3",
+            "2 L 2",
             "#All Molecules and coordinates",
             "6 6",
         ]
-        restart_lines.extend(_restart_block(0, [1, 2], (0.0, 0.0, 0.0)))
-        restart_lines.extend(_restart_block(1, [0, 2], (1.0, 0.0, 0.0)))
-        restart_lines.extend(_restart_block(2, [0, 1], (0.0, 1.0, 0.0)))
-        restart_lines.extend(_restart_block(3, [4, 5], (10.0, 10.0, 0.0)))
-        restart_lines.extend(_restart_block(4, [3, 5], (10.0, 0.0, 0.0)))
-        restart_lines.extend(_restart_block(5, [3, 4], (10.0, 11.0, 0.0)))
+        restart_lines.extend(_restart_block(0, 4, [1, 2], (0.0, 0.0, 0.0)))
+        restart_lines.extend(_restart_block(1, 3, [0, 2], (1.0, 0.0, 0.0)))
+        restart_lines.extend(_restart_block(2, 2, [0, 1], (0.0, 1.0, 0.0)))
+        restart_lines.extend(_restart_block(3, 4, [4, 5], (10.0, 10.0, 0.0)))
+        restart_lines.extend(_restart_block(4, 3, [3, 5], (10.0, 0.0, 0.0)))
+        restart_lines.extend(_restart_block(5, 2, [3, 4], (10.0, 11.0, 0.0)))
         restart_path.write_text("\n".join(restart_lines), encoding="utf-8")
 
         observed = _extract_observed_com_coordinates(
@@ -385,24 +389,24 @@ def test_restart_snapshot_search_falls_back_to_restart_directory():
             encoding="utf-8",
         )
 
-        def _restart_block(mol_id: int, partners: list[int], coord) -> list[str]:
+        def _restart_block(mol_id: int, iface_count: int, partners: list[int], coord) -> list[str]:
             bound_iface_line = " ".join([str(len(partners))] + [str(i) for i in range(len(partners))])
             return [
                 f"{mol_id} 0 0 0 0",
                 "1.0 0 0 0 0 0",
                 f"{coord[0]} {coord[1]} {coord[2]}",
-                "4 0 1 2 3",
+                " ".join([str(iface_count)] + [str(i) for i in range(iface_count)]),
                 bound_iface_line,
                 " ".join([str(len(partners))] + [str(pid) for pid in partners]),
-                "4",
-                "0 0 0 0 \0 0",
-                "0.0 0.0 0.0",
-                "1 1 0 0 \0 0",
-                "0.0 0.0 0.0",
-                "2 2 0 0 \0 0",
-                "0.0 0.0 0.0",
-                "3 3 0 0 \0 0",
-                "0.0 0.0 0.0",
+                str(iface_count),
+                *[
+                    token
+                    for iface_idx in range(iface_count)
+                    for token in (
+                        f"{iface_idx} {iface_idx} 0 0 \0 0",
+                        "0.0 0.0 0.0",
+                    )
+                ],
                 "0",
                 "0",
                 "0",
@@ -412,21 +416,29 @@ def test_restart_snapshot_search_falls_back_to_restart_directory():
             ]
 
         primary_lines = [
+            "#MolTemplates",
+            "0 A 4",
+            "1 H 3",
+            "2 L 2",
             "#All Molecules and coordinates",
             "3 3",
         ]
-        primary_lines.extend(_restart_block(0, [], (10.0, 0.0, 0.0)))
-        primary_lines.extend(_restart_block(1, [], (20.0, 0.0, 0.0)))
-        primary_lines.extend(_restart_block(2, [], (30.0, 0.0, 0.0)))
+        primary_lines.extend(_restart_block(0, 4, [], (10.0, 0.0, 0.0)))
+        primary_lines.extend(_restart_block(1, 3, [], (20.0, 0.0, 0.0)))
+        primary_lines.extend(_restart_block(2, 2, [], (30.0, 0.0, 0.0)))
         primary_restart_path.write_text("\n".join(primary_lines), encoding="utf-8")
 
         older_lines = [
+            "#MolTemplates",
+            "0 A 4",
+            "1 H 3",
+            "2 L 2",
             "#All Molecules and coordinates",
             "3 3",
         ]
-        older_lines.extend(_restart_block(0, [1, 2], (0.0, 0.0, 0.0)))
-        older_lines.extend(_restart_block(1, [0, 2], (1.0, 0.0, 0.0)))
-        older_lines.extend(_restart_block(2, [0, 1], (0.0, 1.0, 0.0)))
+        older_lines.extend(_restart_block(0, 4, [1, 2], (0.0, 0.0, 0.0)))
+        older_lines.extend(_restart_block(1, 3, [0, 2], (1.0, 0.0, 0.0)))
+        older_lines.extend(_restart_block(2, 2, [0, 1], (0.0, 1.0, 0.0)))
         older_restart_path.write_text("\n".join(older_lines), encoding="utf-8")
 
         observed, used_restart = _find_observed_com_coordinates_in_restart_snapshots(

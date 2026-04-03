@@ -648,36 +648,14 @@ def _extract_observed_com_coordinates(
     restart_file: Union[str, Path],
     target_counts: Mapping[str, int],
 ) -> Dict[str, Tuple[float, float, float]]:
-    """Extract COM coordinates from one connected final-frame assembly."""
-    com_records = _parse_psf_com_records(system_psf_file)
-    xyz_coords = None
-    if final_coords_file is not None and Path(final_coords_file).exists():
-        xyz_coords = _parse_xyz_coordinates(final_coords_file)
-    adjacency, restart_coords, restart_mol_names = _parse_restart_snapshot(restart_file)
+    """Extract COM coordinates from one connected final-frame assembly using restart-native typing only."""
+    del system_psf_file, final_coords_file
 
-    mol_id_to_coord: Dict[int, Tuple[float, float, float]] = {}
-    psf_mol_id_to_name: Dict[int, str] = {}
-    for atom_index, mol_id, mol_name in com_records:
-        psf_mol_id_to_name[mol_id] = mol_name
-        if mol_id in restart_coords:
-            mol_id_to_coord[mol_id] = restart_coords[mol_id]
-        elif xyz_coords is not None:
-            mol_id_to_coord[mol_id] = tuple(xyz_coords[atom_index].tolist())
-        else:
-            raise ValueError(f"Missing coordinates for molecule id {mol_id} in restart snapshot {restart_file}")
+    adjacency, restart_coords, restart_mol_names = _parse_restart_snapshot(restart_file)
+    for mol_id in restart_coords:
         adjacency.setdefault(mol_id, set())
 
-    name_maps_to_try: list[Dict[int, str]] = [psf_mol_id_to_name]
-    if restart_mol_names and restart_mol_names != psf_mol_id_to_name:
-        name_maps_to_try.append(restart_mol_names)
-
-    matching_components: list[list[int]] = []
-    selected_mol_id_to_name = psf_mol_id_to_name
-    for candidate_name_map in name_maps_to_try:
-        matching_components = _find_matching_components(adjacency, candidate_name_map, target_counts)
-        if matching_components:
-            selected_mol_id_to_name = candidate_name_map
-            break
+    matching_components = _find_matching_components(adjacency, restart_mol_names, target_counts)
 
     if not matching_components:
         raise ValueError(
@@ -696,7 +674,7 @@ def _extract_observed_com_coordinates(
     observed = {}
     type_counts: Dict[str, int] = {}
     for mol_id in selected_component:
-        mol_name = selected_mol_id_to_name[mol_id]
+        mol_name = restart_mol_names[mol_id]
         copy_idx = type_counts.get(mol_name, 0)
         type_counts[mol_name] = copy_idx + 1
         
@@ -705,7 +683,7 @@ def _extract_observed_com_coordinates(
         else:
             key = mol_name
             
-        observed[key] = mol_id_to_coord[mol_id]
+        observed[key] = restart_coords[mol_id]
 
     missing = sorted(set(target_counts) - set(type_counts))
     if missing:
