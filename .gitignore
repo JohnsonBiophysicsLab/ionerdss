@@ -207,3 +207,4 @@ test_parse_8ip3.py
 /structures/downloaded
 /pdb_benchmark
 /7cqv_dir
+/tests/troubleshoot/8IP3_validation
