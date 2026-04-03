@@ -24,7 +24,7 @@ def test_hht_reversed_match_allows_complementary_partner_reuse():
     }
     builder.hht_catalog[("A", (1.0, 2.0, 0.3, 0.7))] = cat
     builder.chain_assigned_types["A"].add("AA1f")
-    builder._is_homotypic_with_residue_validation = lambda *args, **kwargs: (True, "ji")
+    builder._homotypic_orientation_candidates = lambda *args, **kwargs: ["ji"]
 
     match_dir, matched_cat = builder._match_existing_hht_signature("A", signature, interface=interface)
 
@@ -44,9 +44,29 @@ def test_hht_reversed_match_blocks_exact_duplicate_assignment():
     }
     builder.hht_catalog[("A", (1.0, 2.0, 0.3, 0.7))] = cat
     builder.chain_assigned_types["A"].add("AA1b")
-    builder._is_homotypic_with_residue_validation = lambda *args, **kwargs: (True, "ji")
+    builder._homotypic_orientation_candidates = lambda *args, **kwargs: ["ji"]
 
     match_dir, matched_cat = builder._match_existing_hht_signature("A", signature, interface=interface)
 
     assert match_dir is None
     assert matched_cat is None
+
+
+def test_hht_match_falls_back_to_alternate_valid_orientation_when_preferred_conflicts():
+    builder = _make_builder()
+    interface = SimpleNamespace(chain_i="A", chain_j="E")
+    signature = GeometricSignature(1.0, 2.0, 0.3, 0.7)
+    cat = {
+        "f": "AA1f",
+        "b": "AA1b",
+        "exemplar_interface": object(),
+        "exemplar_signature": signature,
+    }
+    builder.hht_catalog[("A", (1.0, 2.0, 0.3, 0.7))] = cat
+    builder.chain_assigned_types["A"].add("AA1f")
+    builder._homotypic_orientation_candidates = lambda *args, **kwargs: ["ij", "ji"]
+
+    match_dir, matched_cat = builder._match_existing_hht_signature("A", signature, interface=interface)
+
+    assert match_dir == "ji"
+    assert matched_cat is cat

@@ -957,6 +957,89 @@ class TemplateBuilder:
         di, dj, ti, tj = self._sig_tuple(sig)
         return (dj, di, tj, ti)
 
+    def _homotypic_orientation_candidates(
+        self,
+        interface1: "InterfaceString",
+        interface2: "InterfaceString",
+        signature1: GeometricSignature,
+        signature2: GeometricSignature,
+    ) -> List[str]:
+        """Return valid HHT orientations for `interface2` against `interface1`, in preference order."""
+        direct_geom_ok = signature2.is_similar_to(
+            signature1,
+            distance_threshold=self.hyperparams.homodimer_distance_threshold * 10,
+            angle_threshold=self.hyperparams.homodimer_angle_threshold,
+        )
+
+        rev_sig1 = GeometricSignature(
+            signature1.d_j, signature1.d_i,
+            signature1.theta_j, signature1.theta_i,
+        )
+        flipped_geom_ok = signature2.is_similar_to(
+            rev_sig1,
+            distance_threshold=self.hyperparams.homodimer_distance_threshold * 10,
+            angle_threshold=self.hyperparams.homodimer_angle_threshold,
+        )
+
+        if self.workspace_manager:
+            self.workspace_manager.logger.info(
+                "[HOMO-VALID] geometric check: direct=%s, flipped=%s (dist_th=%.3f Å, ang_th=%.3f rad)",
+                direct_geom_ok,
+                flipped_geom_ok,
+                self.hyperparams.homodimer_distance_threshold * 10,
+                self.hyperparams.homodimer_angle_threshold,
+            )
+
+        if self.hyperparams.homotypic_detection != "auto":
+            out = []
+            if direct_geom_ok:
+                out.append("ij")
+            if flipped_geom_ok:
+                out.append("ji")
+            return out
+
+        def extract_pair(iface_a, iface_b):
+            ai = self._extract_interface_residues(iface_a, iface_a.chain_i, iface_a.coord_i)
+            aj = self._extract_interface_residues(iface_a, iface_a.chain_j, iface_a.coord_j)
+            bi = self._extract_interface_residues(iface_b, iface_b.chain_i, iface_b.coord_i)
+            bj = self._extract_interface_residues(iface_b, iface_b.chain_j, iface_b.coord_j)
+            return ai, aj, bi, bj
+
+        i1_i, i1_j, i2_i, i2_j = extract_pair(interface1, interface2)
+
+        direct_res_i = self._calculate_residue_similarity(i1_i, i2_i)
+        direct_res_j = self._calculate_residue_similarity(i1_j, i2_j)
+        direct_min = min(direct_res_i, direct_res_j)
+
+        flipped_res_i = self._calculate_residue_similarity(i1_i, i2_j)
+        flipped_res_j = self._calculate_residue_similarity(i1_j, i2_i)
+        flipped_min = min(flipped_res_i, flipped_res_j)
+
+        if self.workspace_manager:
+            self.workspace_manager.logger.info(
+                "[HOMO-VALID] residue (direct): side_i=%.3f, side_j=%.3f, min=%.3f, thr=%.3f",
+                direct_res_i, direct_res_j, direct_min, self.hyperparams.homotypic_detection_residue_similarity_threshold
+            )
+            self.workspace_manager.logger.info(
+                "[HOMO-VALID] residue (flipped): side_i=%.3f, side_j=%.3f, min=%.3f, thr=%.3f",
+                flipped_res_i, flipped_res_j, flipped_min, self.hyperparams.homotypic_detection_residue_similarity_threshold
+            )
+
+        thr = self.hyperparams.homotypic_detection_residue_similarity_threshold
+        direct_pass = direct_geom_ok and (direct_min >= thr)
+        flipped_pass = flipped_geom_ok and (flipped_min >= thr)
+
+        if direct_pass and not flipped_pass:
+            return ["ij"]
+        if flipped_pass and not direct_pass:
+            return ["ji"]
+        if direct_pass and flipped_pass:
+            eps = 1e-6
+            if flipped_min > direct_min + eps:
+                return ["ji", "ij"]
+            return ["ij", "ji"]
+        return []
+
     def _hht_assignment_conflicts(
         self,
         interface: "InterfaceString",
@@ -1044,32 +1127,17 @@ class TemplateBuilder:
             # CASE 2: new-style entry, we have exemplar interface + signature
             # let the *robust* validator decide BOTH geometry + residue AND direction
             # ------------------------------------------------------------------
-            ok, matched_order = self._is_homotypic_with_residue_validation(
+            candidates = self._homotypic_orientation_candidates(
                 stored_iface,     # the one we stored when we first created the pair
                 interface,        # the new one we’re trying to match
                 stored_sig_obj,   # stored signature (canonical)
                 signature,        # new signature
             )
 
-            if ok:
-                # matched_order is either "ij" or "ji"
-
+            for matched_order in candidates:
                 if self._hht_assignment_conflicts(interface, cat, matched_order):
                     continue
-                
-                if matched_order == "ij":
-                    return "ij", cat
-                elif matched_order == "ji":
-                    return "ji", cat
-                else:
-                    # very defensive: validator said ok but no order → treat as no match
-                    if self.workspace_manager:
-                        self.workspace_manager.logger.warning(
-                            "HHT: homotypic validator returned True but no order; "
-                            "catalog entry=%s, template=%s",
-                            cat, template_name
-                        )
-                    return None, None
+                return matched_order, cat
 
             # if not ok, just try next catalog entry
 
@@ -3142,105 +3210,27 @@ class TemplateBuilder:
             order is "ij" if interface2 should follow interface1's (i->f, j->b)
             order is "ji" if interface2 must be reversed
         """
-        # 1) geometric checks, both directions
-        direct_geom_ok = signature2.is_similar_to(
-            signature1,
-            distance_threshold=self.hyperparams.homodimer_distance_threshold * 10,
-            angle_threshold=self.hyperparams.homodimer_angle_threshold,
+        candidates = self._homotypic_orientation_candidates(
+            interface1, interface2, signature1, signature2
         )
 
-        # build reversed signature from interface1
-        rev_sig1 = GeometricSignature(
-            signature1.d_j, signature1.d_i,
-            signature1.theta_j, signature1.theta_i,
-        )
-        flipped_geom_ok = signature2.is_similar_to(
-            rev_sig1,
-            distance_threshold=self.hyperparams.homodimer_distance_threshold * 10,
-            angle_threshold=self.hyperparams.homodimer_angle_threshold,
-        )
-
-        if self.workspace_manager:
-            self.workspace_manager.logger.info(
-                "[HOMO-VALID] geometric check: direct=%s, flipped=%s (dist_th=%.3f Å, ang_th=%.3f rad)",
-                direct_geom_ok,
-                flipped_geom_ok,
-                self.hyperparams.homodimer_distance_threshold * 10,
-                self.hyperparams.homodimer_angle_threshold,
-            )
-
-        # if detection mode is purely signature-based, just pick whichever passes
-        if self.hyperparams.homotypic_detection != "auto":
-            if direct_geom_ok:
-                return True, "ij"
-            if flipped_geom_ok:
-                return True, "ji"
-            return False, None
-
-        # 2) residue-based (auto) → we need residue sets for BOTH orientations
-        def extract_pair(iface_a, iface_b):
-            ai = self._extract_interface_residues(iface_a, iface_a.chain_i, iface_a.coord_i)
-            aj = self._extract_interface_residues(iface_a, iface_a.chain_j, iface_a.coord_j)
-            bi = self._extract_interface_residues(iface_b, iface_b.chain_i, iface_b.coord_i)
-            bj = self._extract_interface_residues(iface_b, iface_b.chain_j, iface_b.coord_j)
-            return ai, aj, bi, bj
-
-        # interface1 is the exemplar, interface2 is the new one
-        i1_i, i1_j, i2_i, i2_j = extract_pair(interface1, interface2)
-
-        # DIRECT: (i1,i2) and (j1,j2)
-        direct_res_i = self._calculate_residue_similarity(i1_i, i2_i)
-        direct_res_j = self._calculate_residue_similarity(i1_j, i2_j)
-        direct_min = min(direct_res_i, direct_res_j)
-
-        # FLIPPED: (i1, j2) and (j1, i2)
-        flipped_res_i = self._calculate_residue_similarity(i1_i, i2_j)
-        flipped_res_j = self._calculate_residue_similarity(i1_j, i2_i)
-        flipped_min = min(flipped_res_i, flipped_res_j)
-
-        if self.workspace_manager:
-            self.workspace_manager.logger.info(
-                "[HOMO-VALID] residue (direct): side_i=%.3f, side_j=%.3f, min=%.3f, thr=%.3f",
-                direct_res_i, direct_res_j, direct_min, self.hyperparams.homotypic_detection_residue_similarity_threshold
-            )
-            self.workspace_manager.logger.info(
-                "[HOMO-VALID] residue (flipped): side_i=%.3f, side_j=%.3f, min=%.3f, thr=%.3f",
-                flipped_res_i, flipped_res_j, flipped_min, self.hyperparams.homotypic_detection_residue_similarity_threshold
-            )
-
-        thr = self.hyperparams.homotypic_detection_residue_similarity_threshold
-        direct_pass = direct_geom_ok and (direct_min >= thr)
-        flipped_pass = flipped_geom_ok and (flipped_min >= thr)
-
-        # --- DECISION ---
-        if direct_pass and not flipped_pass:
+        if candidates == ["ij"]:
             if self.workspace_manager:
                 self.workspace_manager.logger.info("[HOMO-VALID] → MATCH in canonical order (ij)")
             return True, "ij"
 
-        if flipped_pass and not direct_pass:
+        if candidates == ["ji"]:
             if self.workspace_manager:
                 self.workspace_manager.logger.info("[HOMO-VALID] → MATCH in reversed order (ji)")
             return True, "ji"
 
-        if direct_pass and flipped_pass:
-            # PICK THE BETTER ONE
-            # small epsilon to avoid float noise
-            eps = 1e-6
-            if flipped_min > direct_min + eps:
-                if self.workspace_manager:
-                    self.workspace_manager.logger.info(
-                        "[HOMO-VALID] → BOTH pass, chose FLIPPED (ji) because flipped_min=%.3f > direct_min=%.3f",
-                        flipped_min, direct_min
-                    )
-                return True, "ji"
-            else:
-                if self.workspace_manager:
-                    self.workspace_manager.logger.info(
-                        "[HOMO-VALID] → BOTH pass, chose CANONICAL (ij) (direct_min=%.3f, flipped_min=%.3f)",
-                        direct_min, flipped_min
-                    )
-                return True, "ij"
+        if len(candidates) == 2:
+            if self.workspace_manager:
+                self.workspace_manager.logger.info(
+                    "[HOMO-VALID] → BOTH pass, preferred order=%s, fallback=%s",
+                    candidates[0], candidates[1]
+                )
+            return True, candidates[0]
 
         # neither orientation works
         return False, None
