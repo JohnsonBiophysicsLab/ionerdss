@@ -1073,6 +1073,43 @@ class TemplateBuilder:
             assigned_i in self.chain_assigned_types[interface.chain_i]
             or assigned_j in self.chain_assigned_types[interface.chain_j]
         )
+
+    def _hht_orientation_from_side_features(
+        self,
+        cat: Dict[str, any],
+        interface: "InterfaceString",
+    ) -> Optional[List[str]]:
+        """Use stored side fingerprints to disambiguate ij vs ji when possible."""
+        feat_i_ref = cat.get("feat_i")
+        feat_j_ref = cat.get("feat_j")
+        if not feat_i_ref or not feat_j_ref:
+            return None
+
+        feat_i_new = self._hht_side_features_from_interface(interface, "i")
+        feat_j_new = self._hht_side_features_from_interface(interface, "j")
+
+        direct_ok = (
+            self._hht_features_match(feat_i_ref, feat_i_new)
+            and self._hht_features_match(feat_j_ref, feat_j_new)
+        )
+        flipped_ok = (
+            self._hht_features_match(feat_i_ref, feat_j_new)
+            and self._hht_features_match(feat_j_ref, feat_i_new)
+        )
+
+        if self.workspace_manager:
+            self.workspace_manager.logger.info(
+                "[HHT-FEAT] side-feature check: direct=%s, flipped=%s",
+                direct_ok, flipped_ok
+            )
+
+        if direct_ok and not flipped_ok:
+            return ["ij"]
+        if flipped_ok and not direct_ok:
+            return ["ji"]
+        if direct_ok and flipped_ok:
+            return ["ij", "ji"]
+        return None
     
     def _match_existing_hht_signature(
         self,
@@ -1127,12 +1164,14 @@ class TemplateBuilder:
             # CASE 2: new-style entry, we have exemplar interface + signature
             # let the *robust* validator decide BOTH geometry + residue AND direction
             # ------------------------------------------------------------------
-            candidates = self._homotypic_orientation_candidates(
-                stored_iface,     # the one we stored when we first created the pair
-                interface,        # the new one we’re trying to match
-                stored_sig_obj,   # stored signature (canonical)
-                signature,        # new signature
-            )
+            candidates = self._hht_orientation_from_side_features(cat, interface)
+            if candidates is None:
+                candidates = self._homotypic_orientation_candidates(
+                    stored_iface,     # the one we stored when we first created the pair
+                    interface,        # the new one we’re trying to match
+                    stored_sig_obj,   # stored signature (canonical)
+                    signature,        # new signature
+                )
 
             for matched_order in candidates:
                 if self._hht_assignment_conflicts(interface, cat, matched_order):
@@ -1267,6 +1306,8 @@ class TemplateBuilder:
             "f": name_f,
             "b": name_b,
             "index": next_index,
+            "feat_i": feat_i,
+            "feat_j": feat_j,
             # NEW:
             "exemplar_interface": interface,     # this is now in canonical ij order
             "exemplar_signature": signature,     # GeometricSignature object
