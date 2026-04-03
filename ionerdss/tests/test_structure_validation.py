@@ -442,3 +442,72 @@ def test_restart_snapshot_search_falls_back_to_restart_directory():
         "H": (1.0, 0.0, 0.0),
         "L": (0.0, 1.0, 0.0),
     }
+
+
+def test_observed_structure_extraction_falls_back_to_restart_native_molecule_types():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmp_path = Path(tmpdir)
+        psf_path = tmp_path / "system.psf"
+        restart_path = tmp_path / "restart.dat"
+
+        # Deliberately mismap the COM entries so PSF-based composition matching fails.
+        psf_path.write_text(
+            "\n".join(
+                [
+                    "PSF",
+                    "",
+                    "    3 !NATOM",
+                    "       1    A    0  COM    O    0          0    1.0         0",
+                    "       2    A    1  COM    O    0          0    1.0         0",
+                    "       3    A    2  COM    O    0          0    1.0         0",
+                ]
+            ),
+            encoding="utf-8",
+        )
+
+        def _restart_block(mol_id: int, coord, iface_count: int, partners: list[int]) -> list[str]:
+            lines = [
+                f"{mol_id} 0 0 0 0",
+                "1.0 0 0 0 0 0",
+                f"{coord[0]} {coord[1]} {coord[2]}",
+                " ".join([str(iface_count)] + [str(i) for i in range(iface_count)]),
+                " ".join([str(len(partners))] + [str(i) for i in range(len(partners))]),
+                " ".join([str(len(partners))] + [str(pid) for pid in partners]),
+                str(iface_count),
+            ]
+
+            bound_iface_indexes = set(range(max(iface_count - len(partners), 0), iface_count))
+            for iface_idx in range(iface_count):
+                is_bound = 1 if iface_idx in bound_iface_indexes else 0
+                lines.append(f"{iface_idx} {iface_idx} 0 0 0 {is_bound}")
+                lines.append("0.0 0.0 0.0")
+                if is_bound:
+                    lines.append("0 0 0")
+
+            lines.extend(["0", "0", "0", "0", "0", "0"])
+            return lines
+
+        restart_lines = [
+            "#MolTemplates",
+            "0 A 4",
+            "1 B 2",
+            "#All Molecules and coordinates",
+            "3 3",
+        ]
+        restart_lines.extend(_restart_block(0, (0.0, 0.0, 0.0), 4, [2]))
+        restart_lines.extend(_restart_block(1, (1.0, 0.0, 0.0), 4, [2]))
+        restart_lines.extend(_restart_block(2, (0.0, 1.0, 0.0), 2, [0, 1]))
+        restart_path.write_text("\n".join(restart_lines), encoding="utf-8")
+
+        observed = _extract_observed_com_coordinates(
+            system_psf_file=psf_path,
+            final_coords_file=None,
+            restart_file=restart_path,
+            target_counts={"A": 2, "B": 1},
+        )
+
+    assert observed == {
+        "A_0": (0.0, 0.0, 0.0),
+        "A_1": (1.0, 0.0, 0.0),
+        "B": (0.0, 1.0, 0.0),
+    }

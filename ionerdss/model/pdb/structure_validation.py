@@ -435,11 +435,43 @@ def _parse_xyz_coordinates(xyz_file: Union[str, Path]) -> np.ndarray:
     return np.asarray(coords, dtype=float)
 
 
+def _parse_restart_template_names_by_iface_count(lines: list[str]) -> Dict[int, str]:
+    """Infer molecule names from the MolTemplates section keyed by unique interface counts."""
+    molecule_section_idx = None
+    for idx, line in enumerate(lines):
+        stripped = line.strip()
+        if stripped == "#All Molecules and coordinates":
+            molecule_section_idx = idx
+            break
+
+    if molecule_section_idx is None:
+        return {}
+
+    names_by_iface_count: Dict[int, set[str]] = defaultdict(set)
+    for line in lines[:molecule_section_idx]:
+        parts = line.split()
+        if (
+            len(parts) != 3
+            or not parts[0].isdigit()
+            or not parts[2].isdigit()
+            or not parts[1].isalpha()
+        ):
+            continue
+        names_by_iface_count[int(parts[2])].add(parts[1])
+
+    return {
+        iface_count: next(iter(names))
+        for iface_count, names in names_by_iface_count.items()
+        if len(names) == 1
+    }
+
+
 def _parse_restart_snapshot(
     restart_file: Union[str, Path],
-) -> Tuple[Dict[int, set[int]], Dict[int, Tuple[float, float, float]]]:
-    """Parse molecule connectivity and COM coordinates from a NERDSS restart file."""
+) -> Tuple[Dict[int, set[int]], Dict[int, Tuple[float, float, float]], Dict[int, str]]:
+    """Parse molecule connectivity, COM coordinates, and inferred molecule names from a NERDSS restart file."""
     lines = Path(restart_file).read_text(encoding="utf-8", errors="replace").splitlines()
+    template_names_by_iface_count = _parse_restart_template_names_by_iface_count(lines)
 
     start_idx = None
     for idx, line in enumerate(lines):
@@ -456,6 +488,7 @@ def _parse_restart_snapshot(
 
     adjacency: Dict[int, set[int]] = defaultdict(set)
     restart_coords: Dict[int, Tuple[float, float, float]] = {}
+    restart_mol_names: Dict[int, str] = {}
     idx = start_idx + 2
     for _ in range(molecule_count):
         header = lines[idx].split()
@@ -502,6 +535,7 @@ def _parse_restart_snapshot(
         if not iface_count_line:
             raise ValueError(f"Malformed interface count in restart file near line {idx + 1}")
         iface_count = int(iface_count_line[0])
+        restart_mol_names[mol_id] = template_names_by_iface_count.get(iface_count, str(iface_count))
         idx += 1
 
         if bound_list_size != partner_count:
@@ -542,13 +576,43 @@ def _parse_restart_snapshot(
                 raise ValueError(f"Truncated {list_name} list in restart file near line {idx + 1}")
             idx += 1
 
-    return adjacency, restart_coords
+    return adjacency, restart_coords, restart_mol_names
 
 
 def _parse_restart_molecule_partners(restart_file: Union[str, Path]) -> Dict[int, set[int]]:
     """Parse final-frame molecule connectivity from a NERDSS restart file."""
-    adjacency, _ = _parse_restart_snapshot(restart_file)
+    adjacency, _, _ = _parse_restart_snapshot(restart_file)
     return adjacency
+
+
+def _find_matching_components(
+    adjacency: Mapping[int, set[int]],
+    mol_id_to_name: Mapping[int, str],
+    target_counts: Mapping[str, int],
+) -> list[list[int]]:
+    """Return connected components whose composition matches the target counts."""
+    matching_components: list[list[int]] = []
+    visited: set[int] = set()
+    for mol_id in sorted(mol_id_to_name):
+        if mol_id in visited:
+            continue
+
+        component: list[int] = []
+        stack = [mol_id]
+        visited.add(mol_id)
+        while stack:
+            current = stack.pop()
+            component.append(current)
+            for neighbor in sorted(adjacency.get(current, ())):
+                if neighbor in mol_id_to_name and neighbor not in visited:
+                    visited.add(neighbor)
+                    stack.append(neighbor)
+
+        component_counts = Counter(mol_id_to_name[node_id] for node_id in component)
+        if dict(component_counts) == dict(target_counts):
+            matching_components.append(sorted(component))
+
+    return matching_components
 
 
 def _restart_snapshot_sort_key(restart_path: Path) -> Tuple[Tuple[int, ...], str]:
@@ -589,12 +653,12 @@ def _extract_observed_com_coordinates(
     xyz_coords = None
     if final_coords_file is not None and Path(final_coords_file).exists():
         xyz_coords = _parse_xyz_coordinates(final_coords_file)
-    adjacency, restart_coords = _parse_restart_snapshot(restart_file)
+    adjacency, restart_coords, restart_mol_names = _parse_restart_snapshot(restart_file)
 
-    mol_id_to_name: Dict[int, str] = {}
     mol_id_to_coord: Dict[int, Tuple[float, float, float]] = {}
+    psf_mol_id_to_name: Dict[int, str] = {}
     for atom_index, mol_id, mol_name in com_records:
-        mol_id_to_name[mol_id] = mol_name
+        psf_mol_id_to_name[mol_id] = mol_name
         if mol_id in restart_coords:
             mol_id_to_coord[mol_id] = restart_coords[mol_id]
         elif xyz_coords is not None:
@@ -603,26 +667,17 @@ def _extract_observed_com_coordinates(
             raise ValueError(f"Missing coordinates for molecule id {mol_id} in restart snapshot {restart_file}")
         adjacency.setdefault(mol_id, set())
 
+    name_maps_to_try: list[Dict[int, str]] = [psf_mol_id_to_name]
+    if restart_mol_names and restart_mol_names != psf_mol_id_to_name:
+        name_maps_to_try.append(restart_mol_names)
+
     matching_components: list[list[int]] = []
-    visited: set[int] = set()
-    for mol_id in sorted(mol_id_to_name):
-        if mol_id in visited:
-            continue
-
-        component: list[int] = []
-        stack = [mol_id]
-        visited.add(mol_id)
-        while stack:
-            current = stack.pop()
-            component.append(current)
-            for neighbor in sorted(adjacency.get(current, ())):
-                if neighbor in mol_id_to_name and neighbor not in visited:
-                    visited.add(neighbor)
-                    stack.append(neighbor)
-
-        component_counts = Counter(mol_id_to_name[node_id] for node_id in component)
-        if dict(component_counts) == dict(target_counts):
-            matching_components.append(sorted(component))
+    selected_mol_id_to_name = psf_mol_id_to_name
+    for candidate_name_map in name_maps_to_try:
+        matching_components = _find_matching_components(adjacency, candidate_name_map, target_counts)
+        if matching_components:
+            selected_mol_id_to_name = candidate_name_map
+            break
 
     if not matching_components:
         raise ValueError(
@@ -641,7 +696,7 @@ def _extract_observed_com_coordinates(
     observed = {}
     type_counts: Dict[str, int] = {}
     for mol_id in selected_component:
-        mol_name = mol_id_to_name[mol_id]
+        mol_name = selected_mol_id_to_name[mol_id]
         copy_idx = type_counts.get(mol_name, 0)
         type_counts[mol_name] = copy_idx + 1
         
