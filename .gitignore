@@ -206,3 +206,4 @@ test copy 3.py
 test_parse_8ip3.py
 /structures/downloaded
 /pdb_benchmark
+/7cqv_dir

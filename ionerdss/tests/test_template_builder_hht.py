@@ -98,3 +98,38 @@ def test_hht_side_features_prevent_wrong_orientation_fallback():
 
     assert match_dir is None
     assert matched_cat is None
+
+
+def test_heterotypic_duplicate_check_uses_concrete_partner_type_per_chain():
+    builder = _make_builder()
+    builder.hyperparams = SimpleNamespace(
+        interface_type_assignment_distance_threshold=0.1,
+        interface_type_assignment_angle_threshold=0.1,
+    )
+    ab_sig = GeometricSignature(1.0, 2.0, 0.3, 0.7)
+    ba_sig = ab_sig.flipped()
+    builder.interface_signatures = {
+        "AB1": ab_sig,
+        "BA1": ba_sig,
+    }
+    builder.interface_templates = {
+        "AB1": SimpleNamespace(
+            this_mol_type_name="A",
+            partner_mol_type_name="B",
+            partner_interface_type=SimpleNamespace(name="BA1"),
+        ),
+        "BA1": SimpleNamespace(
+            this_mol_type_name="B",
+            partner_mol_type_name="A",
+            partner_interface_type=SimpleNamespace(name="AB1"),
+        ),
+    }
+
+    # After assigning an A-B contact, chain B should be tracked as carrying BA1.
+    builder.chain_assigned_types["A"].add("AB1")
+    builder.chain_assigned_types["B"].add("BA1")
+    interface = SimpleNamespace(chain_i="B", chain_j="E")
+
+    match = builder._find_matching_interface_type("B", "A", ba_sig, interface)
+
+    assert match is None

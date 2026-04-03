@@ -957,6 +957,69 @@ class TemplateBuilder:
         di, dj, ti, tj = self._sig_tuple(sig)
         return (dj, di, tj, ti)
 
+    def _resolve_interface_assignment(
+        self,
+        interface_type_name: str,
+        template_i: str,
+        template_j: str,
+    ) -> Tuple[str, str]:
+        """Resolve the concrete interface types assigned to chain_i and chain_j."""
+        interface_template = self.interface_templates.get(interface_type_name)
+        if interface_template is None:
+            return interface_type_name, interface_type_name
+
+        partner = getattr(interface_template, "partner_interface_type", None)
+        if not partner:
+            return interface_type_name, interface_type_name
+
+        partner_name = (
+            partner.get_name() if hasattr(partner, "get_name")
+            else getattr(partner, "name", str(partner))
+        )
+
+        if (
+            interface_template.this_mol_type_name == template_i
+            and interface_template.partner_mol_type_name == template_j
+        ):
+            return interface_type_name, partner_name
+
+        if (
+            interface_template.this_mol_type_name == template_j
+            and interface_template.partner_mol_type_name == template_i
+        ):
+            return partner_name, interface_type_name
+
+        partner_template = self.interface_templates.get(partner_name)
+        if partner_template is not None:
+            if (
+                partner_template.this_mol_type_name == template_i
+                and partner_template.partner_mol_type_name == template_j
+            ):
+                return partner_name, interface_type_name
+            if (
+                partner_template.this_mol_type_name == template_j
+                and partner_template.partner_mol_type_name == template_i
+            ):
+                return interface_type_name, partner_name
+
+        return interface_type_name, partner_name
+
+    def _record_chain_assignments(
+        self,
+        interface: InterfaceString,
+        template_i: str,
+        template_j: str,
+        interface_type_name: str,
+    ) -> None:
+        """Record the concrete interface type assigned to each chain."""
+        assigned_i, assigned_j = self._resolve_interface_assignment(
+            interface_type_name,
+            template_i,
+            template_j,
+        )
+        self.chain_assigned_types[interface.chain_i].add(assigned_i)
+        self.chain_assigned_types[interface.chain_j].add(assigned_j)
+
     def _homotypic_orientation_candidates(
         self,
         interface1: "InterfaceString",
@@ -1621,9 +1684,13 @@ class TemplateBuilder:
             # Store mapping
             self._store_interface_mapping(interface, matching_interface_name)
             
-            # Track assignment
-            self.chain_assigned_types[interface.chain_i].add(matching_interface_name)
-            self.chain_assigned_types[interface.chain_j].add(matching_interface_name)
+            # Track the concrete type assigned to each chain
+            self._record_chain_assignments(
+                interface,
+                template_i,
+                template_j,
+                matching_interface_name,
+            )
 
             if self.workspace_manager:
                 self.workspace_manager.logger.info(
@@ -1643,12 +1710,13 @@ class TemplateBuilder:
             )
             interface.interface_type = interface_type_name
 
-        # Track assignment for new type
-        self.chain_assigned_types[interface.chain_i].add(interface.interface_type)
-        if interface.interface_type:    
-             pass
-        
-        self.chain_assigned_types[interface.chain_j].add(interface.interface_type)
+        # Track the concrete type assigned to each chain
+        self._record_chain_assignments(
+            interface,
+            template_i,
+            template_j,
+            interface.interface_type,
+        )
 
         # Store mapping
         self._store_interface_mapping(interface, interface.interface_type)
@@ -1922,15 +1990,20 @@ class TemplateBuilder:
                     
                     # --- NEW CHECK: PREVENT DUPLICATE ASSIGNMENT TO SAME CHAIN ---
                     if interface:
-                        # If this interface type is already assigned to chain_i OR chain_j,
-                        # skip it
-                        
-                        if (interface_name in self.chain_assigned_types[interface.chain_i] or 
-                            interface_name in self.chain_assigned_types[interface.chain_j]):
+                        assigned_i, assigned_j = self._resolve_interface_assignment(
+                            interface_name,
+                            template_i,
+                            template_j,
+                        )
+
+                        if (
+                            assigned_i in self.chain_assigned_types[interface.chain_i]
+                            or assigned_j in self.chain_assigned_types[interface.chain_j]
+                        ):
                             if self.workspace_manager:
                                 self.workspace_manager.logger.warning(
-                                    "Skipping interface type %s for %s<->%s because it is already assigned to one of the chains.",
-                                    interface_name, interface.chain_i, interface.chain_j
+                                    "Skipping interface type %s for %s<->%s because the concrete assignment %s/%s is already present.",
+                                    interface_name, interface.chain_i, interface.chain_j, assigned_i, assigned_j
                                 )
                             continue
                     
@@ -1940,7 +2013,11 @@ class TemplateBuilder:
                             interface_name, signature.d_i, signature.d_j, signature.theta_i, signature.theta_j,
                             distance_threshold, angle_threshold
                         )
-                    return interface_name
+                    return self._resolve_interface_assignment(
+                        interface_name,
+                        template_i,
+                        template_j,
+                    )[0]
 
         return None
 
