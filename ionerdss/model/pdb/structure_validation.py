@@ -1,5 +1,5 @@
 """
-Utilities for "lego assembly" structure validation.
+Utilities for structure validation.
 
 This validation mode reduces the designed assembly to one representative copy
 per exported molecule type, turns binding effectively irreversible by forcing
@@ -18,6 +18,7 @@ import re
 import shutil
 import warnings
 from collections import Counter, defaultdict
+from itertools import permutations, product
 
 import numpy as np
 
@@ -100,6 +101,158 @@ def _as_xyz_array(coords: CoordinateInput, labels: Optional[Iterable[str]] = Non
             raise ValueError("The number of labels must match the number of coordinates.")
 
     return ordered_labels, points
+
+
+def _strip_designed_label_to_type(label: str) -> str:
+    """Reduce ionerdss-style labels like `chain_type` to `type`."""
+    if "_" not in label:
+        return label
+    return label.split("_", 1)[1]
+
+
+def _strip_observed_label_to_type(label: str) -> str:
+    """Reduce NERDSS-style labels like `type_0` to `type`."""
+    if "_" not in label:
+        return label
+
+    prefix, suffix = label.rsplit("_", 1)
+    if suffix.isdigit():
+        return prefix
+    return label
+
+
+def _compute_alignment(
+    designed_xyz: np.ndarray,
+    observed_xyz: np.ndarray,
+    *,
+    backend: str,
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray, float]:
+    """Return rigid transform, aligned coordinates, and RMSD."""
+    if backend == "kabsch":
+        rotation_matrix, translation_vector = rigid_transform_3d(observed_xyz, designed_xyz)
+    elif backend == "biopython":
+        try:
+            from Bio.SVDSuperimposer import SVDSuperimposer
+        except ImportError as exc:
+            raise ImportError(
+                "Biopython is required for backend='biopython'. Install biopython or use backend='kabsch'."
+            ) from exc
+
+        superimposer = SVDSuperimposer()
+        superimposer.set(designed_xyz, observed_xyz)
+        superimposer.run()
+        rotation_matrix, translation_vector = superimposer.get_rotran()
+    else:
+        raise ValueError("backend must be 'kabsch' or 'biopython'.")
+
+    aligned_observed = apply_rigid_transform(rotation_matrix, translation_vector, observed_xyz)
+    deltas = aligned_observed - designed_xyz
+    rmsd = float(np.sqrt(np.mean(np.sum(deltas * deltas, axis=1))))
+    return rotation_matrix, translation_vector, aligned_observed, rmsd
+
+
+def _match_coordinate_maps(
+    designed_coordinates: CoordinateInput,
+    observed_coordinates: CoordinateInput,
+    *,
+    labels: Optional[Iterable[str]] = None,
+    backend: str,
+) -> Tuple[Tuple[str, ...], np.ndarray, np.ndarray]:
+    """Return labels and coordinate arrays with homomer-aware key matching for mappings."""
+    designed_labels, designed_xyz = _as_xyz_array(designed_coordinates, labels=labels)
+    observed_labels, observed_xyz = _as_xyz_array(observed_coordinates, labels=labels)
+
+    if designed_xyz.shape != observed_xyz.shape:
+        raise ValueError("Designed and observed structures must have the same shape.")
+
+    if designed_labels == observed_labels:
+        return designed_labels, designed_xyz, observed_xyz
+
+    if not isinstance(designed_coordinates, Mapping) or not isinstance(observed_coordinates, Mapping):
+        raise ValueError(
+            "Designed and observed structures must have the same ordered labels. "
+            "Pass dictionaries keyed by molecule labels to enable automatic matching."
+        )
+
+    designed_type_by_label = {
+        label: _strip_designed_label_to_type(label)
+        for label in designed_labels
+    }
+    observed_type_by_label = {
+        label: _strip_observed_label_to_type(label)
+        for label in observed_labels
+    }
+
+    designed_type_counts = Counter(designed_type_by_label.values())
+    observed_type_counts = Counter(observed_type_by_label.values())
+    if designed_type_counts != observed_type_counts:
+        raise ValueError(
+            "Designed and observed structures do not describe the same molecule-type composition after "
+            "normalizing homomer labels."
+        )
+
+    designed_labels_by_type: Dict[str, list[str]] = defaultdict(list)
+    observed_labels_by_type: Dict[str, list[str]] = defaultdict(list)
+    for label in designed_labels:
+        designed_labels_by_type[designed_type_by_label[label]].append(label)
+    for label in observed_labels:
+        observed_labels_by_type[observed_type_by_label[label]].append(label)
+
+    for type_name in designed_type_counts:
+        designed_labels_by_type[type_name].sort()
+        observed_labels_by_type[type_name].sort()
+
+    permutation_sets = [
+        list(permutations(observed_labels_by_type[type_name]))
+        for type_name, count in sorted(designed_type_counts.items())
+        if count > 1
+    ]
+    repeated_types = [
+        type_name
+        for type_name, count in sorted(designed_type_counts.items())
+        if count > 1
+    ]
+
+    best_labels: Optional[Tuple[str, ...]] = None
+    best_observed_xyz: Optional[np.ndarray] = None
+    best_rmsd: Optional[float] = None
+
+    permutation_products = product(*permutation_sets) if permutation_sets else [()]
+    for perm_choice in permutation_products:
+        observed_order_by_type = {
+            type_name: list(observed_labels_by_type[type_name])
+            for type_name in designed_type_counts
+        }
+        for type_name, permuted_labels in zip(repeated_types, perm_choice):
+            observed_order_by_type[type_name] = list(permuted_labels)
+
+        matched_labels = tuple(designed_type_by_label[label] for label in designed_labels)
+        matched_observed_labels = []
+        type_offsets: Dict[str, int] = defaultdict(int)
+        for designed_label in designed_labels:
+            type_name = designed_type_by_label[designed_label]
+            idx = type_offsets[type_name]
+            matched_observed_labels.append(observed_order_by_type[type_name][idx])
+            type_offsets[type_name] += 1
+
+        candidate_observed_xyz = np.asarray(
+            [observed_coordinates[label] for label in matched_observed_labels],
+            dtype=float,
+        )
+        _, _, _, candidate_rmsd = _compute_alignment(
+            designed_xyz,
+            candidate_observed_xyz,
+            backend=backend,
+        )
+
+        if best_rmsd is None or candidate_rmsd < best_rmsd:
+            best_labels = matched_labels
+            best_observed_xyz = candidate_observed_xyz
+            best_rmsd = candidate_rmsd
+
+    assert best_labels is not None
+    assert best_observed_xyz is not None
+    return best_labels, designed_xyz, best_observed_xyz
 
 
 def get_representative_instances(system: System) -> Dict[str, MoleculeInstance]:
@@ -307,37 +460,17 @@ def align_structure_to_design(
     plot: bool = False,
 ) -> StructureAlignmentResult:
     """Rigidly align an observed structure onto the designed target and compute RMSD."""
-    designed_labels, designed_xyz = _as_xyz_array(designed_coordinates, labels=labels)
-    observed_labels, observed_xyz = _as_xyz_array(observed_coordinates, labels=labels)
-
-    if designed_labels != observed_labels:
-        raise ValueError(
-            "Designed and observed structures must have the same ordered labels. "
-            "Pass dictionaries keyed by molecule type to match automatically."
-        )
-
-    if designed_xyz.shape != observed_xyz.shape:
-        raise ValueError("Designed and observed structures must have the same shape.")
-
-    if backend == "kabsch":
-        rotation_matrix, translation_vector = rigid_transform_3d(observed_xyz, designed_xyz)
-    elif backend == "biopython":
-        try:
-            from Bio.SVDSuperimposer import SVDSuperimposer
-        except ImportError as exc:
-            raise ImportError(
-                "Biopython is required for backend='biopython'. Install biopython or use backend='kabsch'."
-            ) from exc
-
-        superimposer = SVDSuperimposer()
-        superimposer.set(designed_xyz, observed_xyz)
-        superimposer.run()
-        rotation_matrix, translation_vector = superimposer.get_rotran()
-    else:
-        raise ValueError("backend must be 'kabsch' or 'biopython'.")
-    aligned_observed = apply_rigid_transform(rotation_matrix, translation_vector, observed_xyz)
-    deltas = aligned_observed - designed_xyz
-    rmsd = float(np.sqrt(np.mean(np.sum(deltas * deltas, axis=1))))
+    designed_labels, designed_xyz, observed_xyz = _match_coordinate_maps(
+        designed_coordinates,
+        observed_coordinates,
+        labels=labels,
+        backend=backend,
+    )
+    rotation_matrix, translation_vector, aligned_observed, rmsd = _compute_alignment(
+        designed_xyz,
+        observed_xyz,
+        backend=backend,
+    )
 
     if plot:
         try:

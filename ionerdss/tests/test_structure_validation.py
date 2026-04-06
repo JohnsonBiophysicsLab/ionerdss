@@ -163,6 +163,54 @@ def test_align_structure_to_design_recovers_rigid_transform():
     assert np.allclose(result.aligned_observed_coordinates, result.designed_coordinates)
 
 
+def test_align_structure_to_design_keeps_exact_key_matching():
+    designed = {
+        "A_0": [0.0, 0.0, 0.0],
+        "A_1": [1.0, 0.0, 0.0],
+        "B_0": [0.0, 1.0, 0.0],
+    }
+
+    rotation = np.array(
+        [
+            [0.0, -1.0, 0.0],
+            [1.0, 0.0, 0.0],
+            [0.0, 0.0, 1.0],
+        ]
+    )
+    translation = np.array([2.0, 3.0, -1.0])
+
+    designed_xyz = np.asarray([designed[key] for key in sorted(designed)], dtype=float)
+    observed_xyz = (rotation @ designed_xyz.T).T + translation
+    observed = {
+        key: observed_xyz[idx].tolist()
+        for idx, key in enumerate(sorted(designed))
+    }
+
+    result = align_structure_to_design(designed, observed)
+
+    assert result.labels == ("A_0", "A_1", "B_0")
+    assert result.rmsd < 1e-10
+
+
+def test_align_structure_to_design_matches_homomer_labels_by_type():
+    designed = {
+        "chainA_A": [0.0, 0.0, 0.0],
+        "chainB_A": [2.0, 0.0, 0.0],
+        "chainC_B": [0.0, 3.0, 0.0],
+    }
+    observed = {
+        "A_0": [2.0, 0.0, 0.0],
+        "A_1": [0.0, 0.0, 0.0],
+        "B_0": [0.0, 3.0, 0.0],
+    }
+
+    result = align_structure_to_design(designed, observed)
+
+    assert result.labels == ("A", "A", "B")
+    assert result.rmsd < 1e-10
+    assert np.allclose(result.aligned_observed_coordinates, result.designed_coordinates)
+
+
 def test_validation_module_exposes_prepare_and_compare():
     assert hasattr(pdb, "validation")
     assert callable(pdb.validation.prepare)
