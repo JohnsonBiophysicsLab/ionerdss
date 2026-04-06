@@ -55,7 +55,9 @@ For the full contributor environment:
 ```bash
 pip install -e ".[all]"
 ```
+To run simulations for structures generated from ioNERDSS you will also need to install NERDSS.
 
+NERDSS installation instructions - [NERDSS Github](https://github.com/JohnsonBiophysicsLab/NERDSS)
 ## Usage
 
 ```python
