@@ -22,6 +22,15 @@
 **ionerdss** is a Python library for building NERDSS-ready models from structures, running simulation workflows, and analyzing simulation outputs.
 
 ## Installation
+Recommended: Install in an isolated environment
+We strongly recommend installing ioNERDSS in an isolated environment using a package manager like conda or mamba to avoid conflicts with existing Python libraries.
+
+### Using Conda
+```bash
+# Create a new environment with Python 3.10 or later
+conda create -n ionerdss python=3.10
+conda activate ionerdss
+```
 
 ### 1. From PyPI
 
