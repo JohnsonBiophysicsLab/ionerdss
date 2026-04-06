@@ -52,6 +52,7 @@ class StructureValidationArtifacts:
     designed_coordinates: Dict[str, Tuple[float, float, float]]
     target_file: Path
     nerdss_files: Dict[str, Path]
+    preflight_warning_message: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -292,6 +293,82 @@ def get_structure_validation_counts(system: System) -> Dict[str, int]:
     return dict(sorted(counts.items()))
 
 
+def _get_designed_connected_components(system: System) -> list[tuple[str, ...]]:
+    """Return connected components of the designed assembly using molecule instance names."""
+    adjacency: Dict[str, set[str]] = defaultdict(set)
+    for molecule_instance in system.molecule_instances:
+        adjacency.setdefault(molecule_instance.name, set())
+        for _interface_instance, partner_instance in molecule_instance.interfaces_neighbors_map.items():
+            if partner_instance is None:
+                continue
+            adjacency[molecule_instance.name].add(partner_instance.name)
+            adjacency[partner_instance.name].add(molecule_instance.name)
+
+    components: list[tuple[str, ...]] = []
+    visited: set[str] = set()
+    for instance_name in sorted(adjacency):
+        if instance_name in visited:
+            continue
+
+        stack = [instance_name]
+        visited.add(instance_name)
+        component: list[str] = []
+        while stack:
+            current = stack.pop()
+            component.append(current)
+            for neighbor in sorted(adjacency[current]):
+                if neighbor not in visited:
+                    visited.add(neighbor)
+                    stack.append(neighbor)
+
+        components.append(tuple(sorted(component)))
+
+    return components
+
+
+def _format_disconnected_design_warning(components: Sequence[Sequence[str]]) -> Optional[str]:
+    """Describe disconnected designed subunit groups for early validation feedback."""
+    if len(components) <= 1:
+        return None
+    formatted_components = [
+        ", ".join(component)
+        for component in sorted((tuple(component) for component in components), key=lambda comp: comp)
+    ]
+    if len(formatted_components) == 2:
+        return (
+            "Validation preflight warning: the designed assembly graph is disconnected, so it cannot form a "
+            f"single N-mer. Subunits {formatted_components[0]} are disconnected from subunits "
+            f"{formatted_components[1]}."
+        )
+
+    return (
+        "Validation preflight warning: the designed assembly graph is disconnected, so it cannot form a "
+        f"single N-mer. Connected subunit groups: {'; '.join(formatted_components)}."
+    )
+
+
+def get_disconnected_design_message(system: System, *, prefix: str) -> Optional[str]:
+    """Return a formatted disconnected-assembly message for the given system."""
+    components = _get_designed_connected_components(system)
+    if len(components) <= 1:
+        return None
+
+    formatted_components = [
+        ", ".join(component)
+        for component in sorted((tuple(component) for component in components), key=lambda comp: comp)
+    ]
+    if len(formatted_components) == 2:
+        return (
+            f"{prefix}: the designed assembly graph is disconnected, so it cannot form a single N-mer. "
+            f"Subunits {formatted_components[0]} are disconnected from subunits {formatted_components[1]}."
+        )
+
+    return (
+        f"{prefix}: the designed assembly graph is disconnected, so it cannot form a single N-mer. "
+        f"Connected subunit groups: {'; '.join(formatted_components)}."
+    )
+
+
 def build_validation_molecule_counts(system: System, initial_molecule_count: int = 1) -> Dict[str, int]:
     """Return validation counts with a configurable initial copy number per molecule type."""
     target_counts = get_structure_validation_counts(system)
@@ -403,6 +480,9 @@ def prepare_structure_validation(
         initial_molecule_count=config.initial_molecule_count,
     )
     target_counts = get_structure_validation_counts(system)
+    preflight_warning_message = _format_disconnected_design_warning(
+        _get_designed_connected_components(system)
+    )
     
     final_designed_coordinates = {
         key: tuple(float(value) for value in coords)
@@ -442,12 +522,16 @@ def prepare_structure_validation(
             shutil.copyfile(parms_path, titration_parms_path)
             nerdss_files["parms_titrate"] = titration_parms_path
 
+    if preflight_warning_message:
+        warnings.warn(preflight_warning_message, RuntimeWarning)
+
     return StructureValidationArtifacts(
         molecule_counts=molecule_counts,
         target_counts=target_counts,
         designed_coordinates=final_designed_coordinates,
         target_file=target_file,
         nerdss_files=nerdss_files,
+        preflight_warning_message=preflight_warning_message,
     )
 
 

@@ -22,7 +22,7 @@ from .chain_grouping import ChainGrouper
 from .template_builder import TemplateBuilder
 from .system_builder import SystemBuilder
 from .file_manager import WorkspaceManager
-from .structure_validation import StructureValidationArtifacts
+from .structure_validation import StructureValidationArtifacts, get_disconnected_design_message
 
 
 class PDBModelBuilder:
@@ -238,6 +238,13 @@ class PDBModelBuilder:
 
             system = system_builder.get_system()
             self.system = system
+
+            disconnected_design_message = get_disconnected_design_message(
+                system,
+                prefix="Preflight error",
+            )
+            if disconnected_design_message is not None:
+                raise ValueError(disconnected_design_message)
 
             # Calculate default molecule counts if not provided (using stoichiometry)
             if molecule_counts is None:

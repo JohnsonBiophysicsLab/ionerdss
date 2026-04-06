@@ -1,8 +1,10 @@
 from pathlib import Path
 import tempfile
 import sys
+import logging
 
 import numpy as np
+import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
@@ -12,10 +14,14 @@ from ionerdss.model.components.system import System
 from ionerdss.model.components.types import MoleculeType
 from ionerdss.model import pdb
 from ionerdss.model.pdb.nerdss_exporter import NERDSSExporter
+from ionerdss.model.pdb.main import PDBModelBuilder
 from ionerdss.model.pdb.structure_validation import (
     _find_observed_com_coordinates_in_restart_snapshots,
     _extract_observed_com_coordinates,
+    _format_disconnected_design_warning,
+    _get_designed_connected_components,
     align_structure_to_design,
+    get_disconnected_design_message,
     get_designed_structure,
     get_structure_validation_counts,
 )
@@ -219,6 +225,74 @@ def test_validation_module_exposes_prepare_and_compare():
     assert callable(pdb.validation.align_structure)
 
 
+def test_designed_connected_components_detect_disconnected_subunits():
+    system = System(workspace_path=".")
+    type_a = MoleculeType(name="A")
+    type_b = MoleculeType(name="B")
+    type_c = MoleculeType(name="C")
+    type_d = MoleculeType(name="D")
+    system.molecule_types.add(type_a)
+    system.molecule_types.add(type_b)
+    system.molecule_types.add(type_c)
+    system.molecule_types.add(type_d)
+
+    instance_a = _make_instance("A", type_a, [0.0, 0.0, 0.0], interface_count=0)
+    instance_b = _make_instance("B", type_b, [1.0, 0.0, 0.0], interface_count=0)
+    instance_c = _make_instance("C", type_c, [5.0, 0.0, 0.0], interface_count=0)
+    instance_d = _make_instance("D", type_d, [6.0, 0.0, 0.0], interface_count=0)
+
+    interface_ab = InterfaceInstance(
+        absolute_coord=np.array([0.5, 0.0, 0.0]),
+        this_mol=instance_a,
+        this_mol_name="A",
+        partner_mol_name="B",
+        interface_index=0,
+    )
+    interface_ba = InterfaceInstance(
+        absolute_coord=np.array([0.5, 0.0, 0.0]),
+        this_mol=instance_b,
+        this_mol_name="B",
+        partner_mol_name="A",
+        interface_index=0,
+    )
+    interface_cd = InterfaceInstance(
+        absolute_coord=np.array([5.5, 0.0, 0.0]),
+        this_mol=instance_c,
+        this_mol_name="C",
+        partner_mol_name="D",
+        interface_index=0,
+    )
+    interface_dc = InterfaceInstance(
+        absolute_coord=np.array([5.5, 0.0, 0.0]),
+        this_mol=instance_d,
+        this_mol_name="D",
+        partner_mol_name="C",
+        interface_index=0,
+    )
+
+    instance_a.interfaces_neighbors_map = {interface_ab: instance_b}
+    instance_b.interfaces_neighbors_map = {interface_ba: instance_a}
+    instance_c.interfaces_neighbors_map = {interface_cd: instance_d}
+    instance_d.interfaces_neighbors_map = {interface_dc: instance_c}
+
+    system.molecule_instances.add(instance_a)
+    system.molecule_instances.add(instance_b)
+    system.molecule_instances.add(instance_c)
+    system.molecule_instances.add(instance_d)
+
+    components = _get_designed_connected_components(system)
+
+    assert components == [("A", "B"), ("C", "D")]
+    assert _format_disconnected_design_warning(components) == (
+        "Validation preflight warning: the designed assembly graph is disconnected, so it cannot form a "
+        "single N-mer. Subunits A, B are disconnected from subunits C, D."
+    )
+    assert get_disconnected_design_message(system, prefix="Preflight error") == (
+        "Preflight error: the designed assembly graph is disconnected, so it cannot form a single N-mer. "
+        "Subunits A, B are disconnected from subunits C, D."
+    )
+
+
 def test_setup_simulation_writes_titration_file():
     system = System(workspace_path=".")
     type_a = MoleculeType(name="A")
@@ -241,6 +315,7 @@ def test_setup_simulation_writes_titration_file():
     assert artifacts.molecule_counts == {"A": 1}
     assert "parms_titrate" in artifacts.nerdss_files
     assert artifacts.nerdss_files["parms_titrate"].name == "parms_titrate.inp"
+    assert artifacts.preflight_warning_message is None
 
 
 def test_setup_simulation_uses_supplied_designed_coordinates():
@@ -268,6 +343,224 @@ def test_setup_simulation_uses_supplied_designed_coordinates():
 
     assert artifacts.designed_coordinates == designed_coordinates
     assert payload["designed_coordinates"] == {"A": [9.0, 8.0, 7.0]}
+
+
+def test_setup_simulation_warns_for_disconnected_designed_assembly():
+    system = System(workspace_path=".")
+    type_a = MoleculeType(name="A")
+    type_b = MoleculeType(name="B")
+    system.molecule_types.add(type_a)
+    system.molecule_types.add(type_b)
+    system.molecule_instances.add(_make_instance("A", type_a, [0.0, 0.0, 0.0], interface_count=0))
+    system.molecule_instances.add(_make_instance("B", type_b, [1.0, 0.0, 0.0], interface_count=0))
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        old_cwd = Path.cwd()
+        try:
+            import os
+            os.chdir(tmpdir)
+            with pytest.warns(RuntimeWarning, match="designed assembly graph is disconnected"):
+                artifacts = pdb.validation.setup_simulation(system, initial_molecule_count=1)
+        finally:
+            os.chdir(old_cwd)
+
+    assert artifacts.preflight_warning_message == (
+        "Validation preflight warning: the designed assembly graph is disconnected, so it cannot form a "
+        "single N-mer. Subunits A are disconnected from subunits B."
+    )
+
+
+def test_build_system_raises_early_for_disconnected_designed_assembly(monkeypatch, tmp_path):
+    import ionerdss.model.pdb.main as pdb_main
+
+    class FakeWorkspaceManager:
+        def __init__(self, workspace_path, pdb_id):
+            self.workspace_path = Path(workspace_path)
+            self.workspace_path.mkdir(parents=True, exist_ok=True)
+            self.logger = logging.getLogger(f"test-workspace-{pdb_id}")
+
+        def get_system_output_path(self):
+            return self.workspace_path / "system.json"
+
+        def get_report_path(self, report_type):
+            return self.workspace_path / f"{report_type}.txt"
+
+    class FakeParser:
+        def __init__(self, source, units, file_format, workspace_manager):
+            self.source = source
+            self.units = units
+            self.file_format = file_format
+            self.workspace_manager = workspace_manager
+            self.chain_data = {
+                "A": {"com": np.array([0.0, 0.0, 0.0])},
+                "B": {"com": np.array([10.0, 0.0, 0.0])},
+            }
+
+        def get_pdb_id(self):
+            return "TEST"
+
+    class FakeCoarseGrainer:
+        def __init__(self, parser, hyperparams):
+            self.parser = parser
+            self.hyperparams = hyperparams
+
+        def get_summary(self):
+            return {"num_interfaces": 0, "num_chains": 2}
+
+    class FakeChainGrouper:
+        def __init__(self, parser, coarse_grainer, hyperparams):
+            self.parser = parser
+
+        def get_summary(self):
+            return {
+                "groups": [{"representative": "A", "size": 1}, {"representative": "B", "size": 1}],
+                "num_groups": 2,
+                "grouping_method": "test",
+            }
+
+    class FakeTemplateBuilder:
+        def __init__(self, parser, coarse_grainer, chain_grouper, hyperparams, units, workspace_manager):
+            self.parser = parser
+
+        def get_summary(self):
+            return {"num_molecule_templates": 2, "num_interface_templates": 0}
+
+    class FakeSystemBuilder:
+        def __init__(self, parser, coarse_grainer, chain_grouper, template_builder, hyperparams, workspace_path, pdb_id, units, workspace_manager):
+            self.system = System(workspace_path=workspace_path, pdb_id=pdb_id, units=units)
+            type_a = MoleculeType(name="A")
+            type_b = MoleculeType(name="B")
+            self.system.molecule_types.add(type_a)
+            self.system.molecule_types.add(type_b)
+            self.system.molecule_instances.add(_make_instance("A", type_a, [0.0, 0.0, 0.0], interface_count=0))
+            self.system.molecule_instances.add(_make_instance("B", type_b, [10.0, 0.0, 0.0], interface_count=0))
+
+        def get_system(self):
+            return self.system
+
+    monkeypatch.setattr(pdb_main, "WorkspaceManager", FakeWorkspaceManager)
+    monkeypatch.setattr(pdb_main, "PDBParser", FakeParser)
+    monkeypatch.setattr(pdb_main, "CoarseGrainer", FakeCoarseGrainer)
+    monkeypatch.setattr(pdb_main, "ChainGrouper", FakeChainGrouper)
+    monkeypatch.setattr(pdb_main, "TemplateBuilder", FakeTemplateBuilder)
+    monkeypatch.setattr(pdb_main, "SystemBuilder", FakeSystemBuilder)
+
+    builder = PDBModelBuilder("test_input.pdb")
+
+    with pytest.raises(ValueError, match="Preflight error: the designed assembly graph is disconnected"):
+        builder.build_system(
+            workspace_path=str(tmp_path / "workspace"),
+            generate_visualizations=False,
+            generate_nerdss_files=False,
+            ode_enabled=False,
+        )
+
+
+def test_build_system_allows_connected_designed_assembly(monkeypatch, tmp_path):
+    import ionerdss.model.pdb.main as pdb_main
+
+    class FakeWorkspaceManager:
+        def __init__(self, workspace_path, pdb_id):
+            self.workspace_path = Path(workspace_path)
+            self.workspace_path.mkdir(parents=True, exist_ok=True)
+            self.logger = logging.getLogger(f"test-workspace-{pdb_id}")
+
+        def get_system_output_path(self):
+            return self.workspace_path / "system.json"
+
+        def get_report_path(self, report_type):
+            return self.workspace_path / f"{report_type}.txt"
+
+    class FakeParser:
+        def __init__(self, source, units, file_format, workspace_manager):
+            self.source = source
+            self.units = units
+            self.file_format = file_format
+            self.workspace_manager = workspace_manager
+            self.chain_data = {
+                "A": {"com": np.array([0.0, 0.0, 0.0])},
+                "B": {"com": np.array([1.0, 0.0, 0.0])},
+            }
+
+        def get_pdb_id(self):
+            return "TEST"
+
+    class FakeCoarseGrainer:
+        def __init__(self, parser, hyperparams):
+            self.parser = parser
+            self.hyperparams = hyperparams
+
+        def get_summary(self):
+            return {"num_interfaces": 1, "num_chains": 2}
+
+    class FakeChainGrouper:
+        def __init__(self, parser, coarse_grainer, hyperparams):
+            self.parser = parser
+
+        def get_summary(self):
+            return {
+                "groups": [{"representative": "A", "size": 1}, {"representative": "B", "size": 1}],
+                "num_groups": 2,
+                "grouping_method": "test",
+            }
+
+    class FakeTemplateBuilder:
+        def __init__(self, parser, coarse_grainer, chain_grouper, hyperparams, units, workspace_manager):
+            self.parser = parser
+
+        def get_summary(self):
+            return {"num_molecule_templates": 2, "num_interface_templates": 1}
+
+    class FakeSystemBuilder:
+        def __init__(self, parser, coarse_grainer, chain_grouper, template_builder, hyperparams, workspace_path, pdb_id, units, workspace_manager):
+            self.system = System(workspace_path=workspace_path, pdb_id=pdb_id, units=units)
+            type_a = MoleculeType(name="A")
+            type_b = MoleculeType(name="B")
+            self.system.molecule_types.add(type_a)
+            self.system.molecule_types.add(type_b)
+
+            instance_a = _make_instance("A", type_a, [0.0, 0.0, 0.0], interface_count=0)
+            instance_b = _make_instance("B", type_b, [1.0, 0.0, 0.0], interface_count=0)
+            interface_ab = InterfaceInstance(
+                absolute_coord=np.array([0.5, 0.0, 0.0]),
+                this_mol=instance_a,
+                this_mol_name="A",
+                partner_mol_name="B",
+                interface_index=0,
+            )
+            interface_ba = InterfaceInstance(
+                absolute_coord=np.array([0.5, 0.0, 0.0]),
+                this_mol=instance_b,
+                this_mol_name="B",
+                partner_mol_name="A",
+                interface_index=0,
+            )
+            instance_a.interfaces_neighbors_map = {interface_ab: instance_b}
+            instance_b.interfaces_neighbors_map = {interface_ba: instance_a}
+
+            self.system.molecule_instances.add(instance_a)
+            self.system.molecule_instances.add(instance_b)
+
+        def get_system(self):
+            return self.system
+
+    monkeypatch.setattr(pdb_main, "WorkspaceManager", FakeWorkspaceManager)
+    monkeypatch.setattr(pdb_main, "PDBParser", FakeParser)
+    monkeypatch.setattr(pdb_main, "CoarseGrainer", FakeCoarseGrainer)
+    monkeypatch.setattr(pdb_main, "ChainGrouper", FakeChainGrouper)
+    monkeypatch.setattr(pdb_main, "TemplateBuilder", FakeTemplateBuilder)
+    monkeypatch.setattr(pdb_main, "SystemBuilder", FakeSystemBuilder)
+
+    builder = PDBModelBuilder("test_input.pdb")
+    system = builder.build_system(
+        workspace_path=str(tmp_path / "workspace"),
+        generate_visualizations=False,
+        generate_nerdss_files=False,
+        ode_enabled=False,
+    )
+
+    assert system is builder.system
+    assert len(system.molecule_instances) == 2
 
 
 def test_titration_sites_follow_mol_file_and_skip_com_ref():
