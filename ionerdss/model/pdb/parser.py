@@ -646,40 +646,42 @@ class PDBParser:
             raise ValueError(f"Failed to parse structure file {self.filepath}: {str(e)}") from e
     
     def _detect_case_conflicts(self, chain_ids: List[str]) -> Dict[str, str]:
-        """Detect chain IDs that conflict when case is ignored and create systematic rename mapping.
-        
-        Groups chains by case-insensitive name and assigns systematic numeric suffixes.
-        All chains in a case-conflict group get numbered (0, 1, 2, ...) to ensure uniqueness
-        on case-insensitive filesystems.
+        """Normalize chain IDs into uppercase alphanumeric names and resolve conflicts.
+
+        Names are sanitized to remove characters that later break NERDSS export
+        or interface naming. Conflicts after sanitization are resolved with
+        systematic numeric suffixes.
         
         Args:
             chain_ids: List of original chain IDs from PDB structure.
             
         Returns:
-            Dictionary mapping original chain ID to renamed (case-safe) chain ID.
+            Dictionary mapping original chain ID to renamed safe chain ID.
             
         Examples:
             ['AA', 'Aa', 'aa', 'BB'] -> {'AA': 'AA0', 'Aa': 'AA1', 'aa': 'AA2', 'BB': 'BB'}
+            ['A-2', 'A2'] -> {'A-2': 'A20', 'A2': 'A21'}
         """
-        # Group chains by uppercase version (canonical form)
+        def sanitize(chain_id: str) -> str:
+            sanitized = "".join(ch for ch in chain_id.upper() if ch.isalnum())
+            return sanitized or "CHAIN"
+
+        # Group chains by sanitized uppercase form.
         case_groups = {}
         for chain_id in chain_ids:
-            canonical = chain_id.upper()
+            canonical = sanitize(chain_id)
             if canonical not in case_groups:
                 case_groups[canonical] = []
             case_groups[canonical].append(chain_id)
         
         # Create rename mapping with systematic numbering
-        # All names are forced to uppercase for consistency
         rename_map = {}
         for canonical, group in case_groups.items():
             if len(group) > 1:
-                # Multiple chains with same case-insensitive name
-                # Number them all: AA0, AA1, AA2, etc. (all uppercase)
+                # Multiple chains collapse to the same safe identifier.
                 for i, chain_id in enumerate(group):
                     rename_map[chain_id] = f"{canonical}{i}".upper()
             else:
-                # Single chain, no conflict - force to uppercase
                 rename_map[group[0]] = canonical.upper()
         
         return rename_map
@@ -707,7 +709,7 @@ class PDBParser:
             if orig_id != new_id:
                 if self.workspace_manager:
                     self.workspace_manager.logger.warning(
-                        "Renaming chain '%s' to '%s' (case-insensitive conflict resolution)",
+                        "Renaming chain '%s' to '%s' (sanitized unique chain ID)",
                         orig_id, new_id
                     )
                 renamed_count += 1

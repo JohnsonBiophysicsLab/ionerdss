@@ -405,6 +405,10 @@ class ChainGrouper:
         # Sort groups by representative for determinism
         self.groups.sort(key=lambda g: g.representative)
 
+    def _valid_chain_ids(self) -> List[str]:
+        """Return chain IDs that survived coarse-graining filters."""
+        return sorted(self.coarse_grainer.chains.keys())
+
     def _group_by_header(self) -> bool:
         """Group chains using mmCIF header entity information.
 
@@ -417,7 +421,7 @@ class ChainGrouper:
 
         # Group chains by entity ID
         entity_groups: Dict[str, List[str]] = {}
-        chain_ids = self.parser.get_chain_ids()
+        chain_ids = self._valid_chain_ids()
 
         for entity_id, chains in strand_ids.items():
             # Only include chains that are in our processed chain list
@@ -441,7 +445,7 @@ class ChainGrouper:
     def _group_by_sequence(self) -> None:
         """Group chains based on sequence similarity using score-based approach."""
         # Get chain data
-        chain_ids = self.parser.get_chain_ids()
+        chain_ids = self._valid_chain_ids()
         chains = [self.parser.get_chain_data(
             chain_id) for chain_id in chain_ids]
 
@@ -501,7 +505,7 @@ class ChainGrouper:
     def _group_by_structure(self) -> None:
         """Group chains based on structural similarity."""
         # Get chain data
-        chain_ids = self.parser.get_chain_ids()
+        chain_ids = self._valid_chain_ids()
         chains = [self.parser.get_chain_data(
             chain_id) for chain_id in chain_ids]
 
@@ -609,7 +613,7 @@ class ChainGrouper:
 
     def _ensure_all_chains_grouped(self) -> None:
         """Ensure all chains are assigned to groups (create singleton groups if needed)."""
-        all_chain_ids = set(self.parser.get_chain_ids())
+        all_chain_ids = set(self._valid_chain_ids())
         grouped_chains = set(self.chain_to_group.keys())
 
         # Create singleton groups for ungrouped chains

@@ -78,6 +78,34 @@ def _status_for_failed_validation(sim_result, target_assembly_size: int) -> str:
     return "Failed_Assembly"
 
 
+def _partial_chain_counts(builder) -> tuple[int, int]:
+    """Return best-effort chain and chain-type counts from partial builder state."""
+    coarse_summary = getattr(builder, "coarse_summary", None) or {}
+    group_summary = getattr(builder, "group_summary", None) or {}
+
+    chains_count = int(coarse_summary.get("num_chains", 0) or 0)
+    chain_types_count = int(group_summary.get("num_groups", 0) or 0)
+    return chains_count, chain_types_count
+
+
+def _status_from_partial_builder(builder) -> Optional[str]:
+    """Infer FP/DC from partial pipeline state after a build failure."""
+    chains_count, _chain_types_count = _partial_chain_counts(builder)
+    if 0 < chains_count < 2:
+        return "FP"
+
+    system = getattr(builder, "system", None)
+    if system is not None:
+        disconnected_design_message = get_disconnected_design_message(
+            system,
+            prefix="Validation preflight warning",
+        )
+        if disconnected_design_message is not None:
+            return "DC"
+
+    return None
+
+
 def _run_validation_attempt(
     system,
     workspace_manager,
@@ -176,6 +204,8 @@ def main():
         status = "Crashed"
         rmsd = None
         
+        builder = None
+
         try:
             # 1. Full coarse graining
             builder = PDBModelBuilder(source=pdb_id)
@@ -275,7 +305,20 @@ def main():
                 _dump_nerdss_log(Path(sim_result.simulation_dir), pdb_id)
                 
         except Exception as e:
-            status = "NC" if _contains_nerdss_crash_signature(str(e)) else "Crashed"
+            if builder is not None:
+                partial_chains_count, partial_chain_types_count = _partial_chain_counts(builder)
+                if partial_chains_count:
+                    chains_count = partial_chains_count
+                if partial_chain_types_count:
+                    chain_types_count = partial_chain_types_count
+
+                partial_status = _status_from_partial_builder(builder)
+                if partial_status is not None:
+                    status = partial_status
+                else:
+                    status = "NC" if _contains_nerdss_crash_signature(str(e)) else "Crashed"
+            else:
+                status = "NC" if _contains_nerdss_crash_signature(str(e)) else "Crashed"
             print(f"  -> Error encountered benchmarking {pdb_id}: {e}")
             if "DATA/restart.dat or any RESTART snapshot" in str(e):
                 print("     Error: target composition appeared in the histogram, but no restart snapshot contained the full assembly.")

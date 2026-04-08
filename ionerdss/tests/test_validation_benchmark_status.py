@@ -69,3 +69,28 @@ def test_contains_nerdss_crash_signature_matches_common_runtime_crash_messages()
     assert benchmark._contains_nerdss_crash_signature("Segmentation fault (core dumped)")
     assert benchmark._contains_nerdss_crash_signature("Received signal 11 while running NERDSS")
     assert not benchmark._contains_nerdss_crash_signature("Validation warning: no full assembly was found")
+
+
+def test_status_from_partial_builder_returns_fp_when_partial_coarse_summary_has_too_few_chains():
+    builder = SimpleNamespace(
+        coarse_summary={"num_chains": 1},
+        group_summary={"num_groups": 0},
+        system=None,
+    )
+
+    assert benchmark._status_from_partial_builder(builder) == "FP"
+
+
+def test_status_from_partial_builder_returns_dc_when_partial_system_is_disconnected():
+    builder = SimpleNamespace(
+        coarse_summary={"num_chains": 3},
+        group_summary={"num_groups": 3},
+        system=SimpleNamespace(),
+    )
+
+    original = benchmark.get_disconnected_design_message
+    benchmark.get_disconnected_design_message = lambda system, prefix: "Validation preflight warning: disconnected"
+    try:
+        assert benchmark._status_from_partial_builder(builder) == "DC"
+    finally:
+        benchmark.get_disconnected_design_message = original

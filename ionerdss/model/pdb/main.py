@@ -58,6 +58,9 @@ class PDBModelBuilder:
         self.system_builder: Optional[SystemBuilder] = None
         self.system: Optional[System] = None
         self.structure_validation_artifacts: Optional[StructureValidationArtifacts] = None
+        self.coarse_summary: Optional[Dict[str, Any]] = None
+        self.group_summary: Optional[Dict[str, Any]] = None
+        self.template_summary: Optional[Dict[str, Any]] = None
 
     def build_system(self, workspace_path: str,
                      hyperparams: PDBModelHyperparameters = None,
@@ -185,6 +188,7 @@ class PDBModelBuilder:
             coarse_grainer = CoarseGrainer(self.parser, hyperparams)
 
             coarse_summary = coarse_grainer.get_summary()
+            self.coarse_summary = coarse_summary
             self.workspace_manager.logger.info("Found %d interfaces between %d chains",
                                                coarse_summary['num_interfaces'],
                                                coarse_summary['num_chains'])
@@ -196,6 +200,7 @@ class PDBModelBuilder:
                 self.parser, coarse_grainer, hyperparams)
 
             group_summary = chain_grouper.get_summary()
+            self.group_summary = group_summary
             
             # Extract stoichiometry for later use
             stoichiometry_map = {g['representative']: g['size'] for g in group_summary['groups']}
@@ -217,6 +222,7 @@ class PDBModelBuilder:
             )
 
             template_summary = template_builder.get_summary()
+            self.template_summary = template_summary
             self.workspace_manager.logger.info("Created %d molecule templates and %d interface templates",
                                                template_summary['num_molecule_templates'],
                                                template_summary['num_interface_templates'])
