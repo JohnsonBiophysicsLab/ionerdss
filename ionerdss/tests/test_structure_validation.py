@@ -452,7 +452,7 @@ def test_build_system_raises_early_for_disconnected_designed_assembly(monkeypatc
 
     builder = PDBModelBuilder("test_input.pdb")
 
-    with pytest.raises(ValueError, match="Preflight error: the designed assembly graph is disconnected"):
+    with pytest.warns(RuntimeWarning, match="Preflight warning: the designed assembly graph is disconnected"):
         builder.build_system(
             workspace_path=str(tmp_path / "workspace"),
             generate_visualizations=False,

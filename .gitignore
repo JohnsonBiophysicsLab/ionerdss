@@ -208,3 +208,5 @@ test_parse_8ip3.py
 /pdb_benchmark
 /7cqv_dir
 /tests/troubleshoot/8IP3_validation
+/ionerdss/benchmark/trials
+/ionerdss/benchmark_output

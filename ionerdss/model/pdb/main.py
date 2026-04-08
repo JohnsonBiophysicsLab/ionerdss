@@ -11,6 +11,7 @@ from typing import Optional, Union, Dict, Any, Tuple
 from pathlib import Path
 import logging
 import math
+import warnings
 import numpy as np
 
 from ionerdss.model.components.system import System
@@ -241,10 +242,11 @@ class PDBModelBuilder:
 
             disconnected_design_message = get_disconnected_design_message(
                 system,
-                prefix="Preflight error",
+                prefix="Preflight warning",
             )
             if disconnected_design_message is not None:
-                raise ValueError(disconnected_design_message)
+                self.workspace_manager.logger.warning(disconnected_design_message)
+                warnings.warn(disconnected_design_message, RuntimeWarning)
 
             # Calculate default molecule counts if not provided (using stoichiometry)
             if molecule_counts is None:

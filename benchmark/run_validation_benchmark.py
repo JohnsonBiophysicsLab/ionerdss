@@ -13,11 +13,69 @@ import csv
 import logging
 import traceback
 from pathlib import Path
+from typing import Optional
 
 from ionerdss.model.pdb import PDBModelBuilder
 from ionerdss.model import pdb
+from ionerdss.model.pdb.structure_validation import get_disconnected_design_message
 
 FAST_VALIDATION_ITERATIONS = 100000
+
+
+def _classify_failed_assembly(sim_result, target_assembly_size: int) -> str:
+    """Return UA when the largest observed assembly is smaller than target, otherwise OA."""
+    if sim_result.largest_observed_assembly_size < target_assembly_size:
+        return "UA"
+    return "OA"
+
+
+def _contains_nerdss_crash_signature(message: Optional[str]) -> bool:
+    """Return True when the text clearly indicates a NERDSS runtime crash."""
+    if not message:
+        return False
+
+    normalized = message.lower()
+    crash_signatures = (
+        "segmentation fault",
+        "segfault",
+        "core dumped",
+        "signal 11",
+        "sigsegv",
+        "abort trap",
+        "stack trace",
+    )
+    return any(signature in normalized for signature in crash_signatures)
+
+
+def _detect_nerdss_crash(sim_result) -> bool:
+    """Return True when the simulation result includes clear evidence of a NERDSS crash."""
+    if _contains_nerdss_crash_signature(getattr(sim_result, "warning_message", None)):
+        return True
+
+    simulation_dir = getattr(sim_result, "simulation_dir", None)
+    if simulation_dir is None:
+        return False
+
+    log_path = Path(simulation_dir) / "output.log"
+    if not log_path.exists():
+        return False
+
+    try:
+        return _contains_nerdss_crash_signature(log_path.read_text(encoding="utf-8", errors="replace"))
+    except OSError:
+        return False
+
+
+def _status_for_failed_validation(sim_result, target_assembly_size: int) -> str:
+    """Prefer specific failure codes and fall back to the older ambiguous status when needed."""
+    if _detect_nerdss_crash(sim_result):
+        return "NC"
+
+    largest_observed_assembly_size = getattr(sim_result, "largest_observed_assembly_size", None)
+    if largest_observed_assembly_size is not None:
+        return _classify_failed_assembly(sim_result, target_assembly_size)
+
+    return "Failed_Assembly"
 
 
 def _run_validation_attempt(
@@ -136,6 +194,20 @@ def main():
             chain_types_count = len(rep_instances)
             
             print(f"  -> Extracted {chains_count} chains across {chain_types_count} unique types.")
+
+            if chains_count < 2:
+                status = "FP"
+                print("  -> Too few protein chains remain after coarse-graining; marking as FP.")
+                continue
+
+            disconnected_design_message = get_disconnected_design_message(
+                system,
+                prefix="Validation preflight warning",
+            )
+            if disconnected_design_message is not None:
+                status = "DC"
+                print(f"  -> {disconnected_design_message}")
+                continue
             
             # Create a range of titration rates, scaled for each molecular species
             base_rate = 0.0 # 0.25e-3
@@ -187,20 +259,23 @@ def main():
                 print(f"  -> Validation Complete! RMSD: {rmsd:.4f} nm")
             else:
                 print("  -> Simulation ran but did not yield a full matching assembly.")
+                target_assembly_size = sum(artifacts.target_counts.values())
+                status = _status_for_failed_validation(sim_result, target_assembly_size)
                 if sim_result.warning_message:
                     print(f"     Warning: {sim_result.warning_message}")
                     if "[Errno 2] No such file" in sim_result.warning_message or "invalid literal format" in sim_result.warning_message or "invalid literal for int" in sim_result.warning_message:
                         status = "Crashed"
-                    else:
-                        status = "Failed_Assembly"
-                        print("     Error: target composition did not appear in the histogram after both validation runs.")
-                else:
-                    status = "Failed_Assembly"
+                    elif status in {"UA", "OA"}:
+                        print(
+                            "     Error: target assembly was not found after both validation runs. "
+                            f"Largest observed assembly size was {sim_result.largest_observed_assembly_size} "
+                            f"vs target size {target_assembly_size}."
+                        )
                 
                 _dump_nerdss_log(Path(sim_result.simulation_dir), pdb_id)
                 
         except Exception as e:
-            status = "Crashed"
+            status = "NC" if _contains_nerdss_crash_signature(str(e)) else "Crashed"
             print(f"  -> Error encountered benchmarking {pdb_id}: {e}")
             if "DATA/restart.dat or any RESTART snapshot" in str(e):
                 print("     Error: target composition appeared in the histogram, but no restart snapshot contained the full assembly.")

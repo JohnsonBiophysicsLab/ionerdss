@@ -80,6 +80,7 @@ class StructureValidationSimulationResult:
     full_assembly_found: bool
     warning_message: Optional[str]
     first_full_assembly_time: Optional[float]
+    largest_observed_assembly_size: int
     observed_coordinates: Optional[Dict[str, Tuple[float, float, float]]]
 
 
@@ -1013,6 +1014,75 @@ def _find_observed_com_coordinates_in_restart_snapshots(
     )
 
 
+def _get_largest_complex_json_size(complex_json_file: Union[str, Path]) -> int:
+    """Return the largest complex size present in a COMPLEXES JSON snapshot."""
+    payload = json.loads(Path(complex_json_file).read_text(encoding="utf-8"))
+    if not isinstance(payload, list):
+        raise ValueError(f"Malformed COMPLEXES JSON snapshot: {complex_json_file}")
+
+    largest_size = 0
+    for complex_record in payload:
+        if not isinstance(complex_record, dict):
+            continue
+        names = complex_record.get("names")
+        coords = complex_record.get("coords")
+        if not isinstance(names, list) or not isinstance(coords, list) or len(names) != len(coords):
+            continue
+        largest_size = max(largest_size, len(names))
+
+    return largest_size
+
+
+def _get_largest_complex_json_size_in_snapshots(complexes_dir: Union[str, Path]) -> int:
+    """Return the largest complex size seen across COMPLEXES JSON snapshots."""
+    largest_size = 0
+    for candidate_json in _iter_complex_json_candidates(complexes_dir):
+        try:
+            largest_size = max(largest_size, _get_largest_complex_json_size(candidate_json))
+        except Exception:
+            continue
+    return largest_size
+
+
+def _get_largest_restart_component_size(restart_file: Union[str, Path]) -> int:
+    """Return the largest connected component size in a restart snapshot."""
+    adjacency, restart_coords, _restart_mol_names = _parse_restart_snapshot(restart_file)
+    for mol_id in restart_coords:
+        adjacency.setdefault(mol_id, set())
+
+    largest_size = 0
+    visited: set[int] = set()
+    for mol_id in sorted(restart_coords):
+        if mol_id in visited:
+            continue
+
+        stack = [mol_id]
+        visited.add(mol_id)
+        component_size = 0
+        while stack:
+            current = stack.pop()
+            component_size += 1
+            for neighbor in sorted(adjacency.get(current, ())):
+                if neighbor in restart_coords and neighbor not in visited:
+                    visited.add(neighbor)
+                    stack.append(neighbor)
+
+        largest_size = max(largest_size, component_size)
+
+    return largest_size
+
+
+def _get_largest_restart_component_size_in_snapshots(primary_restart_file: Union[str, Path]) -> int:
+    """Return the largest connected component size seen across DATA and RESTART snapshots."""
+    largest_size = 0
+    for candidate_restart in _iter_restart_snapshot_candidates(primary_restart_file):
+        try:
+            largest_size = max(largest_size, _get_largest_restart_component_size(candidate_restart))
+        except Exception:
+            continue
+    return largest_size
+
+
 def run_structure_validation_simulation(
     artifacts: StructureValidationArtifacts,
     nerdss_dir: Union[str, Path],
@@ -1065,8 +1135,10 @@ def run_structure_validation_simulation(
     warning_message = None
     observed_coordinates = None
     selected_restart_file = restart_file
+    largest_observed_assembly_size = 0
     complex_json_candidates = _iter_complex_json_candidates(complexes_dir)
     if complex_json_candidates:
+        largest_observed_assembly_size = _get_largest_complex_json_size_in_snapshots(complexes_dir)
         try:
             observed_coordinates, selected_restart_file = _find_observed_com_coordinates_in_complex_json_snapshots(
                 complexes_dir=complexes_dir,
@@ -1086,6 +1158,7 @@ def run_structure_validation_simulation(
         )
         warnings.warn(fallback_warning, RuntimeWarning)
         warning_message = fallback_warning
+        largest_observed_assembly_size = _get_largest_restart_component_size_in_snapshots(restart_file)
         try:
             observed_coordinates, selected_restart_file = _find_observed_com_coordinates_in_restart_snapshots(
                 system_psf_file=system_psf_file,
@@ -1122,5 +1195,6 @@ def run_structure_validation_simulation(
         full_assembly_found=full_assembly_found,
         warning_message=warning_message,
         first_full_assembly_time=first_full_assembly_time,
+        largest_observed_assembly_size=largest_observed_assembly_size,
         observed_coordinates=observed_coordinates,
     )
