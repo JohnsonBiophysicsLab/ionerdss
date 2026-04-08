@@ -7,6 +7,19 @@ Usage:
     python run_validation_benchmark.py --pdb_ids 1dlh 5l93 8y7s --nerdss_dir /path/to/nerdss --output benchmark_results.csv
 
     python benchmark/run_validation_benchmark.py --pdb_list_file benchmark/pdb_ids_validation.csv --nerdss_dir ~/Workspace/Reaction_ode/nerdss_development
+
+
+| Status | Meaning | When it is assigned |
+|---|---|---|
+| `Success` | Validation succeeded | The target assembly was found and RMSD was computed successfully |
+| `FP` | Too few protein chains | After coarse-graining, the structure has fewer than 2 protein chains, so assembly is guaranteed to fail |
+| `DC` | Disconnected graph | The designed assembly graph is disconnected, so it cannot form a single target `N`-mer |
+| `NC` | NERDSS crash | NERDSS itself crashed, segfaulted, aborted, or otherwise died during simulation/export |
+| `UA` | Underassembly | The target assembly was not found, and the largest observed assembly size is smaller than the target assembly size |
+| `OA` | Overassembly | The target assembly was not found, and the largest observed assembly size is greater than or equal to the target assembly size |
+| `Failed_Assembly` | Old fallback failure label | Used only if the run failed assembly validation but does not cleanly fit `UA` or `OA` because the needed size metadata is unavailable |
+| `Crashed` | Old fallback crash label | Used only if the run crashed but there is not enough evidence to specifically classify it as `NC`, `FP`, or `DC` |
+
 """
 import argparse
 import csv
@@ -91,7 +104,7 @@ def _partial_chain_counts(builder) -> tuple[int, int]:
 def _status_from_partial_builder(builder) -> Optional[str]:
     """Infer FP/DC from partial pipeline state after a build failure."""
     chains_count, _chain_types_count = _partial_chain_counts(builder)
-    if 0 < chains_count < 2:
+    if chains_count < 2:
         return "FP"
 
     system = getattr(builder, "system", None)
