@@ -1020,6 +1020,23 @@ class TemplateBuilder:
         self.chain_assigned_types[interface.chain_i].add(assigned_i)
         self.chain_assigned_types[interface.chain_j].add(assigned_j)
 
+    def _homodimer_distance_threshold_angstrom(self) -> float:
+        """Return the homodimer distance threshold in Angstroms.
+
+        Geometric signatures are computed from parser coordinates in Angstroms,
+        while the hyperparameter is configured in nanometers.
+        """
+        return self.hyperparams.homodimer_distance_threshold * 10.0
+
+    def _has_sparse_interface_support(self, interface: InterfaceString) -> bool:
+        """Return True when an interface is supported by only a minimal contact set.
+
+        Sparse same-template contacts are noisy enough that a single observation is
+        not strong evidence for a complementary `f`/`b` HHT family.
+        """
+        min_contacts = min(len(interface.residue_details_i), len(interface.residue_details_j))
+        return min_contacts <= (self.hyperparams.interface_detect_n_residue_cutoff + 1)
+
     def _homotypic_orientation_candidates(
         self,
         interface1: "InterfaceString",
@@ -1030,7 +1047,7 @@ class TemplateBuilder:
         """Return valid HHT orientations for `interface2` against `interface1`, in preference order."""
         direct_geom_ok = signature2.is_similar_to(
             signature1,
-            distance_threshold=self.hyperparams.homodimer_distance_threshold * 10,
+            distance_threshold=self._homodimer_distance_threshold_angstrom(),
             angle_threshold=self.hyperparams.homodimer_angle_threshold,
         )
 
@@ -1040,7 +1057,7 @@ class TemplateBuilder:
         )
         flipped_geom_ok = signature2.is_similar_to(
             rev_sig1,
-            distance_threshold=self.hyperparams.homodimer_distance_threshold * 10,
+            distance_threshold=self._homodimer_distance_threshold_angstrom(),
             angle_threshold=self.hyperparams.homodimer_angle_threshold,
         )
 
@@ -1049,7 +1066,7 @@ class TemplateBuilder:
                 "[HOMO-VALID] geometric check: direct=%s, flipped=%s (dist_th=%.3f Å, ang_th=%.3f rad)",
                 direct_geom_ok,
                 flipped_geom_ok,
-                self.hyperparams.homodimer_distance_threshold * 10,
+                self._homodimer_distance_threshold_angstrom(),
                 self.hyperparams.homodimer_angle_threshold,
             )
 
@@ -1868,11 +1885,21 @@ class TemplateBuilder:
         
         # Check geometric signature symmetry
         is_geometrically_symmetric = signature.is_homotypic(
-            self.hyperparams.homodimer_distance_threshold,
+            self._homodimer_distance_threshold_angstrom(),
             self.hyperparams.homodimer_angle_threshold
         )
         
         if not is_geometrically_symmetric:
+            if template_i == template_j and self._has_sparse_interface_support(interface):
+                if self.workspace_manager:
+                    self.workspace_manager.logger.info(
+                        "Interface %s <-> %s is geometrically asymmetric but only has sparse support (%d/%d contacting residues); treating as homotypic.",
+                        interface.chain_i,
+                        interface.chain_j,
+                        len(interface.residue_details_i),
+                        len(interface.residue_details_j),
+                    )
+                return True
             if self.workspace_manager:
                 self.workspace_manager.logger.info(
                     "Interface %s <-> %s failed geometric symmetry test: d_diff=%.3f, theta_diff=%.3f",
@@ -3375,7 +3402,7 @@ class TemplateBuilder:
             return "different_molecule_types"
         
         if not signature.is_homotypic(
-            self.hyperparams.homodimer_distance_threshold,
+            self._homodimer_distance_threshold_angstrom(),
             self.hyperparams.homodimer_angle_threshold
         ):
             return "asymmetric_geometry"

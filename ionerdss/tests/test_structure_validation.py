@@ -2,6 +2,7 @@ from pathlib import Path
 import tempfile
 import sys
 import logging
+import json
 
 import numpy as np
 import pytest
@@ -16,6 +17,8 @@ from ionerdss.model import pdb
 from ionerdss.model.pdb.nerdss_exporter import NERDSSExporter
 from ionerdss.model.pdb.main import PDBModelBuilder
 from ionerdss.model.pdb.structure_validation import (
+    _extract_observed_com_coordinates_from_complex_json,
+    _find_observed_com_coordinates_in_complex_json_snapshots,
     _find_observed_com_coordinates_in_restart_snapshots,
     _extract_observed_com_coordinates,
     _format_disconnected_design_warning,
@@ -24,6 +27,8 @@ from ionerdss.model.pdb.structure_validation import (
     get_disconnected_design_message,
     get_designed_structure,
     get_structure_validation_counts,
+    run_structure_validation_simulation,
+    StructureValidationArtifacts,
 )
 
 
@@ -864,3 +869,161 @@ def test_observed_structure_extraction_falls_back_to_restart_native_molecule_typ
         "A_1": (1.0, 0.0, 0.0),
         "B": (0.0, 1.0, 0.0),
     }
+
+
+def test_extract_observed_com_coordinates_from_complex_json():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        json_path = Path(tmpdir) / "99999.json"
+        json_path.write_text(
+            json.dumps(
+                [
+                    {"names": ["A", "A"], "coords": [[9.0, 9.0, 9.0], [8.0, 8.0, 8.0]]},
+                    {"names": ["A", "A", "B"], "coords": [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]},
+                ]
+            ),
+            encoding="utf-8",
+        )
+
+        observed = _extract_observed_com_coordinates_from_complex_json(json_path, {"A": 2, "B": 1})
+
+    assert observed == {
+        "A_0": (0.0, 0.0, 0.0),
+        "A_1": (1.0, 0.0, 0.0),
+        "B": (0.0, 1.0, 0.0),
+    }
+
+
+def test_find_observed_com_coordinates_in_complex_json_snapshots_prefers_latest():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        complexes_dir = Path(tmpdir) / "COMPLEXES"
+        complexes_dir.mkdir()
+        (complexes_dir / "10000.json").write_text(
+            json.dumps([{"names": ["A", "A", "B"], "coords": [[10.0, 0.0, 0.0], [11.0, 0.0, 0.0], [10.0, 1.0, 0.0]]}]),
+            encoding="utf-8",
+        )
+        (complexes_dir / "99999.json").write_text(
+            json.dumps([{"names": ["A", "A", "B"], "coords": [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]}]),
+            encoding="utf-8",
+        )
+
+        observed, used_json = _find_observed_com_coordinates_in_complex_json_snapshots(
+            complexes_dir, {"A": 2, "B": 1}
+        )
+
+    assert used_json.name == "99999.json"
+    assert observed == {
+        "A_0": (0.0, 0.0, 0.0),
+        "A_1": (1.0, 0.0, 0.0),
+        "B": (0.0, 1.0, 0.0),
+    }
+
+
+def test_run_structure_validation_simulation_prefers_complex_json(monkeypatch, tmp_path):
+    work_dir = tmp_path / "nerdss_files"
+    data_dir = work_dir / "validation_output" / "1" / "DATA"
+    complexes_dir = data_dir / "COMPLEXES"
+    complexes_dir.mkdir(parents=True)
+
+    parms_path = work_dir / "parms.inp"
+    parms_path.parent.mkdir(parents=True, exist_ok=True)
+    parms_path.write_text("parms", encoding="utf-8")
+    (data_dir / "histogram_complexes_time.dat").write_text("Time (s): 0\n", encoding="utf-8")
+    (data_dir / "final_coords.xyz").write_text("0\ncomment\n", encoding="utf-8")
+    (data_dir / "system.psf").write_text("PSF\n", encoding="utf-8")
+    (data_dir / "restart.dat").write_text("unused", encoding="utf-8")
+    (complexes_dir / "99999.json").write_text(
+        json.dumps([{"names": ["A", "A", "B"], "coords": [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]}]),
+        encoding="utf-8",
+    )
+
+    artifacts = StructureValidationArtifacts(
+        molecule_counts={"A": 2, "B": 1},
+        target_counts={"A": 2, "B": 1},
+        designed_coordinates={"A_0": (0.0, 0.0, 0.0), "A_1": (1.0, 0.0, 0.0), "B": (0.0, 1.0, 0.0)},
+        target_file=work_dir / "target.json",
+        nerdss_files={"parms": parms_path},
+    )
+
+    class FakeSimulation:
+        def __init__(self, path):
+            self.path = path
+            self.parmfile = None
+
+        def run_new_simulations(self, **kwargs):
+            return None
+
+    import ionerdss.nerdss_simulation as nerdss_simulation
+    import ionerdss.analysis.io.parser as parser_module
+
+    monkeypatch.setattr(nerdss_simulation, "Simulation", FakeSimulation)
+    monkeypatch.setattr(
+        parser_module,
+        "parse_complex_histogram",
+        lambda path: (np.asarray([]), [], None),
+    )
+
+    result = run_structure_validation_simulation(artifacts, nerdss_dir=tmp_path / "bin")
+
+    assert result.full_assembly_found is True
+    assert result.warning_message is None
+    assert result.restart_file.name == "99999.json"
+    assert result.observed_coordinates == {
+        "A_0": (0.0, 0.0, 0.0),
+        "A_1": (1.0, 0.0, 0.0),
+        "B": (0.0, 1.0, 0.0),
+    }
+
+
+def test_run_structure_validation_simulation_falls_back_to_restart_with_warning(monkeypatch, tmp_path):
+    work_dir = tmp_path / "nerdss_files"
+    data_dir = work_dir / "validation_output" / "1" / "DATA"
+    data_dir.mkdir(parents=True)
+
+    parms_path = work_dir / "parms.inp"
+    parms_path.parent.mkdir(parents=True, exist_ok=True)
+    parms_path.write_text("parms", encoding="utf-8")
+    (data_dir / "histogram_complexes_time.dat").write_text("Time (s): 0\n", encoding="utf-8")
+    (data_dir / "final_coords.xyz").write_text("0\ncomment\n", encoding="utf-8")
+    (data_dir / "system.psf").write_text("PSF\n", encoding="utf-8")
+    (data_dir / "restart.dat").write_text("unused", encoding="utf-8")
+
+    artifacts = StructureValidationArtifacts(
+        molecule_counts={"A": 2, "B": 1},
+        target_counts={"A": 2, "B": 1},
+        designed_coordinates={"A_0": (0.0, 0.0, 0.0), "A_1": (1.0, 0.0, 0.0), "B": (0.0, 1.0, 0.0)},
+        target_file=work_dir / "target.json",
+        nerdss_files={"parms": parms_path},
+    )
+
+    class FakeSimulation:
+        def __init__(self, path):
+            self.path = path
+            self.parmfile = None
+
+        def run_new_simulations(self, **kwargs):
+            return None
+
+    import ionerdss.nerdss_simulation as nerdss_simulation
+    import ionerdss.analysis.io.parser as parser_module
+    import ionerdss.model.pdb.structure_validation as validation_module
+
+    monkeypatch.setattr(nerdss_simulation, "Simulation", FakeSimulation)
+    monkeypatch.setattr(
+        parser_module,
+        "parse_complex_histogram",
+        lambda path: (np.asarray([]), [], None),
+    )
+    monkeypatch.setattr(
+        validation_module,
+        "_find_observed_com_coordinates_in_restart_snapshots",
+        lambda **kwargs: (
+            {"A_0": (0.0, 0.0, 0.0), "A_1": (1.0, 0.0, 0.0), "B": (0.0, 1.0, 0.0)},
+            Path(kwargs["restart_file"]),
+        ),
+    )
+
+    result = run_structure_validation_simulation(artifacts, nerdss_dir=tmp_path / "bin")
+
+    assert result.full_assembly_found is True
+    assert "no COMPLEXES JSON snapshots were found" in (result.warning_message or "")
+    assert result.restart_file.name == "restart.dat"

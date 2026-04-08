@@ -10,14 +10,10 @@ Current logic:
 In structure_validation.py, get_structure_validation_counts() builds the expected full assembly as one representative copy of each molecule type, for example {"A": 1, "H": 1, "L": 1}.
 
 2. Run the actual NERDSS validation simulation with that target in mind.
-run_structure_validation_simulation(...) uses parms_titrate.inp, runs NERDSS, and reads [histogram_complexes_time.dat] via the histogram parser to look for a complex whose composition exactly matches that target composition. This is the “is one full assembly present?” check. If no such complex ever appears, it returns a warning instead of pretending there is an observed structure to compare.
+run_structure_validation_simulation(...) uses parms_titrate.inp, runs NERDSS, then looks for a matching full assembly in `DATA/COMPLEXES/*.json`. These JSON snapshots are the primary source for both existence checks and observed COM extraction.
 
-3. If a full assembly exists, extract one observed assembly from the final snapshot.
-The code then reads:
-```
-final_coords.xyz
-system.psf
-```
+3. If no COMPLEXES JSON snapshots exist, fall back to restart snapshots.
+The code emits a warning and then scans `DATA/restart.dat` and any `RESTART/*.dat` snapshots for a connected component whose composition matches the target.
 
 """
 

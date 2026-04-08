@@ -832,6 +832,27 @@ def _find_matching_components(
     return matching_components
 
 
+def _build_observed_coordinate_map(
+    mol_names: Sequence[str],
+    coords: Sequence[Sequence[float]],
+    target_counts: Mapping[str, int],
+) -> Dict[str, Tuple[float, float, float]]:
+    """Build the observed coordinate map with stable per-copy labels for repeated molecule types."""
+    observed: Dict[str, Tuple[float, float, float]] = {}
+    type_counts: Dict[str, int] = {}
+    for mol_name, coord in zip(mol_names, coords):
+        copy_idx = type_counts.get(mol_name, 0)
+        type_counts[mol_name] = copy_idx + 1
+        key = f"{mol_name}_{copy_idx}" if target_counts.get(mol_name, 1) > 1 else mol_name
+        observed[key] = tuple(float(value) for value in coord)
+
+    missing = sorted(set(target_counts) - set(type_counts))
+    if missing:
+        raise ValueError(f"Missing COM coordinates for molecule types: {missing}")
+
+    return observed
+
+
 def _restart_snapshot_sort_key(restart_path: Path) -> Tuple[Tuple[int, ...], str]:
     """Sort restart snapshot files from earliest to latest by embedded numeric suffixes."""
     numeric_parts = tuple(int(part) for part in re.findall(r"\d+", restart_path.stem))
@@ -857,6 +878,77 @@ def _iter_restart_snapshot_candidates(primary_restart_file: Union[str, Path]) ->
                 candidates.append(path)
 
     return candidates
+
+
+def _complex_snapshot_sort_key(snapshot_path: Path) -> Tuple[Tuple[int, ...], str]:
+    """Sort COMPLEXES JSON snapshots by embedded numeric suffixes."""
+    numeric_parts = tuple(int(part) for part in re.findall(r"\d+", snapshot_path.stem))
+    return numeric_parts, snapshot_path.name
+
+
+def _iter_complex_json_candidates(complexes_dir: Union[str, Path]) -> list[Path]:
+    """Return COMPLEXES JSON snapshots newest-to-oldest."""
+    directory = Path(complexes_dir)
+    if not directory.is_dir():
+        return []
+
+    json_files = [path for path in directory.iterdir() if path.is_file() and path.suffix == ".json"]
+    return sorted(json_files, key=_complex_snapshot_sort_key, reverse=True)
+
+
+def _extract_observed_com_coordinates_from_complex_json(
+    complex_json_file: Union[str, Path],
+    target_counts: Mapping[str, int],
+) -> Dict[str, Tuple[float, float, float]]:
+    """Extract one matching complex directly from a COMPLEXES JSON snapshot."""
+    payload = json.loads(Path(complex_json_file).read_text(encoding="utf-8"))
+    if not isinstance(payload, list):
+        raise ValueError(f"Malformed COMPLEXES JSON snapshot: {complex_json_file}")
+
+    matching_complexes: list[tuple[list[str], list[Sequence[float]]]] = []
+    for complex_record in payload:
+        if not isinstance(complex_record, dict):
+            continue
+        names = complex_record.get("names")
+        coords = complex_record.get("coords")
+        if not isinstance(names, list) or not isinstance(coords, list) or len(names) != len(coords):
+            continue
+        if dict(Counter(str(name) for name in names)) == dict(target_counts):
+            matching_complexes.append(([str(name) for name in names], coords))
+
+    if not matching_complexes:
+        raise ValueError(
+            "No complex in the COMPLEXES JSON snapshot matches the designed "
+            f"target composition {dict(target_counts)}."
+        )
+
+    selected_names, selected_coords = matching_complexes[0]
+    if len(matching_complexes) > 1:
+        warnings.warn(
+            "Multiple full assemblies matching the validation target were present in the COMPLEXES "
+            f"snapshot {Path(complex_json_file).name}; selecting the first matching complex.",
+            RuntimeWarning,
+        )
+
+    return _build_observed_coordinate_map(selected_names, selected_coords, target_counts)
+
+
+def _find_observed_com_coordinates_in_complex_json_snapshots(
+    complexes_dir: Union[str, Path],
+    target_counts: Mapping[str, int],
+) -> Tuple[Dict[str, Tuple[float, float, float]], Path]:
+    """Search COMPLEXES JSON snapshots newest-to-oldest for a matching full assembly."""
+    errors: list[str] = []
+    for candidate_json in _iter_complex_json_candidates(complexes_dir):
+        try:
+            observed = _extract_observed_com_coordinates_from_complex_json(candidate_json, target_counts)
+            return observed, candidate_json
+        except Exception as exc:
+            errors.append(f"{candidate_json.name}: {exc}")
+
+    raise ValueError(
+        "No matching assembly was found in DATA/COMPLEXES JSON snapshots. " + " | ".join(errors)
+    )
 
 
 def _extract_observed_com_coordinates(
@@ -889,23 +981,9 @@ def _extract_observed_com_coordinates(
         )
 
     observed = {}
-    type_counts: Dict[str, int] = {}
-    for mol_id in selected_component:
-        mol_name = restart_mol_names[mol_id]
-        copy_idx = type_counts.get(mol_name, 0)
-        type_counts[mol_name] = copy_idx + 1
-        
-        if target_counts.get(mol_name, 1) > 1:
-            key = f"{mol_name}_{copy_idx}"
-        else:
-            key = mol_name
-            
-        observed[key] = restart_coords[mol_id]
-
-    missing = sorted(set(target_counts) - set(type_counts))
-    if missing:
-        raise ValueError(f"Missing COM coordinates for molecule types: {missing}")
-
+    selected_names = [restart_mol_names[mol_id] for mol_id in selected_component]
+    selected_coords = [restart_coords[mol_id] for mol_id in selected_component]
+    observed = _build_observed_coordinate_map(selected_names, selected_coords, target_counts)
     return observed
 
 
@@ -960,16 +1038,21 @@ def run_structure_validation_simulation(
 
     simulation_dir = work_dir / sim_dir_name / str(sim_index)
     histogram_file = simulation_dir / "DATA" / "histogram_complexes_time.dat"
+    complexes_dir = simulation_dir / "DATA" / "COMPLEXES"
     final_coords_file = simulation_dir / "DATA" / "final_coords.xyz"
     system_psf_file = simulation_dir / "DATA" / "system.psf"
     restart_file = simulation_dir / "DATA" / "restart.dat"
 
-    hist_times, hist_comps, hist_matrix = parse_complex_histogram(histogram_file)
+    hist_times = np.asarray([])
+    hist_comps = []
+    hist_matrix = None
+    if histogram_file.exists():
+        hist_times, hist_comps, hist_matrix = parse_complex_histogram(histogram_file)
     target_comp = dict(artifacts.target_counts)
 
     first_full_assembly_time = None
     full_assembly_found = False
-    if len(hist_times) > 0:
+    if len(hist_times) > 0 and hist_matrix is not None:
         for col_idx, comp in enumerate(hist_comps):
             if comp == target_comp:
                 counts = np.asarray(hist_matrix[:, [col_idx]].todense()).ravel()
@@ -982,7 +1065,27 @@ def run_structure_validation_simulation(
     warning_message = None
     observed_coordinates = None
     selected_restart_file = restart_file
-    if full_assembly_found:
+    complex_json_candidates = _iter_complex_json_candidates(complexes_dir)
+    if complex_json_candidates:
+        try:
+            observed_coordinates, selected_restart_file = _find_observed_com_coordinates_in_complex_json_snapshots(
+                complexes_dir=complexes_dir,
+                target_counts=artifacts.target_counts,
+            )
+            full_assembly_found = True
+        except Exception as exc:
+            warning_message = (
+                "Validation warning: no full assembly matching the designed one-copy target "
+                f"{target_comp} was found in {complexes_dir}."
+            )
+            warnings.warn(warning_message, RuntimeWarning)
+    else:
+        fallback_warning = (
+            "Validation warning: no COMPLEXES JSON snapshots were found in "
+            f"{complexes_dir}; falling back to restart snapshots."
+        )
+        warnings.warn(fallback_warning, RuntimeWarning)
+        warning_message = fallback_warning
         try:
             observed_coordinates, selected_restart_file = _find_observed_com_coordinates_in_restart_snapshots(
                 system_psf_file=system_psf_file,
@@ -990,18 +1093,25 @@ def run_structure_validation_simulation(
                 restart_file=restart_file,
                 target_counts=artifacts.target_counts,
             )
-        except Exception as exc:
-            raise ValueError(
-                "The target composition appeared in the histogram, but no matching connected "
-                "assembly was found in DATA/restart.dat or any RESTART snapshot. "
-                f"{exc}"
-            ) from exc
-    else:
-        warning_message = (
+            full_assembly_found = True
+        except Exception:
+            full_assembly_found = False
+
+    if not full_assembly_found:
+        no_assembly_warning = (
             "Validation warning: no full assembly matching the designed one-copy target "
-            f"{target_comp} was found in {histogram_file}."
+            f"{target_comp} was found in {complexes_dir if complex_json_candidates else restart_file}."
         )
-        warnings.warn(warning_message, RuntimeWarning)
+        warning_message = (
+            no_assembly_warning
+            if warning_message is None
+            else f"{warning_message} {no_assembly_warning}"
+        )
+        if complex_json_candidates:
+            warnings.warn(no_assembly_warning, RuntimeWarning)
+    else:
+        if warning_message is not None and not warning_message.endswith("snapshots."):
+            warnings.warn(warning_message, RuntimeWarning)
 
     return StructureValidationSimulationResult(
         simulation_dir=simulation_dir,
