@@ -210,3 +210,4 @@ test_parse_8ip3.py
 /tests/troubleshoot/8IP3_validation
 /ionerdss/benchmark/trials
 /ionerdss/benchmark_output
+/benchmark/pdb_benchmark
