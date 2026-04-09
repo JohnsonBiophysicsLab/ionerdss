@@ -241,8 +241,7 @@ def main():
             if chains_count < 2:
                 status = "FP"
                 print("  -> Too few protein chains remain after coarse-graining; marking as FP.")
-                continue
-
+            
             disconnected_design_message = get_disconnected_design_message(
                 system,
                 prefix="Validation preflight warning",
@@ -250,72 +249,72 @@ def main():
             if disconnected_design_message is not None:
                 status = "DC"
                 print(f"  -> {disconnected_design_message}")
-                continue
             
-            # Create a range of titration rates, scaled for each molecular species
-            base_rate = 0.0 # 0.25e-3
-            titration_rates = {}
-            for idx, mol_name in enumerate(rep_instances.keys()):
-                # Linearly increment the rate by 50% for each unique species
-                titration_rates[mol_name] = base_rate * (1.0 + (idx * 0.5))
-                
-            artifacts = None
-            sim_result = None
+            if status not in {"FP", "DC"}:
+                # Create a range of titration rates, scaled for each molecular species
+                base_rate = 0.0 # 0.25e-3
+                titration_rates = {}
+                for idx, mol_name in enumerate(rep_instances.keys()):
+                    # Linearly increment the rate by 50% for each unique species
+                    titration_rates[mol_name] = base_rate * (1.0 + (idx * 0.5))
+                    
+                artifacts = None
+                sim_result = None
 
-            # 2. Run a short validation simulation first.
-            artifacts, sim_result = _run_validation_attempt(
-                system=system,
-                workspace_manager=builder.workspace_manager,
-                titration_rates=titration_rates,
-                box_size=args.box_size,
-                iterations=FAST_VALIDATION_ITERATIONS,
-                nerdss_dir=args.nerdss_dir,
-                sim_dir_name="validation_output_fast",
-            )
-
-            # 3. If the target never appears in the histogram, rerun longer.
-            if not sim_result.full_assembly_found:
-                print(
-                    "  -> Target composition did not appear within "
-                    f"{FAST_VALIDATION_ITERATIONS} iterations; rerunning with {args.iterations} iterations."
-                )
+                # 2. Run a short validation simulation first.
                 artifacts, sim_result = _run_validation_attempt(
                     system=system,
                     workspace_manager=builder.workspace_manager,
                     titration_rates=titration_rates,
                     box_size=args.box_size,
-                    iterations=args.iterations,
+                    iterations=FAST_VALIDATION_ITERATIONS,
                     nerdss_dir=args.nerdss_dir,
-                    sim_dir_name="validation_output_full",
+                    sim_dir_name="validation_output_fast",
                 )
-            
-            # 4. Check results and compute RMSD if successful
-            if sim_result.full_assembly_found and sim_result.observed_coordinates:
-                print("  -> Full assembly found! Aligning structure...")
-                alignment = pdb.validation.align_structure(
-                    artifacts.designed_coordinates,
-                    sim_result.observed_coordinates,
-                    backend='kabsch',
-                )
-                rmsd = alignment.rmsd
-                status = "Success"
-                print(f"  -> Validation Complete! RMSD: {rmsd:.4f} nm")
-            else:
-                print("  -> Simulation ran but did not yield a full matching assembly.")
-                target_assembly_size = sum(artifacts.target_counts.values())
-                status = _status_for_failed_validation(sim_result, target_assembly_size)
-                if sim_result.warning_message:
-                    print(f"     Warning: {sim_result.warning_message}")
-                    if "[Errno 2] No such file" in sim_result.warning_message or "invalid literal format" in sim_result.warning_message or "invalid literal for int" in sim_result.warning_message:
-                        status = "Crashed"
-                    elif status in {"UA", "OA"}:
-                        print(
-                            "     Error: target assembly was not found after both validation runs. "
-                            f"Largest observed assembly size was {sim_result.largest_observed_assembly_size} "
-                            f"vs target size {target_assembly_size}."
-                        )
+
+                # 3. If the target never appears in the histogram, rerun longer.
+                if not sim_result.full_assembly_found:
+                    print(
+                        "  -> Target composition did not appear within "
+                        f"{FAST_VALIDATION_ITERATIONS} iterations; rerunning with {args.iterations} iterations."
+                    )
+                    artifacts, sim_result = _run_validation_attempt(
+                        system=system,
+                        workspace_manager=builder.workspace_manager,
+                        titration_rates=titration_rates,
+                        box_size=args.box_size,
+                        iterations=args.iterations,
+                        nerdss_dir=args.nerdss_dir,
+                        sim_dir_name="validation_output_full",
+                    )
                 
-                _dump_nerdss_log(Path(sim_result.simulation_dir), pdb_id)
+                # 4. Check results and compute RMSD if successful
+                if sim_result.full_assembly_found and sim_result.observed_coordinates:
+                    print("  -> Full assembly found! Aligning structure...")
+                    alignment = pdb.validation.align_structure(
+                        artifacts.designed_coordinates,
+                        sim_result.observed_coordinates,
+                        backend='kabsch',
+                    )
+                    rmsd = alignment.rmsd
+                    status = "Success"
+                    print(f"  -> Validation Complete! RMSD: {rmsd:.4f} nm")
+                else:
+                    print("  -> Simulation ran but did not yield a full matching assembly.")
+                    target_assembly_size = sum(artifacts.target_counts.values())
+                    status = _status_for_failed_validation(sim_result, target_assembly_size)
+                    if sim_result.warning_message:
+                        print(f"     Warning: {sim_result.warning_message}")
+                        if "[Errno 2] No such file" in sim_result.warning_message or "invalid literal format" in sim_result.warning_message or "invalid literal for int" in sim_result.warning_message:
+                            status = "Crashed"
+                        elif status in {"UA", "OA"}:
+                            print(
+                                "     Error: target assembly was not found after both validation runs. "
+                                f"Largest observed assembly size was {sim_result.largest_observed_assembly_size} "
+                                f"vs target size {target_assembly_size}."
+                            )
+                    
+                    _dump_nerdss_log(Path(sim_result.simulation_dir), pdb_id)
                 
         except Exception as e:
             if builder is not None:
