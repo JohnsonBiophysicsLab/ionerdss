@@ -82,6 +82,7 @@ def gui():
             f.write(f"    pdbWrite = {pdbWrite_entry.get()}\n")
             f.write(f"    transitionWrite = {transitionWrite_entry.get()}\n")
             f.write(f"    restartWrite = {restartWrite_entry.get()}\n")
+            f.write(f"    bondedComplexWrite = {restartWrite_entry.get()}\n")
             f.write(f"    checkPoint = {checkPoint_entry.get()}\n")
             f.write(f"    scaleMaxDisplace = {scaleMaxDisplace_entry.get()}\n")
             f.write(f"    overlapSepLimit = {overlapSepLimit_entry.get()}\n")

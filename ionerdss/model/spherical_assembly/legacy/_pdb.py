@@ -425,6 +425,7 @@ f.write("    timestep = 0.1\n\n\n")
 f.write("    timeWrite = 500\n")
 f.write("    trajWrite = 500\n")
 f.write("    restartWrite = 50000\n")
+f.write("    bondedComplexWrite = 50000\n")
 f.write("    fromRestart = false\n")
 f.write("end parameters\n\n")
 f.write("start boundaries\n")
@@ -492,7 +493,6 @@ for i in range(len(unique_chain)):
     f.write("\nbonds = %d\n" % bond_counter)
     for j in range(bond_counter):
         f.write("COM %s\n" % chain_string[j])
-
 
 
 

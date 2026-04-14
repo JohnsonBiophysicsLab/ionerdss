@@ -6,6 +6,7 @@ start parameters
     timeWrite = 5000
     trajWrite = 50000000
     restartWrite = 5000000
+    bondedComplexWrite = 5000000
     fromRestart = false
     overlapSepLimit = 2.3
     pdbWrite = 200000

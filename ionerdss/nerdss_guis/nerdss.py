@@ -1950,6 +1950,7 @@ class SimulationApp(QMainWindow, Ui_MainWindow):
             parm_file.write(f"\ttrajWrite = {int(totalTime/0.1e-6)}\n")
             parm_file.write(f"\tpdbWrite = {int(totalTime/0.1e-6/100)}\n")
             parm_file.write(f"\trestartWrite = {int(totalTime/0.1e-6/100)}\n")
+            parm_file.write(f"\tbondedComplexWrite = {int(totalTime/0.1e-6/100)}\n")
             parm_file.write("\tscaleMaxDisplace = 100.0\n")
             parm_file.write("\toverlapSepLimit = 1.0\n")
             parm_file.write("end parameters\n\n")
