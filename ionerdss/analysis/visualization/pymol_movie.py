@@ -359,6 +359,7 @@ def export_pymol_pdb_movie(
 
     print("Coloring Chains...")
     for obj_name in obj_names:
+        print(f"Coloring {obj_name}...")
         chain_type_groups = build_chain_type_groups(frame_chain_type_maps[obj_name])
         cmd.show("spheres", "all and name COM")
         cmd.alter("all and name COM", "vdw=1.5")
