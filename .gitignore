@@ -212,3 +212,5 @@ test_parse_8ip3.py
 /ionerdss/benchmark_output
 /benchmark/pdb_benchmark
 ionerdss/stats.sh
+test copy 5.py
+test copy 4.py
