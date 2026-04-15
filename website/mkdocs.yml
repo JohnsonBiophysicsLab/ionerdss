@@ -12,6 +12,7 @@ nav:
   - Home: index.md
   - Getting Started: getting-started.md
   - Tutorials: tutorials.md
+  - Geometry Conventions: geometry-conventions.md
   - API Reference:
       - Overview: api/index.md
       - Top-Level API: api/top-level.md

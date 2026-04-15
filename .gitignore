@@ -214,3 +214,6 @@ test_parse_8ip3.py
 ionerdss/stats.sh
 test copy 5.py
 test copy 4.py
+/2gtl_dir
+/ionerdss/workspace_2GTL_inspect
+/ionerdss/workspace_2GTL_test
