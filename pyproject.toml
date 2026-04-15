@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ioNERDSS"
-version = "2.1.1"
+version = "2.2"
 description = "Package for preparing NERDSS inputs and analysing outputs."
 readme = "README.md"
 license = { text = "GPL-3.0" }
