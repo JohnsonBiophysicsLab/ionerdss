@@ -217,3 +217,7 @@ test copy 4.py
 /2gtl_dir
 /ionerdss/workspace_2GTL_inspect
 /ionerdss/workspace_2GTL_test
+/ionerdss/tmp_loose_no_homo
+/ionerdss/tmp_medium_no_homo
+/ionerdss/tmp_strict_default_no_homo
+test_2gtl.py
