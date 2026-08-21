@@ -1,0 +1,1 @@
+This directory contains deprecated examples that are no longer maintained. Please refer to the `tutorials/` directory for the current examples.
