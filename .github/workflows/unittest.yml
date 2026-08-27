@@ -56,7 +56,7 @@ jobs:
 
       - name: Run tests
         run: |
-          pytest tests \
+          pytest developer_tests \
                  --cov=ionerdss --cov-branch \
                  --cov-report=xml \
                  --junitxml=report.xml
