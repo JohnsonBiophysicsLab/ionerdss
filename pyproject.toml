@@ -63,7 +63,12 @@ jupyter = ["jupyter", "jupyterlab", "ipykernel", "ipywidgets"]
 
 simularium = [
     "simulariumio",
-    "MDAnalysis"     # for simulariumio reading NERDSS PDB files
+    "MDAnalysis",    # for simulariumio reading NERDSS PDB files
+    # simulariumio 1.13.0 (latest on PyPI) writes in place into an array that
+    # pandas 3.0+ returns read-only, so its NERDSS converter raises
+    # "ValueError: assignment destination is read-only". The fix is on
+    # simulariumio's GitHub main branch but is not yet released to PyPI.
+    "pandas<3"
 ]
 
 docs = [
