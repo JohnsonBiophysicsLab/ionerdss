@@ -63,10 +63,65 @@ class TestIOParser(unittest.TestCase):
         if Path(self.temp_dir).exists():
             shutil.rmtree(self.temp_dir)
 
-    @unittest.skip("Skipping transition matrix tests as requested")
+    def _write_transition_file(self, name: str, header: str) -> Path:
+        """Writes a two-time-point transition file using the given matrix header."""
+        path = self.temp_path / name
+        with open(path, 'w') as f:
+            f.write("time: 0\n")
+            f.write(f"{header}\n")
+            f.write("A\n")
+            f.write(" 0 0\n")
+            f.write(" 0 0\n")
+            f.write("lifetime for each mol type:\n")
+            f.write("A\n")
+            f.write("size of the cluster:1\n")
+            f.write("\n")
+            f.write("time: 0.005\n")
+            f.write(f"{header}\n")
+            f.write("A\n")
+            f.write(" 4 2\n")
+            f.write(" 1 3\n")
+            f.write("lifetime for each mol type:\n")
+            f.write("A\n")
+            f.write("size of the cluster:1\n")
+            f.write(" 0.5 0.25\n")
+            f.write("\n")
+        return path
+
     def test_parse_transition_file(self):
         """Test transition file parsing."""
-        pass
+        path = self._write_transition_file(
+            "transition_ok.dat", "transition matrix for each mol type:"
+        )
+        transitions, lifetimes = parser.parse_transition_file(path)
+
+        # The all-zero block at time 0 still counts: the header was found.
+        self.assertEqual(len(transitions), 2)
+        self.assertEqual(transitions[1]["time"], 0.005)
+        np.testing.assert_array_equal(
+            transitions[1]["matrix"], np.array([[4, 2], [1, 3]])
+        )
+
+        self.assertEqual(len(lifetimes), 1)
+        self.assertEqual(lifetimes[0]["lifetimes"][1], [0.5, 0.25])
+
+    def test_parse_transition_file_legacy_typo_header(self):
+        """Pre-fix NERDSS builds write 'transion matrix ...'; both must parse."""
+        typo_path = self._write_transition_file(
+            "transition_typo.dat", "transion matrix for each mol type:"
+        )
+        ok_path = self._write_transition_file(
+            "transition_ok2.dat", "transition matrix for each mol type:"
+        )
+
+        typo_transitions, typo_lifetimes = parser.parse_transition_file(typo_path)
+        ok_transitions, ok_lifetimes = parser.parse_transition_file(ok_path)
+
+        self.assertEqual(len(typo_transitions), len(ok_transitions))
+        for typo, ok in zip(typo_transitions, ok_transitions):
+            self.assertEqual(typo["time"], ok["time"])
+            np.testing.assert_array_equal(typo["matrix"], ok["matrix"])
+        self.assertEqual(typo_lifetimes, ok_lifetimes)
         
     def test_parse_copy_numbers(self):
         """Test copy numbers file parsing."""

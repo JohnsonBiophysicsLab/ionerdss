@@ -21,8 +21,9 @@ logger = logging.getLogger(__name__)
 # Compiled regex patterns for performance
 # Matches: "time: 0.123" or "Time (s): 0.123"
 TIME_PATTERN = re.compile(r"(?:time|Time\s*\(s\)):\s*([-+]?\d*\.?\d+(?:[eE][-+]?\d+)?)")
-# Matches: "transition matrix for each mol type:"
-TRANSITION_HEADER_PATTERN = re.compile(r"transition\s+matrix\s+for\s+each\s+mol\s+type:", re.IGNORECASE)
+# Matches: "transition matrix for each mol type:", and the "transion" misspelling
+# written by NERDSS builds predating the fix in write_transition.cpp
+TRANSITION_HEADER_PATTERN = re.compile(r"transi(?:ti)?on\s+matrix\s+for\s+each\s+mol\s+type:", re.IGNORECASE)
 # Matches: "lifetime for each mol type:"
 LIFETIME_HEADER_PATTERN = re.compile(r"lifetime\s+for\s+each\s+mol\s+type:", re.IGNORECASE)
 # Matches: "size of the cluster: 5"
@@ -62,6 +63,7 @@ def parse_transition_file(file_path: Path) -> Tuple[List[TransitionData], List[L
     
     transitions: List[TransitionData] = []
     lifetimes_list: List[LifetimeData] = []
+    blocks_without_matrix = 0
 
     # Iterate in pairs of (time, block)
     for i in range(1, len(parts), 2):
@@ -74,6 +76,8 @@ def parse_transition_file(file_path: Path) -> Tuple[List[TransitionData], List[L
             # Only add if we have valid data
             if matrix.size > 0:
                 transitions.append({"time": time_val, "matrix": matrix})
+            else:
+                blocks_without_matrix += 1
             
             if lifetime_dict:
                 lifetimes_list.append({"time": time_val, "lifetimes": lifetime_dict})
@@ -81,6 +85,13 @@ def parse_transition_file(file_path: Path) -> Tuple[List[TransitionData], List[L
         except (ValueError, IndexError) as e:
             logger.debug(f"Skipping malformed block at index {i}: {e}")
             continue
+
+    if blocks_without_matrix and not transitions:
+        logger.warning(
+            f"No transition matrix parsed from {file_path}: "
+            f"{blocks_without_matrix} time block(s) contained no matrix. "
+            f"Check that the file has a 'transition matrix for each mol type:' header."
+        )
 
     return transitions, lifetimes_list
 
