@@ -91,4 +91,4 @@ include-package-data = true
 where = ["."]
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+testpaths = ["developer_tests"]
