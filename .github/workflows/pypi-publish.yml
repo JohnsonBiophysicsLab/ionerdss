@@ -1,4 +1,4 @@
-# This workflow uploads a Python package to PyPI using Twine upon release.
+# Builds and uploads the package to PyPI when a GitHub release is published.
 # Reference: https://docs.github.com/en/actions/automating-builds-and-tests/building-and-testing-python#publishing-to-package-registries
 
 name: Upload Python Package
@@ -17,11 +17,11 @@ jobs:
     steps:
     # Step 1: Check out the repository
     - name: Checkout code
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4
 
     # Step 2: Set up Python
     - name: Set up Python
-      uses: actions/setup-python@v3
+      uses: actions/setup-python@v5
       with:
         python-version: '3.x'
 
@@ -31,13 +31,29 @@ jobs:
         python -m pip install --upgrade pip
         pip install build twine
 
-    # Step 4: Build the package
+    # Step 4: Fail early if the release tag and pyproject version disagree,
+    # otherwise PyPI rejects the upload with an opaque "400 Bad Request"
+    # because that version was already published.
+    - name: Check tag matches project version
+      run: |
+        tag="${GITHUB_REF_NAME#v}"
+        project="$(python -c 'import tomllib,pathlib; print(tomllib.loads(pathlib.Path("pyproject.toml").read_text())["project"]["version"])')"
+        echo "tag=$tag project=$project"
+        if [ "$tag" != "$project" ]; then
+          echo "::error::Release tag '$GITHUB_REF_NAME' does not match pyproject.toml version '$project'. Bump the version before releasing."
+          exit 1
+        fi
+
+    # Step 5: Build the package
     - name: Build package
       run: python -m build
 
-    # Step 5: Publish to PyPI
+    # Step 6: Validate the built metadata
+    - name: Check distributions
+      run: twine check dist/*
+
+    # Step 7: Publish to PyPI
     - name: Publish package to PyPI
-      uses: pypa/gh-action-pypi-publish@27b31702a0e7fc50959f5ad993c78deac1bdfc29
+      uses: pypa/gh-action-pypi-publish@release/v1
       with:
-        user: __token__
         password: ${{ secrets.PYPI_API_TOKEN }}
