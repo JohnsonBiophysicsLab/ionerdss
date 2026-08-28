@@ -19,6 +19,7 @@ import shutil
 import warnings
 from collections import Counter, defaultdict
 from itertools import permutations, product
+from math import factorial
 
 import numpy as np
 
@@ -30,6 +31,15 @@ from ionerdss.utils.rigid_transform import apply_rigid_transform, rigid_transfor
 
 CoordinateInput = Union[Mapping[str, Sequence[float]], np.ndarray, Sequence[Sequence[float]]]
 DesignedStructureRecord = Dict[str, Any]
+
+# Enumerating every homomer relabeling costs prod(count!) alignments. That is affordable
+# for the small heteromers the exact search is meant for, and hopeless past it: an 18-copy
+# homomer such as 5L93 would need 18! = 6.4e15 orderings, so anything above this limit is
+# handed to the geometric assignment solver instead.
+_EXACT_PERMUTATION_SEARCH_LIMIT = 5040
+_ASSIGNMENT_REFINEMENT_ROUNDS = 10
+_MAX_ANCHOR_SEEDS = 32
+_ANCHOR_SEED_RELATIVE_TOLERANCE = 0.1
 
 
 @dataclass(frozen=True)
@@ -153,6 +163,244 @@ def _compute_alignment(
     return rotation_matrix, translation_vector, aligned_observed, rmsd
 
 
+def _order_observed_labels(
+    designed_labels: Sequence[str],
+    designed_type_by_label: Mapping[str, str],
+    observed_order_by_type: Mapping[str, Sequence[str]],
+) -> list[str]:
+    """Lay one per-type ordering of observed labels out in designed-label order."""
+    matched_observed_labels: list[str] = []
+    type_offsets: Dict[str, int] = defaultdict(int)
+    for designed_label in designed_labels:
+        type_name = designed_type_by_label[designed_label]
+        idx = type_offsets[type_name]
+        matched_observed_labels.append(observed_order_by_type[type_name][idx])
+        type_offsets[type_name] += 1
+    return matched_observed_labels
+
+
+def _search_labelings_exhaustively(
+    designed_labels: Sequence[str],
+    designed_type_by_label: Mapping[str, str],
+    designed_xyz: np.ndarray,
+    observed_coordinates: Mapping[str, Sequence[float]],
+    observed_labels_by_type: Mapping[str, Sequence[str]],
+    repeated_types: Sequence[str],
+    *,
+    backend: str,
+) -> list[str]:
+    """Score every per-type relabeling and keep the lowest-RMSD one.
+
+    Exact, and only used when the search space is small enough to enumerate.
+    """
+    permutation_sets = [permutations(observed_labels_by_type[type_name]) for type_name in repeated_types]
+
+    best_matched_labels: Optional[list[str]] = None
+    best_rmsd: Optional[float] = None
+
+    for perm_choice in (product(*permutation_sets) if permutation_sets else [()]):
+        observed_order_by_type = {
+            type_name: list(labels)
+            for type_name, labels in observed_labels_by_type.items()
+        }
+        for type_name, permuted_labels in zip(repeated_types, perm_choice):
+            observed_order_by_type[type_name] = list(permuted_labels)
+
+        matched_observed_labels = _order_observed_labels(
+            designed_labels, designed_type_by_label, observed_order_by_type
+        )
+        candidate_observed_xyz = np.asarray(
+            [observed_coordinates[label] for label in matched_observed_labels],
+            dtype=float,
+        )
+        _, _, _, candidate_rmsd = _compute_alignment(
+            designed_xyz, candidate_observed_xyz, backend=backend
+        )
+
+        if best_rmsd is None or candidate_rmsd < best_rmsd:
+            best_rmsd = candidate_rmsd
+            best_matched_labels = matched_observed_labels
+
+    assert best_matched_labels is not None
+    return best_matched_labels
+
+
+def _orthonormal_frame(first: np.ndarray, second: np.ndarray) -> Optional[np.ndarray]:
+    """Build a right-handed frame from two vectors, or None if they are collinear."""
+    first_norm = float(np.linalg.norm(first))
+    if first_norm < 1e-12:
+        return None
+    axis_1 = first / first_norm
+
+    residual = second - float(second @ axis_1) * axis_1
+    residual_norm = float(np.linalg.norm(residual))
+    if residual_norm < 1e-12:
+        return None
+    axis_2 = residual / residual_norm
+
+    return np.column_stack([axis_1, axis_2, np.cross(axis_1, axis_2)])
+
+
+def _distance_fingerprints(points: np.ndarray) -> np.ndarray:
+    """Return each point's sorted distances to all points, a relabeling-invariant descriptor."""
+    distances = np.linalg.norm(points[:, None, :] - points[None, :, :], axis=2)
+    distances.sort(axis=1)
+    return distances
+
+
+def _search_labelings_by_assignment(
+    designed_labels: Sequence[str],
+    designed_type_by_label: Mapping[str, str],
+    designed_xyz: np.ndarray,
+    observed_coordinates: Mapping[str, Sequence[float]],
+    observed_labels_by_type: Mapping[str, Sequence[str]],
+    *,
+    backend: str,
+) -> list[str]:
+    """Match designed to observed copies with seeded assignment refinement.
+
+    Enumerating relabelings is intractable for a large homomer, so the correspondence is
+    solved instead: seed a rotation, assign copies with the Hungarian algorithm on the
+    resulting distances, re-fit the rotation from that assignment, and repeat. Several
+    seeds are tried because a symmetric assembly has many locally optimal alignments.
+    Costs O(seeds * rounds * n^3) instead of O(prod(count!)).
+    """
+    from scipy.optimize import linear_sum_assignment
+
+    observed_label_list: list[str] = []
+    observed_indices_by_type: Dict[str, list[int]] = {}
+    for type_name in sorted(observed_labels_by_type):
+        labels = list(observed_labels_by_type[type_name])
+        observed_indices_by_type[type_name] = list(
+            range(len(observed_label_list), len(observed_label_list) + len(labels))
+        )
+        observed_label_list.extend(labels)
+
+    designed_positions_by_type: Dict[str, list[int]] = defaultdict(list)
+    for position, designed_label in enumerate(designed_labels):
+        designed_positions_by_type[designed_type_by_label[designed_label]].append(position)
+
+    observed_points = np.asarray(
+        [observed_coordinates[label] for label in observed_label_list], dtype=float
+    )
+
+    # Any within-type relabeling leaves both point sets unchanged, so their centroids
+    # already correspond and only the rotation has to be searched for.
+    designed_centered = designed_xyz - designed_xyz.mean(axis=0)
+    observed_centered = observed_points - observed_points.mean(axis=0)
+
+    def assign_with_costs(cost_for_type) -> np.ndarray:
+        """Hungarian-match designed to observed copies within each molecule type."""
+        pairing = np.empty(len(designed_centered), dtype=int)
+        for type_name, designed_positions in designed_positions_by_type.items():
+            observed_indices = observed_indices_by_type[type_name]
+            rows, columns = linear_sum_assignment(cost_for_type(designed_positions, observed_indices))
+            for row, column in zip(rows, columns):
+                pairing[designed_positions[row]] = observed_indices[column]
+        return pairing
+
+    def assign_by_distance(rotated_observed: np.ndarray) -> np.ndarray:
+        return assign_with_costs(
+            lambda designed_positions, observed_indices: np.linalg.norm(
+                designed_centered[designed_positions][:, None, :]
+                - rotated_observed[observed_indices][None, :, :],
+                axis=2,
+            )
+        )
+
+    def refine(pairing: np.ndarray) -> np.ndarray:
+        """Alternate rotation fitting and reassignment until the pairing stops changing."""
+        for _ in range(_ASSIGNMENT_REFINEMENT_ROUNDS):
+            rotation_matrix, _ = rigid_transform_3d(observed_points[pairing], designed_xyz)
+            next_pairing = assign_by_distance(observed_centered @ rotation_matrix.T)
+            if np.array_equal(next_pairing, pairing):
+                break
+            pairing = next_pairing
+        return pairing
+
+    seed_pairings: list[np.ndarray] = []
+
+    # Seed 1: sorted inter-point distance vectors survive relabeling, so they give a
+    # correspondence without needing a rotation first.
+    designed_fingerprints = _distance_fingerprints(designed_xyz)
+    observed_fingerprints = _distance_fingerprints(observed_points)
+    seed_pairings.append(
+        assign_with_costs(
+            lambda designed_positions, observed_indices: np.linalg.norm(
+                designed_fingerprints[designed_positions][:, None, :]
+                - observed_fingerprints[observed_indices][None, :, :],
+                axis=2,
+            )
+        )
+    )
+
+    # Seeds 2..N: pinning one designed copy and one non-collinear partner onto a pair of
+    # observed copies fixes a candidate rotation outright.
+    designed_radii = np.linalg.norm(designed_centered, axis=1)
+    observed_radii = np.linalg.norm(observed_centered, axis=1)
+    anchor = int(np.argmax(designed_radii))
+    partner = int(np.argmax(np.linalg.norm(np.cross(designed_centered[anchor], designed_centered), axis=1)))
+
+    designed_frame = _orthonormal_frame(designed_centered[anchor], designed_centered[partner])
+    if designed_frame is not None:
+        scale = max(float(designed_radii.max()), 1e-12)
+        tolerance = _ANCHOR_SEED_RELATIVE_TOLERANCE * scale
+        anchor_type = designed_type_by_label[designed_labels[anchor]]
+        partner_type = designed_type_by_label[designed_labels[partner]]
+        reference_dot = float(designed_centered[anchor] @ designed_centered[partner])
+
+        def anchor_candidates(strict: bool) -> list[Tuple[int, int]]:
+            """Observed (anchor, partner) index pairs geometrically compatible with the design."""
+            pairs: list[Tuple[int, int]] = []
+            for anchor_idx in observed_indices_by_type[anchor_type]:
+                if strict and abs(observed_radii[anchor_idx] - designed_radii[anchor]) > tolerance:
+                    continue
+                for partner_idx in observed_indices_by_type[partner_type]:
+                    if partner_idx == anchor_idx:
+                        continue
+                    if strict:
+                        if abs(observed_radii[partner_idx] - designed_radii[partner]) > tolerance:
+                            continue
+                        candidate_dot = float(
+                            observed_centered[anchor_idx] @ observed_centered[partner_idx]
+                        )
+                        if abs(candidate_dot - reference_dot) > tolerance * scale:
+                            continue
+                    pairs.append((anchor_idx, partner_idx))
+                    if len(pairs) >= _MAX_ANCHOR_SEEDS:
+                        return pairs
+            return pairs
+
+        for anchor_idx, partner_idx in anchor_candidates(strict=True) or anchor_candidates(strict=False):
+            observed_frame = _orthonormal_frame(
+                observed_centered[anchor_idx], observed_centered[partner_idx]
+            )
+            if observed_frame is None:
+                continue
+            seed_pairings.append(assign_by_distance(observed_centered @ (designed_frame @ observed_frame.T).T))
+
+    best_matched_labels: Optional[list[str]] = None
+    best_rmsd: Optional[float] = None
+    scored_pairings: set[Tuple[int, ...]] = set()
+
+    for seed_pairing in seed_pairings:
+        pairing = refine(seed_pairing)
+        pairing_key = tuple(int(value) for value in pairing)
+        if pairing_key in scored_pairings:
+            continue
+        scored_pairings.add(pairing_key)
+
+        _, _, _, candidate_rmsd = _compute_alignment(
+            designed_xyz, observed_points[pairing], backend=backend
+        )
+        if best_rmsd is None or candidate_rmsd < best_rmsd:
+            best_rmsd = candidate_rmsd
+            best_matched_labels = [observed_label_list[index] for index in pairing]
+
+    assert best_matched_labels is not None
+    return best_matched_labels
+
+
 def _match_coordinate_maps(
     designed_coordinates: CoordinateInput,
     observed_coordinates: CoordinateInput,
@@ -204,56 +452,41 @@ def _match_coordinate_maps(
         designed_labels_by_type[type_name].sort()
         observed_labels_by_type[type_name].sort()
 
-    permutation_sets = [
-        list(permutations(observed_labels_by_type[type_name]))
-        for type_name, count in sorted(designed_type_counts.items())
-        if count > 1
-    ]
     repeated_types = [
         type_name
         for type_name, count in sorted(designed_type_counts.items())
         if count > 1
     ]
 
-    best_labels: Optional[Tuple[str, ...]] = None
-    best_observed_xyz: Optional[np.ndarray] = None
-    best_rmsd: Optional[float] = None
+    exhaustive_search_size = 1
+    for type_name in repeated_types:
+        exhaustive_search_size *= factorial(designed_type_counts[type_name])
 
-    permutation_products = product(*permutation_sets) if permutation_sets else [()]
-    for perm_choice in permutation_products:
-        observed_order_by_type = {
-            type_name: list(observed_labels_by_type[type_name])
-            for type_name in designed_type_counts
-        }
-        for type_name, permuted_labels in zip(repeated_types, perm_choice):
-            observed_order_by_type[type_name] = list(permuted_labels)
-
-        matched_labels = tuple(designed_type_by_label[label] for label in designed_labels)
-        matched_observed_labels = []
-        type_offsets: Dict[str, int] = defaultdict(int)
-        for designed_label in designed_labels:
-            type_name = designed_type_by_label[designed_label]
-            idx = type_offsets[type_name]
-            matched_observed_labels.append(observed_order_by_type[type_name][idx])
-            type_offsets[type_name] += 1
-
-        candidate_observed_xyz = np.asarray(
-            [observed_coordinates[label] for label in matched_observed_labels],
-            dtype=float,
-        )
-        _, _, _, candidate_rmsd = _compute_alignment(
+    if exhaustive_search_size <= _EXACT_PERMUTATION_SEARCH_LIMIT:
+        matched_observed_labels = _search_labelings_exhaustively(
+            designed_labels,
+            designed_type_by_label,
             designed_xyz,
-            candidate_observed_xyz,
+            observed_coordinates,
+            observed_labels_by_type,
+            repeated_types,
+            backend=backend,
+        )
+    else:
+        matched_observed_labels = _search_labelings_by_assignment(
+            designed_labels,
+            designed_type_by_label,
+            designed_xyz,
+            observed_coordinates,
+            observed_labels_by_type,
             backend=backend,
         )
 
-        if best_rmsd is None or candidate_rmsd < best_rmsd:
-            best_labels = matched_labels
-            best_observed_xyz = candidate_observed_xyz
-            best_rmsd = candidate_rmsd
-
-    assert best_labels is not None
-    assert best_observed_xyz is not None
+    best_labels = tuple(designed_type_by_label[label] for label in designed_labels)
+    best_observed_xyz = np.asarray(
+        [observed_coordinates[label] for label in matched_observed_labels],
+        dtype=float,
+    )
     return best_labels, designed_xyz, best_observed_xyz
 
 

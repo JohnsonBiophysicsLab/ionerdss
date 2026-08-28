@@ -223,6 +223,48 @@ def test_align_structure_to_design_matches_homomer_labels_by_type():
     assert np.allclose(result.aligned_observed_coordinates, result.designed_coordinates)
 
 
+def test_align_structure_to_design_scales_to_large_homomer():
+    # An 18-copy homomer like 5L93 has 18! relabelings, far past what can be enumerated.
+    angles = np.arange(6) * (2.0 * np.pi / 6.0)
+    asymmetric_unit = np.array([[6.0, 0.0, 0.0], [7.0, 1.0, 0.5], [6.5, -1.0, 1.5]])
+    points = np.concatenate(
+        [
+            (
+                np.array(
+                    [
+                        [np.cos(angle), -np.sin(angle), 0.0],
+                        [np.sin(angle), np.cos(angle), 0.0],
+                        [0.0, 0.0, 1.0],
+                    ]
+                )
+                @ asymmetric_unit.T
+            ).T
+            for angle in angles
+        ]
+    )
+
+    rotation = np.array(
+        [
+            [0.0, -1.0, 0.0],
+            [1.0, 0.0, 0.0],
+            [0.0, 0.0, 1.0],
+        ]
+    )
+    translation = np.array([4.0, -2.0, 7.0])
+    moved = (rotation @ points.T).T + translation
+
+    designed = {f"chain{idx:02d}_A": points[idx] for idx in range(len(points))}
+    # NERDSS numbers copies in assembly order, which need not follow the designed order.
+    shuffled = np.roll(np.arange(len(points)), 7)
+    observed = {f"A_{idx}": moved[shuffled[idx]] for idx in range(len(points))}
+
+    result = align_structure_to_design(designed, observed)
+
+    assert result.labels == ("A",) * len(points)
+    assert result.rmsd < 1e-8
+    assert np.allclose(result.aligned_observed_coordinates, result.designed_coordinates, atol=1e-8)
+
+
 def test_validation_module_exposes_prepare_and_compare():
     assert hasattr(pdb, "validation")
     assert callable(pdb.validation.prepare)
