@@ -27,6 +27,7 @@ from ionerdss.model.pdb.structure_validation import (
     get_disconnected_design_message,
     get_designed_structure,
     get_structure_validation_counts,
+    collect_structure_validation_results,
     run_structure_validation_simulation,
     StructureValidationArtifacts,
 )
@@ -1131,3 +1132,78 @@ def test_run_new_simulations_merges_env_onto_os_environ(monkeypatch, tmp_path):
     )
 
     assert captured["env"] is None
+
+
+def _write_external_validation_run(run_dir):
+    """Lay out the DATA tree a NERDSS run launched outside ioNERDSS would leave behind."""
+    data_dir = run_dir / "DATA"
+    complexes_dir = data_dir / "COMPLEXES"
+    complexes_dir.mkdir(parents=True)
+    (data_dir / "histogram_complexes_time.dat").write_text("Time (s): 0\n", encoding="utf-8")
+    (data_dir / "final_coords.xyz").write_text("0\ncomment\n", encoding="utf-8")
+    (data_dir / "system.psf").write_text("PSF\n", encoding="utf-8")
+    (data_dir / "restart.dat").write_text("unused", encoding="utf-8")
+    (complexes_dir / "99999.json").write_text(
+        json.dumps([{"names": ["A", "A", "B"], "coords": [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]}]),
+        encoding="utf-8",
+    )
+    return data_dir
+
+
+def _external_run_artifacts(work_dir):
+    parms_path = work_dir / "parms.inp"
+    parms_path.parent.mkdir(parents=True, exist_ok=True)
+    parms_path.write_text("parms", encoding="utf-8")
+    return StructureValidationArtifacts(
+        molecule_counts={"A": 2, "B": 1},
+        target_counts={"A": 2, "B": 1},
+        designed_coordinates={"A_0": (0.0, 0.0, 0.0), "A_1": (1.0, 0.0, 0.0), "B": (0.0, 1.0, 0.0)},
+        target_file=work_dir / "target.json",
+        nerdss_files={"parms": parms_path},
+    )
+
+
+def test_collect_structure_validation_results_reads_external_run(monkeypatch, tmp_path):
+    run_dir = tmp_path / "nerdss_files"
+    _write_external_validation_run(run_dir)
+    artifacts = _external_run_artifacts(run_dir)
+
+    import ionerdss.analysis.io.parser as parser_module
+
+    monkeypatch.setattr(
+        parser_module,
+        "parse_complex_histogram",
+        lambda path: (np.asarray([]), [], None),
+    )
+
+    result = collect_structure_validation_results(artifacts, simulation_dir=run_dir)
+
+    assert result.simulation_dir == run_dir
+    assert result.full_assembly_found is True
+    assert result.warning_message is None
+    assert result.restart_file.name == "99999.json"
+    assert result.observed_coordinates == {
+        "A_0": (0.0, 0.0, 0.0),
+        "A_1": (1.0, 0.0, 0.0),
+        "B": (0.0, 1.0, 0.0),
+    }
+
+
+def test_collect_structure_validation_results_accepts_data_dir(monkeypatch, tmp_path):
+    run_dir = tmp_path / "nerdss_files"
+    data_dir = _write_external_validation_run(run_dir)
+    artifacts = _external_run_artifacts(run_dir)
+
+    import ionerdss.analysis.io.parser as parser_module
+
+    monkeypatch.setattr(
+        parser_module,
+        "parse_complex_histogram",
+        lambda path: (np.asarray([]), [], None),
+    )
+
+    result = collect_structure_validation_results(artifacts, simulation_dir=data_dir)
+
+    assert result.simulation_dir == run_dir
+    assert result.full_assembly_found is True
+    assert result.histogram_file == data_dir / "histogram_complexes_time.dat"

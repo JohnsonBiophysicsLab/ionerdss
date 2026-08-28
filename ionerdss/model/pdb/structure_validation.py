@@ -1097,7 +1097,6 @@ def run_structure_validation_simulation(
     ``{"LD_LIBRARY_PATH": "/path/to/gsl/lib"}``. The entries are merged on top of the
     current ``os.environ``, so only the overrides need to be passed.
     """
-    from ionerdss.analysis.io.parser import parse_complex_histogram
     from ionerdss.nerdss_simulation import Simulation
 
     work_dir = Path(artifacts.nerdss_files["parms"]).parent
@@ -1113,7 +1112,35 @@ def run_structure_validation_simulation(
         env=dict(env) if env is not None else None,
     )
 
-    simulation_dir = work_dir / sim_dir_name / str(sim_index)
+    return collect_structure_validation_results(
+        artifacts=artifacts,
+        simulation_dir=work_dir / sim_dir_name / str(sim_index),
+    )
+
+
+def _resolve_simulation_output_dir(simulation_dir: Union[str, Path]) -> Path:
+    """Accept either a NERDSS run directory or the ``DATA`` directory it wrote."""
+    resolved = Path(simulation_dir).expanduser()
+    if resolved.name == "DATA" and resolved.is_dir():
+        return resolved.parent
+    return resolved
+
+
+def collect_structure_validation_results(
+    artifacts: StructureValidationArtifacts,
+    simulation_dir: Union[str, Path],
+) -> StructureValidationSimulationResult:
+    """Read the NERDSS output of an already-finished validation run.
+
+    This is the result-reading half of :func:`run_structure_validation_simulation`,
+    exposed separately so a NERDSS run launched outside ioNERDSS (a manual
+    ``subprocess.run``, a cluster job, an earlier session) can be analysed with the
+    same logic. ``simulation_dir`` is the directory holding the run's ``DATA``
+    directory; passing the ``DATA`` directory itself works too.
+    """
+    from ionerdss.analysis.io.parser import parse_complex_histogram
+
+    simulation_dir = _resolve_simulation_output_dir(simulation_dir)
     histogram_file = simulation_dir / "DATA" / "histogram_complexes_time.dat"
     complexes_dir = simulation_dir / "DATA" / "COMPLEXES"
     final_coords_file = simulation_dir / "DATA" / "final_coords.xyz"

@@ -19,6 +19,7 @@ The code emits a warning and then scans `DATA/restart.dat` and any `RESTART/*.da
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any, Dict, Mapping, Optional, Sequence, Union
 
 from ionerdss.model.components.system import System
@@ -30,6 +31,7 @@ from .structure_validation import (
     StructureValidationSimulationResult,
     align_structure_to_design,
     build_validation_molecule_counts,
+    collect_structure_validation_results,
     get_designed_structure,
     get_representative_instances,
     get_structure_validation_counts,
@@ -148,6 +150,32 @@ def run_simulation(
     )
 
 
+def collect_results(
+    artifacts: StructureValidationArtifacts,
+    simulation_dir: Union[str, Path],
+) -> StructureValidationSimulationResult:
+    """Read the results of a validation NERDSS run that was launched outside ioNERDSS.
+
+    Use this when the NERDSS executable is driven directly -- a manual
+    ``subprocess.run``, a cluster submission, or a run from an earlier session --
+    instead of through :func:`run_simulation`. It returns the same
+    :class:`StructureValidationSimulationResult` that :func:`run_simulation` returns, so
+    the downstream reporting and :func:`align_structure` steps are unchanged.
+
+    ``simulation_dir`` is the directory the NERDSS run wrote its ``DATA`` directory
+    into (the ``cwd`` of the external run); passing the ``DATA`` directory itself also
+    works.
+
+    Example:
+        subprocess.run(f"{nerdss_cmd} -f parms_titrate.inp", shell=True, cwd=run_dir, env=env)
+        sim_result = pdb.validation.collect_results(artifacts, simulation_dir=run_dir)
+    """
+    return collect_structure_validation_results(
+        artifacts=artifacts,
+        simulation_dir=simulation_dir,
+    )
+
+
 __all__ = [
     "StructureAlignmentResult",
     "StructureValidationArtifacts",
@@ -156,6 +184,8 @@ __all__ = [
     "align_structure",
     "align_structure_to_design",
     "build_validation_molecule_counts",
+    "collect_results",
+    "collect_structure_validation_results",
     "compare",
     "get_designed_structure",
     "get_representative_instances",
