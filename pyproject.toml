@@ -32,7 +32,7 @@ dependencies = [
     "tqdm",
     "PyOpenGL",
     "biopython",
-    "scipy>=1.13.1, <2",
+    "scipy>=1.14, <2",
     "scikit-learn",
     "requests",
     "ipympl",
@@ -44,7 +44,7 @@ test = ["pytest", "pytest-cov"]
 
 proaffinity = [
   "numpy==1.26.4",
-  "scipy==1.13.1",
+  "scipy==1.14.1",
   "torch==2.2.2",
   "torchvision==0.17.2",
   "torchaudio==2.2.2",
