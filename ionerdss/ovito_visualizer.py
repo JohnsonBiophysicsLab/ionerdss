@@ -3,40 +3,44 @@ ionerdss.ovito_visualizer
 
 Module for visualizing NERDSS xyz trajectories using OVITO.
 This module requires the optional `ovito_rendering` dependencies.
+
+Rendering runs in a child process (see `_ovito_render_worker.py`). OVITO aborts
+the interpreter rather than raising when it cannot render -- typically on a
+headless machine, where the OpenGL path has no offscreen context -- and a native
+abort cannot be caught by `except Exception`. Run in-process, that silently
+kills a Jupyter kernel; isolated, it becomes a Python error naming the renderer
+that failed, and the next renderer is tried automatically.
 """
 
-import os
-import sys
-import shutil
-import tempfile
+import importlib.util
+import json
 import logging
+import os
+import shutil
+import subprocess
+import sys
+import tempfile
 
 logger = logging.getLogger(__name__)
 
+_WORKER = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                       "_ovito_render_worker.py")
+
 # Qt bindings that ship their own copy of the Qt libraries. OVITO bundles its
 # own PySide6/Qt6 build, and loading two different Qt6 copies into one process
-# aborts the interpreter (this is what kills a Jupyter kernel outright, since a
-# native abort cannot be caught by `except Exception`).
+# aborts the interpreter. Only relevant when this module imports ovito itself,
+# i.e. on the `save_gif=False` path.
 _CONFLICTING_QT_MODULES = ("PyQt6", "PyQt5", "PySide2")
 
-# OVITO only stopped creating the global Qt application object eagerly at import
-# time in 3.11.0; before that it clashes with any other Qt-based package.
-_MIN_SAFE_OVITO_VERSION = (3, 11, 0)
+# Exit codes reported by the worker.
+_EXIT_NO_FRAMES = 3
+_EXIT_NO_RENDERER = 4
 
-# Headless `render_image()` via the OpenGL/Standard renderer only became
-# reliable in 3.16.0. Below that we prefer a software renderer.
-_HEADLESS_OPENGL_OK_VERSION = (3, 16, 0)
-
-# Renderers are tried in this order. The software ray tracers need no OpenGL
-# context at all, so they are attempted first: a renderer that cannot be
-# constructed raises a catchable Python error, whereas an OpenGL renderer with
-# no usable context can take the whole process down on some platforms.
-_SOFTWARE_RENDERERS = ("TachyonRenderer", "OSPRayRenderer")
-_GPU_RENDERERS = ("StandardRenderer", "OpenGLRenderer")
-
-# Rendered frames are streamed to the GIF one at a time, but warn when a
-# trajectory is long enough that the render itself will take a while.
+# Rendered frames land on disk one PNG per frame, so warn when a trajectory is
+# long enough for that to be slow and bulky.
 _LONG_TRAJECTORY_WARNING = 500
+
+_RENDER_SIZE = (800, 600)
 
 
 def _check_qt_conflict():
@@ -53,65 +57,124 @@ def _check_qt_conflict():
         )
 
 
-def _check_ovito_version(ovito):
-    """Warn about OVITO versions with known crash-in-Jupyter behaviour."""
-    version = getattr(ovito, "version", None)
-    if not isinstance(version, tuple):
-        return None
-    if version < _MIN_SAFE_OVITO_VERSION:
-        logger.warning(
-            "OVITO %s initializes its Qt application object at import time and is "
-            "known to crash the interpreter when other Qt-based packages are present. "
-            "Please upgrade: pip install -U ovito",
-            ".".join(map(str, version)),
+def _require(*packages):
+    """Check optional dependencies without importing them."""
+    missing = [p for p in packages if importlib.util.find_spec(p) is None]
+    if missing:
+        raise ImportError(
+            f"OVITO visualization requires the missing package(s): {', '.join(missing)}.\n"
+            "Please install the required dependencies using: "
+            "pip install \"ioNERDSS[ovito_rendering]\""
         )
-    return version
 
 
-def _select_renderer(vis, ovito_version):
-    """Return (renderer, name), preferring backends that need no GL context."""
-    candidates = list(_SOFTWARE_RENDERERS) + list(_GPU_RENDERERS)
-    if ovito_version is not None and ovito_version >= _HEADLESS_OPENGL_OK_VERSION:
-        # 3.16+ renders offscreen without a windowing system, and it is much
-        # faster than the ray tracers.
-        candidates = list(_GPU_RENDERERS) + list(_SOFTWARE_RENDERERS)
+def _run_worker(trajectory_path, out_dir, show_simulation_box, exclude):
+    """Render every frame in a child process.
 
-    for name in candidates:
-        cls = getattr(vis, name, None)
-        if cls is None:
-            continue
-        try:
-            renderer = cls()
-        except Exception as e:  # e.g. renderer only available in OVITO Pro
-            logger.debug("Renderer %s unavailable: %s", name, e)
-            continue
-        logger.info("Using OVITO renderer: %s", name)
-        return renderer, name
+    Returns (returncode, renderer_name_or_None, num_frames_or_None, stderr).
+    A negative returncode means the child was killed by a signal, i.e. OVITO
+    took the process down -- exactly what this isolation exists to contain.
+    """
+    config_path = os.path.join(out_dir, "render_config.json")
+    with open(config_path, "w") as f:
+        json.dump({
+            "trajectory_path": os.path.abspath(trajectory_path),
+            "out_dir": out_dir,
+            "size": list(_RENDER_SIZE),
+            "show_simulation_box": bool(show_simulation_box),
+            "exclude": sorted(exclude),
+        }, f)
 
-    logger.warning(
-        "No renderer could be instantiated; falling back to OVITO's default. "
-        "If the process dies here, the OpenGL renderer has no usable offscreen "
-        "context -- upgrade OVITO to 3.16 or newer."
+    proc = subprocess.Popen(
+        [sys.executable, _WORKER, config_path],
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
     )
-    return None, "default"
+
+    renderer_name = None
+    num_frames = None
+    for line in proc.stdout:
+        line = line.strip()
+        if line.startswith("VERSION "):
+            logger.info("OVITO version: %s", line.split(None, 1)[1])
+        elif line.startswith("FRAMES "):
+            num_frames = int(line.split()[1])
+        elif line.startswith("RENDERER "):
+            renderer_name = line.split(None, 1)[1]
+            logger.info("Using OVITO renderer: %s", renderer_name)
+        elif line.startswith("SKIP "):
+            logger.debug("Renderer unavailable: %s", line.split(None, 1)[1])
+        elif line.startswith("FRAME "):
+            logger.info("Rendering frame %d/%s", int(line.split()[1]) + 1, num_frames)
+        elif line:
+            logger.debug("worker: %s", line)
+
+    stderr = proc.stderr.read()
+    proc.stdout.close()
+    proc.stderr.close()
+    return proc.wait(), renderer_name, num_frames, stderr
 
 
-def _render_frame(vp, output_path, size, frame, renderer):
-    """Render one frame, retrying once without an explicit renderer."""
-    if renderer is None:
-        vp.render_image(filename=output_path, size=size, frame=frame)
-        return None
-    try:
-        vp.render_image(filename=output_path, size=size, frame=frame,
-                        renderer=renderer)
-        return renderer
-    except Exception as e:
-        logger.warning(
-            "Rendering with the selected renderer failed (%s); retrying with "
-            "OVITO's default renderer.", e
+def _render_frames(trajectory_path, out_dir, show_simulation_box):
+    """Render all frames, retrying with the next renderer if one takes the child down."""
+    excluded = set()
+    last_error = ""
+    while True:
+        attempt_dir = os.path.join(out_dir, f"attempt_{len(excluded)}")
+        os.makedirs(attempt_dir)
+        code, renderer, num_frames, stderr = _run_worker(
+            trajectory_path, attempt_dir, show_simulation_box, excluded
         )
-        vp.render_image(filename=output_path, size=size, frame=frame)
-        return None
+
+        if code == 0:
+            if num_frames and num_frames > _LONG_TRAJECTORY_WARNING:
+                logger.warning(
+                    "Rendered %d frames; increase `trajWrite` in parms.inp to keep "
+                    "future trajectories shorter.", num_frames
+                )
+            return attempt_dir, num_frames
+
+        shutil.rmtree(attempt_dir, ignore_errors=True)
+        last_error = stderr.strip()
+
+        if code == _EXIT_NO_FRAMES:
+            raise ValueError(
+                f"OVITO found no frames in '{trajectory_path}'. The file may be "
+                "empty or truncated."
+            )
+        if code == _EXIT_NO_RENDERER or renderer is None:
+            # Either nothing is left to try, or the child never got as far as
+            # picking a renderer -- retrying cannot help.
+            raise RuntimeError(_failure_message(trajectory_path, excluded, last_error))
+
+        how = f"was killed by signal {-code}" if code < 0 else f"exited with code {code}"
+        logger.warning(
+            "The %s renderer %s; retrying with the next available renderer.",
+            renderer, how,
+        )
+        excluded.add(renderer)
+
+
+def _failure_message(trajectory_path, excluded, stderr):
+    if excluded:
+        message = (
+            f"OVITO could not render '{trajectory_path}' with any available renderer "
+            f"(tried: {', '.join(sorted(excluded))}).\n"
+            "This usually means OVITO cannot render offscreen on this machine. Headless "
+            "rendering works out of the box from OVITO 3.16 onwards, so try: "
+            "pip install -U ovito\n"
+            "(If pip refuses to upgrade, a numpy<2 pin is holding it back -- current "
+            "OVITO requires numpy>=2.)"
+        )
+    else:
+        # The child never got as far as picking a renderer, so this is a problem
+        # with the trajectory or the OVITO installation, not with rendering.
+        message = (
+            f"The OVITO render process failed before rendering started, while loading "
+            f"'{trajectory_path}'."
+        )
+    if stderr:
+        message += f"\n\nOutput from the render process:\n{stderr}"
+    return message
 
 
 def _open_gif_writer(imageio, gif_name, fps, loop):
@@ -120,6 +183,39 @@ def _open_gif_writer(imageio, gif_name, fps, loop):
         return imageio.get_writer(gif_name, mode="I", fps=fps, loop=loop)
     except TypeError:
         return imageio.get_writer(gif_name, mode="I", duration=1.0 / fps, loop=loop)
+
+
+def _write_gif(frame_dir, gif_name, fps, loop):
+    import imageio
+
+    # Frames are appended as they are read back, so peak memory stays at one
+    # frame regardless of trajectory length.
+    imread = getattr(getattr(imageio, "v2", imageio), "imread")
+    frames = sorted(f for f in os.listdir(frame_dir) if f.endswith(".png"))
+    with _open_gif_writer(imageio, gif_name, fps, loop) as writer:
+        for filename in frames:
+            path = os.path.join(frame_dir, filename)
+            writer.append_data(imread(path))
+            os.remove(path)
+
+
+def _load_into_scene(trajectory_path, show_simulation_box):
+    """Load the trajectory into OVITO's scene in this process (no rendering)."""
+    _check_qt_conflict()
+    import warnings
+    warnings.filterwarnings('ignore', message='.*OVITO.*PyPI')
+    from ovito.io import import_file
+    from ovito.vis import Viewport
+
+    pipeline = import_file(trajectory_path)
+    pipeline.add_to_scene()
+    if not show_simulation_box:
+        logger.info("Disabling simulation box visualization by default.")
+        data = pipeline.compute()
+        if data and data.cell:
+            data.cell.vis.enabled = False
+    Viewport(type=Viewport.Type.PERSPECTIVE).zoom_all()
+    return pipeline
 
 
 def visualize_trajectory_ovito(
@@ -144,81 +240,20 @@ def visualize_trajectory_ovito(
     if not os.path.exists(trajectory_path):
         raise FileNotFoundError(f"Trajectory file '{trajectory_path}' not found.")
 
-    _check_qt_conflict()
+    _require("ovito", "imageio", "PIL")
 
+    if not save_gif:
+        logger.info("save_gif is False. Only loading into scene. Note that GUI rendering requires ovito Pro.")
+        _load_into_scene(trajectory_path, show_simulation_box)
+        return
+
+    logger.info("Rendering %s with OVITO in a separate process...", trajectory_path)
+    work_dir = tempfile.mkdtemp(prefix="ionerdss_ovito_")
     try:
-        import warnings
-        warnings.filterwarnings('ignore', message='.*OVITO.*PyPI')
-        import imageio
-        import ovito
-        from ovito.io import import_file
-        from ovito.vis import Viewport
-        import ovito.vis as vis
-    except ImportError as e:
-        logger.error(
-            "OVITO visualization requires the `ovito`, `imageio`, and `Pillow` packages.\n"
-            "Please install the required dependencies using: pip install \"ioNERDSS[ovito_rendering]\""
-        )
-        raise e
-
-    ovito_version = _check_ovito_version(ovito)
-
-    logger.info(f"Loading trajectory from {trajectory_path} into OVITO...")
-    pipeline = import_file(trajectory_path)
-    pipeline.add_to_scene()
-
-    # `save_gif=False` deliberately leaves the pipeline in the scene for
-    # interactive use; every other exit path takes it back out so that repeated
-    # calls do not render previously loaded trajectories on top of each other.
-    keep_in_scene = not save_gif
-    try:
-        if not show_simulation_box:
-            logger.info("Disabling simulation box visualization by default.")
-            data = pipeline.compute()
-            if data and data.cell:
-                data.cell.vis.enabled = False
-
-        vp = Viewport(type=Viewport.Type.PERSPECTIVE)
-        vp.zoom_all()
-
-        if not save_gif:
-            logger.info("save_gif is False. Only loading into scene. Note that GUI rendering requires ovito Pro.")
-            return
-
-        num_frames = pipeline.source.num_frames
-        if num_frames == 0:
-            raise ValueError(
-                f"OVITO found no frames in '{trajectory_path}'. The file may be "
-                "empty or truncated."
-            )
-        if num_frames > _LONG_TRAJECTORY_WARNING:
-            logger.warning(
-                "Trajectory has %d frames; rendering will take a while. Reduce it by "
-                "increasing `trajWrite` in parms.inp before rerunning NERDSS.",
-                num_frames,
-            )
-
-        renderer, _ = _select_renderer(vis, ovito_version)
-
-        logger.info("Rendering frames and compiling GIF at %s fps...", fps)
-        temp_dir = tempfile.mkdtemp()
-        try:
-            # Frames are appended to the GIF as they are rendered, so peak memory
-            # stays at one frame regardless of trajectory length.
-            imread = getattr(getattr(imageio, "v2", imageio), "imread")
-            with _open_gif_writer(imageio, gif_name, fps, loop) as writer:
-                for frame in range(num_frames):
-                    logger.info(f"Rendering frame {frame+1}/{num_frames}")
-                    output_path = os.path.join(temp_dir, f"frame_{frame:04d}.png")
-                    renderer = _render_frame(
-                        vp, output_path, (800, 600), frame, renderer
-                    )
-                    writer.append_data(imread(output_path))
-                    os.remove(output_path)
-        finally:
-            shutil.rmtree(temp_dir, ignore_errors=True)
-
-        logger.info(f"Successfully saved animation to {os.path.abspath(gif_name)}")
+        frame_dir, _ = _render_frames(trajectory_path, work_dir, show_simulation_box)
+        logger.info("Compiling GIF at %s fps...", fps)
+        _write_gif(frame_dir, gif_name, fps, loop)
     finally:
-        if not keep_in_scene:
-            pipeline.remove_from_scene()
+        shutil.rmtree(work_dir, ignore_errors=True)
+
+    logger.info(f"Successfully saved animation to {os.path.abspath(gif_name)}")
