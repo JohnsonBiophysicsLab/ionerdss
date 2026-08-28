@@ -42,6 +42,10 @@ dependencies = [
 [project.optional-dependencies]
 test = ["pytest", "pytest-cov"]
 
+# Pinned to the numpy 1.x / torch 2.2 stack. Install this into an environment of
+# its own: its numpy==1.26.4 pin is incompatible with ovito_rendering, and pip
+# resolves the conflict by silently installing an ancient OVITO that crashes
+# when it renders.
 proaffinity = [
   "numpy==1.26.4",
   "scipy==1.14.1",
@@ -57,7 +61,12 @@ proaffinity = [
   "accelerate>=0.26",
 ]
 
-ovito_rendering = ["ovito", "imageio", "Pillow"]
+# OVITO below 3.16 cannot create an offscreen framebuffer when the module is
+# imported into an external interpreter, so Viewport.render_image() fails -- and
+# on headless machines it aborts the process rather than raising. 3.16 renders
+# offscreen out of the box. Note that ovito>=3.16 requires numpy>=2, which is
+# why it cannot share an environment with the proaffinity extra below.
+ovito_rendering = ["ovito>=3.16", "imageio", "Pillow"]
 
 jupyter = ["jupyter", "jupyterlab", "ipykernel", "ipywidgets"]
 
@@ -75,10 +84,13 @@ docs = [
     "mkdocs>=1.6",
 ]
 
+# Everything that can coexist in one environment. proaffinity is deliberately
+# excluded: its numpy==1.26.4 pin conflicts with ovito's numpy>=2 requirement.
+# Install it separately with: pip install "ioNERDSS[proaffinity]"
 all = [
     "pytest",
     "pytest-cov",
-    "ovito",
+    "ovito>=3.16",
     "imageio",
     "Pillow",
     "jupyter",
@@ -86,7 +98,6 @@ all = [
     "ipykernel",
     "ipywidgets",
     "mkdocs>=1.6",
-    "ioNERDSS[proaffinity]",
 ]
 
 [tool.setuptools]

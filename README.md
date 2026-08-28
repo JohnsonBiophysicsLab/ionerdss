@@ -48,6 +48,8 @@ pip install "ioNERDSS[ovito_rendering]"
 pip install "ioNERDSS[proaffinity]"
 ```
 
+Install `proaffinity` into an environment of its own: it pins numpy 1.x, which conflicts with the numpy 2 required by the OVITO renderer.
+
 The ODE pipeline does not require a separate extra; it is included in the main package install.
 
 ### 2. For development
@@ -64,6 +66,8 @@ For the full contributor environment:
 ```bash
 pip install -e ".[all]"
 ```
+
+`[all]` covers everything except `proaffinity`, which needs its own environment (see above).
 To run simulations for structures generated from ioNERDSS you will also need to install NERDSS.
 
 NERDSS installation instructions - [NERDSS Github](https://github.com/JohnsonBiophysicsLab/NERDSS)
