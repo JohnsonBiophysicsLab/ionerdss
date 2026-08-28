@@ -131,13 +131,20 @@ def run_simulation(
     *,
     sim_index: int = 1,
     sim_dir_name: str = "validation_output",
+    env: Optional[Mapping[str, str]] = None,
 ) -> StructureValidationSimulationResult:
-    """Run the validation NERDSS job and extract one full assembly if it forms."""
+    """Run the validation NERDSS job and extract one full assembly if it forms.
+
+    ``env`` holds environment variables the NERDSS executable needs, for example
+    ``{"LD_LIBRARY_PATH": "/path/to/gsl/lib"}``. The entries are merged on top of the
+    current ``os.environ``, so only the overrides need to be passed.
+    """
     return run_structure_validation_simulation(
         artifacts=artifacts,
         nerdss_dir=nerdss_dir,
         sim_index=sim_index,
         sim_dir_name=sim_dir_name,
+        env=env,
     )
 
 

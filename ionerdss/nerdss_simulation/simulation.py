@@ -337,7 +337,7 @@ class Simulation:
 
     def run_new_simulations(
             self, sim_indices: List[int] = None, sim_dir: str = None, nerdss_dir: str = None, parallel: bool = False,
-            coordinate: bool = False, progress: bool = True, verbose=True,
+            coordinate: bool = False, progress: bool = True, verbose=True, env: Dict[str, str] = None,
         ) -> None:
         """Runs NERDSS simulations based on the given parameters.
         
@@ -346,6 +346,10 @@ class Simulation:
             sim_dir (str, optional): Directory where simulation results should be stored. Defaults to `self.work_dir/nerdss_output`.
             nerdss_dir (str, optional): Directory where NERDSS is installed. Defaults to `self.work_dir/NERDSS`.
             parallel (bool, optional): Whether to run simulations in parallel. Defaults to False.
+            env (Dict[str, str], optional): Environment variables required by the NERDSS executable,
+                for example `{"LD_LIBRARY_PATH": "/path/to/gsl/lib"}`. The entries are merged on top of
+                the current `os.environ`, so only the overrides need to be passed. Defaults to None,
+                which inherits the current environment unchanged.
 
         Notes:
             FIXME: Doesn't work on Fedora OS using Jupyter notebook. Doesn't test on other OS. Doesn't test using Python script.
@@ -375,6 +379,10 @@ class Simulation:
         if sim_indices is None:
             sim_indices = [1]
         
+        sim_env = None
+        if env is not None:
+            sim_env = {**os.environ, **{str(key): str(value) for key, value in env.items()}}
+        
         processes = []
         progress_bars = {}
         
@@ -396,11 +404,11 @@ class Simulation:
                     cmd.append(self.coordinatefile)
                 
                 if parallel:
-                    process = subprocess.Popen(cmd, cwd=sim_subdir, stdout=log_file, stderr=log_file)
+                    process = subprocess.Popen(cmd, cwd=sim_subdir, stdout=log_file, stderr=log_file, env=sim_env)
                     processes.append((index, process))
                 else:
                     if verbose: print(f"Running simulation {index}...")
-                    process = subprocess.Popen(cmd, cwd=sim_subdir, stdout=log_file, stderr=log_file)
+                    process = subprocess.Popen(cmd, cwd=sim_subdir, stdout=log_file, stderr=log_file, env=sim_env)
 
                     if verbose:
                         if progress:

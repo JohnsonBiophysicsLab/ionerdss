@@ -1089,8 +1089,14 @@ def run_structure_validation_simulation(
     *,
     sim_index: int = 1,
     sim_dir_name: str = "validation_output",
+    env: Optional[Mapping[str, str]] = None,
 ) -> StructureValidationSimulationResult:
-    """Run a real NERDSS validation simulation and extract one full assembly if present."""
+    """Run a real NERDSS validation simulation and extract one full assembly if present.
+
+    ``env`` holds environment variables the NERDSS executable needs, for example
+    ``{"LD_LIBRARY_PATH": "/path/to/gsl/lib"}``. The entries are merged on top of the
+    current ``os.environ``, so only the overrides need to be passed.
+    """
     from ionerdss.analysis.io.parser import parse_complex_histogram
     from ionerdss.nerdss_simulation import Simulation
 
@@ -1104,6 +1110,7 @@ def run_structure_validation_simulation(
         parallel=False,
         progress=False,
         verbose=False,
+        env=dict(env) if env is not None else None,
     )
 
     simulation_dir = work_dir / sim_dir_name / str(sim_index)

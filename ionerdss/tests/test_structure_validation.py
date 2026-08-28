@@ -1027,3 +1027,107 @@ def test_run_structure_validation_simulation_falls_back_to_restart_with_warning(
     assert result.full_assembly_found is True
     assert "no COMPLEXES JSON snapshots were found" in (result.warning_message or "")
     assert result.restart_file.name == "restart.dat"
+
+
+def test_run_structure_validation_simulation_passes_env_to_nerdss(monkeypatch, tmp_path):
+    work_dir = tmp_path / "nerdss_files"
+    data_dir = work_dir / "validation_output" / "1" / "DATA"
+    complexes_dir = data_dir / "COMPLEXES"
+    complexes_dir.mkdir(parents=True)
+
+    parms_path = work_dir / "parms.inp"
+    parms_path.write_text("parms", encoding="utf-8")
+    (data_dir / "histogram_complexes_time.dat").write_text("Time (s): 0\n", encoding="utf-8")
+    (data_dir / "final_coords.xyz").write_text("0\ncomment\n", encoding="utf-8")
+    (data_dir / "system.psf").write_text("PSF\n", encoding="utf-8")
+    (data_dir / "restart.dat").write_text("unused", encoding="utf-8")
+    (complexes_dir / "99999.json").write_text(
+        json.dumps([{"names": ["A", "B"], "coords": [[0.0, 0.0, 0.0], [0.0, 1.0, 0.0]]}]),
+        encoding="utf-8",
+    )
+
+    artifacts = StructureValidationArtifacts(
+        molecule_counts={"A": 1, "B": 1},
+        target_counts={"A": 1, "B": 1},
+        designed_coordinates={"A": (0.0, 0.0, 0.0), "B": (0.0, 1.0, 0.0)},
+        target_file=work_dir / "target.json",
+        nerdss_files={"parms": parms_path},
+    )
+
+    captured = {}
+
+    class FakeSimulation:
+        def __init__(self, path):
+            self.path = path
+            self.parmfile = None
+
+        def run_new_simulations(self, **kwargs):
+            captured.update(kwargs)
+            return None
+
+    import ionerdss.nerdss_simulation as nerdss_simulation
+    import ionerdss.analysis.io.parser as parser_module
+
+    monkeypatch.setattr(nerdss_simulation, "Simulation", FakeSimulation)
+    monkeypatch.setattr(
+        parser_module,
+        "parse_complex_histogram",
+        lambda path: (np.asarray([]), [], None),
+    )
+
+    run_structure_validation_simulation(
+        artifacts,
+        nerdss_dir=tmp_path / "bin",
+        env={"LD_LIBRARY_PATH": "/opt/gsl/lib"},
+    )
+
+    assert captured["env"] == {"LD_LIBRARY_PATH": "/opt/gsl/lib"}
+
+
+def test_run_new_simulations_merges_env_onto_os_environ(monkeypatch, tmp_path):
+    from ionerdss.nerdss_simulation.simulation import Simulation
+
+    work_dir = tmp_path / "work"
+    work_dir.mkdir()
+    (work_dir / "parms.inp").write_text("parms", encoding="utf-8")
+
+    nerdss_bin_dir = tmp_path / "NERDSS" / "bin"
+    nerdss_bin_dir.mkdir(parents=True)
+    (nerdss_bin_dir / "nerdss").write_text("#!/bin/sh\n", encoding="utf-8")
+
+    captured = {}
+
+    class FakeProcess:
+        def wait(self):
+            return 0
+
+        def poll(self):
+            return 0
+
+    def fake_popen(cmd, **kwargs):
+        captured["env"] = kwargs.get("env")
+        return FakeProcess()
+
+    monkeypatch.setattr("ionerdss.nerdss_simulation.simulation.subprocess.Popen", fake_popen)
+    monkeypatch.setenv("IONERDSS_TEST_INHERITED", "inherited")
+
+    simulation = Simulation(str(work_dir))
+    simulation.run_new_simulations(
+        sim_dir=str(tmp_path / "out"),
+        nerdss_dir=str(tmp_path / "NERDSS"),
+        progress=False,
+        verbose=False,
+        env={"LD_LIBRARY_PATH": "/opt/gsl/lib"},
+    )
+
+    assert captured["env"]["LD_LIBRARY_PATH"] == "/opt/gsl/lib"
+    assert captured["env"]["IONERDSS_TEST_INHERITED"] == "inherited"
+
+    simulation.run_new_simulations(
+        sim_dir=str(tmp_path / "out"),
+        nerdss_dir=str(tmp_path / "NERDSS"),
+        progress=False,
+        verbose=False,
+    )
+
+    assert captured["env"] is None
