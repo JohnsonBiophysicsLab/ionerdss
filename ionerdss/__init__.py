@@ -16,7 +16,11 @@ online at https://johnsonbiophysicslab.github.io/ionerdss/
 from __future__ import annotations
 
 import logging as _logging
-_logging.basicConfig(level=_logging.WARNING)
+# Deliberately no basicConfig() here: configuring the root logger at import time
+# installs a handler that silently turns any later
+# `logging.basicConfig(level=logging.INFO)` in a user script or notebook into a
+# no-op, hiding ioNERDSS's own progress messages. Without a handler, WARNING and
+# above still reach stderr through logging's last-resort handler.
 # <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
 
 # >>>>>>>>>>>>>>>> Version information >>>>>>>>>>>>>>>>
