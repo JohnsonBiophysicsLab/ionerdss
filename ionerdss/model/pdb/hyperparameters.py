@@ -166,6 +166,14 @@ class PDBModelHyperparameters:
         default=None,
         metadata={"description": "Path to ADFR prepare_receptor tool (optional, will auto-detect if not provided)"}
     )
+    proaffinity_backend: str = field(
+        default="auto",
+        metadata={"description": "Where to run ProAffinity: 'auto' (sidecar if one is configured, else in-process), 'in_process', or 'sidecar'. A sidecar keeps ProAffinity's numpy 1.x pin out of this environment."}
+    )
+    proaffinity_python: Optional[str] = field(
+        default=None,
+        metadata={"description": "Interpreter of the environment ProAffinity is installed in, used when running as a sidecar. Defaults to $IONERDSS_PROAFFINITY_PYTHON."}
+    )
     
     # PDB file format options
     pdb_file_format: str = field(

@@ -768,12 +768,15 @@ class CoarseGrainer:
         
         try:
             # Import here to avoid dependency issues if not used
-            from ..proaffinity_predictor import predict_proaffinity_binding_energy_batch
-            
-            # Run batch predictions
-            binding_energies = predict_proaffinity_binding_energy_batch(
+            from ..proaffinity_runner import predict_binding_energies
+
+            # Run batch predictions, in this interpreter or in the environment
+            # ProAffinity is installed in (see proaffinity_runner).
+            binding_energies = predict_binding_energies(
                 predictions_list=affinity_prediction_pairs,
                 adfr_path=self.hyperparams.adfr_path,
+                backend=self.hyperparams.proaffinity_backend,
+                python_executable=self.hyperparams.proaffinity_python,
                 verbose=True
             )
             

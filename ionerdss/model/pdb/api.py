@@ -95,6 +95,8 @@ def _generate_hyperparameters_docstring() -> str:
         "ProAffinity Binding Energy Prediction": [
             "predict_affinity",
             "adfr_path",
+            "proaffinity_backend",
+            "proaffinity_python",
         ],
         "ODE Pipeline Options": [
             "ode_enabled",
@@ -363,7 +365,9 @@ def print_hyperparameters(builder: 'PDBModelBuilder') -> str:
         ],
         'ProAffinity': [
             'predict_affinity',
-            'adfr_path'
+            'adfr_path',
+            'proaffinity_backend',
+            'proaffinity_python'
         ],
         'ODE Pipeline': [
             'ode_enabled',

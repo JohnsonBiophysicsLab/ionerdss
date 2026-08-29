@@ -55,13 +55,42 @@ export ADFR_PATH="/path/to/ADFRsuite/bin/prepare_receptor"
 
 ### Python Dependencies
 
-It is suggested that the user create a new environment separately because the version with proaffinity enabled uses an earlier version of `numpy` and `scipy`.
+ProAffinity pins numpy 1.x and torch 2.2. Those cannot share an environment with anything that needs numpy 2 -- the OVITO renderer, in particular -- so it belongs in an environment of its own:
 
 ```bash
 pip install "ionerdss[proaffinity]"
 ```
 
 See `pyproject.toml` for specific information about dependencies and their versions.
+
+### Running ProAffinity from another environment
+
+You do not have to work inside the ProAffinity environment. ioNERDSS can call into it as a sidecar: only a PDB path, chain pairs, and the resulting energies cross the boundary as JSON, so the two dependency stacks never meet.
+
+Create the sidecar once:
+
+```bash
+python -m venv ~/.ionerdss-proaffinity
+~/.ionerdss-proaffinity/bin/pip install "ioNERDSS[proaffinity]"
+export IONERDSS_PROAFFINITY_PYTHON=~/.ionerdss-proaffinity/bin/python
+```
+
+With that variable set, `predict_affinity=True` works from your main environment unchanged. To point at it explicitly instead of using the environment variable:
+
+```python
+build_system_from_pdb(
+    source='8erq',
+    predict_affinity=True,
+    proaffinity_python='~/.ionerdss-proaffinity/bin/python',
+)
+```
+
+Two hyperparameters control this:
+
+- **`proaffinity_backend`** (str, default=`'auto'`): `'auto'` uses the sidecar when one is configured and runs in-process otherwise; `'sidecar'` requires one; `'in_process'` never spawns one.
+- **`proaffinity_python`** (str, optional): the sidecar interpreter. Defaults to `$IONERDSS_PROAFFINITY_PYTHON`.
+
+The sidecar needs ProAffinity's dependencies, not a second ioNERDSS install -- the worker imports ioNERDSS from the source tree it ships with. ADFR still has to be reachable from the sidecar, so set `ADFR_PATH` in that environment or pass `adfr_path`.
 
 ## Energy Values
 
