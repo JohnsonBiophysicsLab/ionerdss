@@ -1,0 +1,29 @@
+# Conda environment for the ProAffinity-GNN sidecar.
+#
+# ProAffinity pins numpy 1.x and torch 2.2, which cannot share an environment
+# with numpy 2 -- required by ovito>=3.16, the first release that renders
+# headless. Keeping ProAffinity here lets your main environment stay on numpy 2
+# while still predicting binding affinities: ioNERDSS calls into this
+# environment as a subprocess and only JSON crosses the boundary.
+#
+#   conda env create -f env/proaffinity/environment.yml
+#   export IONERDSS_PROAFFINITY_PYTHON="$(conda info --base)/envs/ionerdss-proaffinity/bin/python"
+#
+# See docs/Proaffinity.md. To use a checkout instead of the released package,
+# swap the pip entry for -e ".[proaffinity]" and create the env from the project
+# root. On a cluster, `conda create -p /path/on/scratch/...` keeps several GB of
+# torch and model weights out of a quota'd home directory.
+#
+# Python is pinned because torch 2.2.2 publishes cp38-cp312 wheels only; the
+# pins themselves live in pyproject.toml under the proaffinity extra.
+name: ionerdss-proaffinity
+channels:
+  - conda-forge
+  # Keeps a locally configured `defaults` channel out of the solve, so this file
+  # resolves the same way everywhere and does not pull from repo.anaconda.com.
+  - nodefaults
+dependencies:
+  - python=3.10
+  - pip
+  - pip:
+      - "ioNERDSS[proaffinity]"

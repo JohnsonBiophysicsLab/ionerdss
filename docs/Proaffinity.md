@@ -67,12 +67,35 @@ See `pyproject.toml` for specific information about dependencies and their versi
 
 You do not have to work inside the ProAffinity environment. ioNERDSS can call into it as a sidecar: only a PDB path, chain pairs, and the resulting energies cross the boundary as JSON, so the two dependency stacks never meet.
 
-Create the sidecar once:
+Create the sidecar once. With conda (recommended -- it picks the Python version for you, and torch 2.2.2 publishes cp38-cp312 wheels only):
+
+```bash
+conda env create -f env/proaffinity/environment.yml
+export IONERDSS_PROAFFINITY_PYTHON="$(conda info --base)/envs/ionerdss-proaffinity/bin/python"
+```
+
+Or without a checkout of this repository:
+
+```bash
+conda create -y -n ionerdss-proaffinity python=3.10
+conda run -n ionerdss-proaffinity pip install "ioNERDSS[proaffinity]"
+export IONERDSS_PROAFFINITY_PYTHON="$(conda info --base)/envs/ionerdss-proaffinity/bin/python"
+```
+
+Or with `venv`, which inherits the Python version of the interpreter you run it from -- fine on 3.10-3.12, impossible on 3.13+:
 
 ```bash
 python -m venv ~/.ionerdss-proaffinity
 ~/.ionerdss-proaffinity/bin/pip install "ioNERDSS[proaffinity]"
 export IONERDSS_PROAFFINITY_PYTHON=~/.ionerdss-proaffinity/bin/python
+```
+
+On a cluster, create the environment somewhere with room for several GB of torch and model weights, and where a compute node can read it:
+
+```bash
+conda create -y -p /scratch/$USER/envs/ionerdss-proaffinity python=3.10
+conda run -p /scratch/$USER/envs/ionerdss-proaffinity pip install "ioNERDSS[proaffinity]"
+export IONERDSS_PROAFFINITY_PYTHON=/scratch/$USER/envs/ionerdss-proaffinity/bin/python
 ```
 
 With that variable set, `predict_affinity=True` works from your main environment unchanged. To point at it explicitly instead of using the environment variable:
