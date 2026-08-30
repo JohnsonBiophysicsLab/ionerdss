@@ -45,12 +45,11 @@ To include optional features:
 ```bash
 pip install "ioNERDSS[jupyter]"
 pip install "ioNERDSS[ovito_rendering]"
-pip install "ioNERDSS[proaffinity]"
 ```
 
-Install `proaffinity` into an environment of its own: it pins numpy 1.x, which conflicts with the numpy 2 required by the OVITO renderer.
-
 The ODE pipeline does not require a separate extra; it is included in the main package install.
+
+`proaffinity` is the exception: it needs an environment of its own, set up in step 3 below.
 
 ### 2. For development
 
@@ -67,7 +66,35 @@ For the full contributor environment:
 pip install -e ".[all]"
 ```
 
-`[all]` covers everything except `proaffinity`, which needs its own environment (see above).
+`[all]` covers everything except `proaffinity`, which needs its own environment (step 3).
+
+### 3. Binding affinity prediction (ProAffinity-GNN)
+
+ProAffinity-GNN pins numpy 1.x and torch 2.2, which cannot share an environment with the numpy 2 that OVITO rendering needs. Installing it alongside the rest quietly breaks one of the two, so it goes in an environment of its own and ioNERDSS calls into that environment when it needs a binding energy. Only a PDB path and the resulting energies cross between them.
+
+Set it up once:
+
+```bash
+conda env create -f env/proaffinity/environment.yml
+export IONERDSS_PROAFFINITY_PYTHON="$(conda info --base)/envs/ionerdss-proaffinity/bin/python"
+```
+
+Without a checkout of this repository:
+
+```bash
+conda create -y -n ionerdss-proaffinity python=3.10
+conda run -n ionerdss-proaffinity pip install "ioNERDSS[proaffinity]"
+export IONERDSS_PROAFFINITY_PYTHON="$(conda info --base)/envs/ionerdss-proaffinity/bin/python"
+```
+
+Add that `export` to your shell profile to make it stick. You never activate the environment yourself -- with the variable set, `predict_affinity=True` works from your normal environment:
+
+```python
+system = build_system_from_pdb(source="8erq", predict_affinity=True)
+```
+
+Affinity prediction also needs the ADFR suite. See [docs/Proaffinity.md](docs/Proaffinity.md) for that, for the `venv` and cluster variants, and for pointing at the environment explicitly instead of using the variable.
+
 To run simulations for structures generated from ioNERDSS you will also need to install NERDSS.
 
 NERDSS installation instructions - [NERDSS Github](https://github.com/JohnsonBiophysicsLab/NERDSS)
