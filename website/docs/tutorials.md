@@ -26,6 +26,8 @@ The tutorials folder also contains supporting outputs and helper files that are 
 
 - `install_ADFR_mac.sh`: helper script for installing the ADFR toolchain used by some ProAffinity workflows
 
+The ProAffinity notebook needs the separate ProAffinity environment and the ADFR suite; see [Getting Started](getting-started.md#binding-affinity-prediction-proaffinity-gnn).
+
 ## Open locally
 
 ```bash

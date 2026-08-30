@@ -238,6 +238,18 @@ Modes:
 - default: `None`
 - purpose: path to the ADFR `prepare_receptor` tool if auto-detection is not sufficient
 
+#### `proaffinity_backend`
+
+- type: `str`
+- default: `"auto"`
+- purpose: where ProAffinity runs. `"auto"` uses the separate environment when one is configured and this interpreter otherwise, `"sidecar"` requires one, `"in_process"` never spawns one. ProAffinity pins numpy 1.x, so it usually lives in its own environment
+
+#### `proaffinity_python`
+
+- type: `Optional[str]`
+- default: `None`
+- purpose: interpreter of the environment ProAffinity is installed in. Defaults to `$IONERDSS_PROAFFINITY_PYTHON`
+
 ### Structure source options
 
 #### `pdb_file_format`

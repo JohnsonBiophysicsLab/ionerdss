@@ -6,12 +6,14 @@
 pip install ioNERDSS
 ```
 
-Optional extras (for proaffinity-GNN predicition of protein-protein interaction free energy and jupyter notebook):
+Optional extras:
 
 ```bash
-pip install "ioNERDSS[proaffinity]"
 pip install "ioNERDSS[jupyter]"
+pip install "ioNERDSS[ovito_rendering]"
 ```
+
+ProAffinity-GNN, which predicts protein-protein binding free energies, is installed differently -- see below.
 
 ## Development install
 
@@ -21,6 +23,39 @@ cd ionerdss
 pip install -e ".[test,jupyter]"
 pytest
 ```
+
+## Binding affinity prediction (ProAffinity-GNN)
+
+ProAffinity-GNN pins numpy 1.x and torch 2.2. Those cannot share an environment with the numpy 2 that OVITO rendering requires, and installing them together leaves one of the two quietly broken. So ProAffinity gets an environment of its own, and ioNERDSS calls into it when it needs a binding energy: only a PDB path, the chain pairs, and the resulting energies cross between the two.
+
+Set it up once:
+
+```bash
+conda env create -f env/proaffinity/environment.yml
+export IONERDSS_PROAFFINITY_PYTHON="$(conda info --base)/envs/ionerdss-proaffinity/bin/python"
+```
+
+Without a checkout of the repository:
+
+```bash
+conda create -y -n ionerdss-proaffinity python=3.10
+conda run -n ionerdss-proaffinity pip install "ioNERDSS[proaffinity]"
+export IONERDSS_PROAFFINITY_PYTHON="$(conda info --base)/envs/ionerdss-proaffinity/bin/python"
+```
+
+Python is pinned because torch 2.2.2 publishes wheels for CPython 3.8-3.12 only. Add the `export` to your shell profile to make it persist.
+
+You never activate that environment yourself. With the variable set, affinity prediction works from your normal environment:
+
+```python
+system = ion.build_system_from_pdb(
+    source="8y7s",
+    predict_affinity=True,
+    adfr_path="~/Documents/ADFR",
+)
+```
+
+Prediction also needs the ADFR suite, which has to be reachable from the ProAffinity environment. Two hyperparameters control where prediction runs: `proaffinity_backend` (`auto`, `sidecar`, or `in_process`) and `proaffinity_python`, which overrides the environment variable.
 
 ## First model build
 
