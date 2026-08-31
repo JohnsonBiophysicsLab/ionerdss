@@ -5,11 +5,15 @@ Tests the ChainGrouper class and its various grouping strategies.
 """
 
 import unittest
+from pathlib import Path
 from unittest.mock import Mock, patch
 import numpy as np
 
 from ionerdss.model.pdb.chain_grouping import ChainGroup, ChainGrouper
 from ionerdss.model.pdb.hyperparameters import PDBModelHyperparameters
+
+# Multi-chain assembly fixture: 8 copies of the same chain.
+MULTI_CHAIN_CIF = Path(__file__).resolve().parents[3] / "data" / "test_6BNO.cif"
 
 
 class TestChainGroup(unittest.TestCase):
@@ -220,17 +224,17 @@ class TestChainGrouper(unittest.TestCase):
             grouper = ChainGrouper(
                 self.mock_parser, self.mock_coarse_grainer, self.hyperparams)
 
-        # Test identical coordinates
+        # Test identical coordinates (RMSD 0, below the 2.0 threshold)
         coords1 = np.array([[0, 0, 0], [1, 0, 0], [2, 0, 0]])
         coords2 = np.array([[0, 0, 0], [1, 0, 0], [2, 0, 0]])
 
-        with patch('ionerdss.model.pdb.chain_grouping.Superimposer') as mock_sup_class:
-            mock_sup = Mock()
-            mock_sup.rms = 0.5  # Below threshold
-            mock_sup_class.return_value = mock_sup
+        result = grouper._are_structures_similar_coords(coords1, coords2)
+        self.assertTrue(result)
 
-            result = grouper._are_structures_similar_coords(coords1, coords2)
-            self.assertTrue(result)
+        # Test coordinates far beyond the threshold once superimposed
+        coords_bent = np.array([[0, 0, 0], [1, 0, 0], [0, 10, 0]])
+        result = grouper._are_structures_similar_coords(coords1, coords_bent)
+        self.assertFalse(result)
 
         # Test different length coordinates
         coords3 = np.array([[0, 0, 0], [1, 0, 0]])  # Different length
@@ -390,19 +394,55 @@ class TestChainGrouper(unittest.TestCase):
         grouper = ChainGrouper.__new__(ChainGrouper)
         grouper.hyperparams = self.hyperparams
 
-        # Test with coordinates that might cause superposition to fail
         coords1 = np.array([[0, 0, 0], [1, 0, 0], [2, 0, 0]])
         coords2 = np.array([[0, 0, 0], [1, 0, 0], [2, 0, 0]])
 
-        with patch('ionerdss.model.pdb.chain_grouping.Superimposer') as mock_sup_class:
-            mock_sup_class.side_effect = Exception("Superposition failed")
+        # A non-converging SVD is treated as "not similar" and logged
+        with patch.object(ChainGrouper, '_superposition_rmsd',
+                          side_effect=np.linalg.LinAlgError("SVD did not converge")):
+            with self.assertLogs('ionerdss.model.pdb.chain_grouping', level='WARNING') as logs:
+                result = grouper._are_structures_similar_coords(coords1, coords2)
 
-            with patch('builtins.print'):  # Suppress warning prints
-                result = grouper._are_structures_similar_coords(
-                    coords1, coords2)
+        self.assertFalse(result)
+        self.assertIn("Structure comparison failed", logs.output[0])
 
-            # Should return False when superposition fails
-            self.assertFalse(result)
+    def test_structure_grouping_does_not_swallow_unexpected_errors(self):
+        """Unexpected errors must propagate instead of becoming 'not similar'."""
+        grouper = ChainGrouper.__new__(ChainGrouper)
+        grouper.hyperparams = self.hyperparams
+
+        coords1 = np.array([[0, 0, 0], [1, 0, 0], [2, 0, 0]])
+        coords2 = np.array([[0, 0, 0], [1, 0, 0], [2, 0, 0]])
+
+        with patch.object(ChainGrouper, '_superposition_rmsd',
+                          side_effect=AttributeError("genuine bug")):
+            with self.assertRaises(AttributeError):
+                grouper._are_structures_similar_coords(coords1, coords2)
+
+    def test_superposition_rmsd_is_rotation_and_translation_invariant(self):
+        """RMSD must be computed after optimal superposition, not on raw coords."""
+        rng = np.random.default_rng(0)
+        coords = rng.normal(size=(30, 3)) * 10.0
+
+        # Build a proper rotation (determinant +1) and a translation
+        rotation, _ = np.linalg.qr(rng.normal(size=(3, 3)))
+        if np.linalg.det(rotation) < 0:
+            rotation[:, 0] *= -1
+        moved = coords @ rotation.T + np.array([25.0, -13.0, 7.0])
+
+        self.assertAlmostEqual(
+            ChainGrouper._superposition_rmsd(coords, moved), 0.0, places=6)
+        self.assertAlmostEqual(
+            ChainGrouper._superposition_rmsd(coords, coords.copy()), 0.0, places=6)
+
+    def test_superposition_rmsd_rejects_reflections(self):
+        """A mirror image is not a rotation and must not superimpose onto itself."""
+        rng = np.random.default_rng(1)
+        coords = rng.normal(size=(20, 3)) * 10.0
+        mirrored = coords * np.array([1.0, 1.0, -1.0])
+
+        self.assertGreater(
+            ChainGrouper._superposition_rmsd(coords, mirrored), 1.0)
 
 
 class TestChainGrouperIntegration(unittest.TestCase):
@@ -443,6 +483,65 @@ class TestChainGrouperIntegration(unittest.TestCase):
 
         # Check that all chains are mapped
         self.assertEqual(len(grouper.chain_to_group), 4)
+
+
+class TestStructureGroupingOnRealStructure(unittest.TestCase):
+    """Structure-mode grouping against a real multi-chain assembly."""
+
+    @classmethod
+    def setUpClass(cls):
+        if not MULTI_CHAIN_CIF.exists():
+            raise unittest.SkipTest(
+                f"Test data file not found: {MULTI_CHAIN_CIF}")
+
+        from ionerdss.model.pdb.parser import PDBParser
+
+        cls.parser = PDBParser(MULTI_CHAIN_CIF)
+
+    def _group(self, rmsd_threshold):
+        coarse_grainer = Mock()
+        coarse_grainer.get_chain_interfaces.return_value = []
+        hyperparams = PDBModelHyperparameters(
+            chain_grouping_matching_mode="structure",
+            chain_grouping_rmsd_threshold=rmsd_threshold,
+        )
+        return ChainGrouper(self.parser, coarse_grainer, hyperparams)
+
+    def test_identical_chains_collapse_into_one_group(self):
+        """The 8 copies of the same chain must form a single structure group."""
+        chain_ids = self.parser.get_chain_ids()
+        self.assertGreater(len(chain_ids), 1, "fixture must be multi-chain")
+
+        grouper = self._group(2.0)
+
+        self.assertEqual(len(grouper.groups), 1)
+        group = grouper.groups[0]
+        self.assertEqual(group.grouping_method, "structure")
+        self.assertEqual(group.members, sorted(chain_ids))
+
+    def test_rmsd_threshold_is_applied(self):
+        """A threshold below the real RMSD must split the chains apart."""
+        # The chains superimpose to a small but non-zero RMSD, so a threshold
+        # of 0 leaves every chain in its own group. If the superposition were
+        # broken this test would pass for the wrong reason, which is why it is
+        # paired with the grouping test above.
+        grouper = self._group(0.0)
+
+        self.assertEqual(len(grouper.groups),
+                         len(self.parser.get_chain_ids()))
+        for group in grouper.groups:
+            self.assertEqual(len(group), 1)
+
+    def test_pairwise_rmsd_between_copies_is_small(self):
+        """Superimposing two copies of the same chain gives a near-zero RMSD."""
+        chain_ids = self.parser.get_chain_ids()
+        coords_a = self.parser.get_chain_data(chain_ids[0])["ca_coords"]
+        coords_b = self.parser.get_chain_data(chain_ids[1])["ca_coords"]
+
+        self.assertEqual(len(coords_a), len(coords_b))
+        rmsd = ChainGrouper._superposition_rmsd(coords_a, coords_b)
+        self.assertGreater(rmsd, 0.0)
+        self.assertLess(rmsd, 2.0)
 
 
 if __name__ == '__main__':
