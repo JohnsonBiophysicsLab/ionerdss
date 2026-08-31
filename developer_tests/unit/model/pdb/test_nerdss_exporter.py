@@ -321,6 +321,81 @@ class TestNERDSSExporterWithMolecules(unittest.TestCase):
         self.assertIn("WaterBox = [250.0, 250.0, 250.0]", parms_content)
 
 
+    def _hyperparams(self, **overrides):
+        """Build hyperparameters for transition matrix tests."""
+        from ionerdss.model.pdb.hyperparameters import PDBModelHyperparameters
+
+        hyperparams = PDBModelHyperparameters()
+        for key, value in overrides.items():
+            setattr(hyperparams, key, value)
+        return hyperparams
+
+    def test_transition_matrix_size_too_small_raises(self):
+        """Explicit transition_matrix_size below the molecule count is rejected."""
+        exporter = NERDSSExporter(self.system, self.workspace_manager)
+        hyperparams = self._hyperparams(
+            count_transition=True, transition_matrix_size=75)
+
+        with self.assertRaises(ValueError) as ctx:
+            exporter.export_all(
+                molecule_counts={"A": 500},
+                box_nm=(200.0, 200.0, 200.0),
+                parms_overrides={"hyperparams": hyperparams}
+            )
+
+        message = str(ctx.exception)
+        self.assertIn("75", message)
+        self.assertIn("500", message)
+        self.assertIn("A", message)
+
+    def test_transition_matrix_size_too_small_ignored_when_counting_disabled(self):
+        """A small matrix is harmless while count_transition is off."""
+        exporter = NERDSSExporter(self.system, self.workspace_manager)
+        hyperparams = self._hyperparams(
+            count_transition=False, transition_matrix_size=75)
+
+        output_files = exporter.export_all(
+            molecule_counts={"A": 500},
+            box_nm=(200.0, 200.0, 200.0),
+            parms_overrides={"hyperparams": hyperparams}
+        )
+
+        content = output_files['A_mol'].read_text()
+        self.assertIn("countTransition = false", content)
+        self.assertIn("transitionMatrixSize = 75", content)
+
+    def test_transition_matrix_size_defaults_to_molecule_count(self):
+        """An unset transition_matrix_size is sized from the molecule count."""
+        exporter = NERDSSExporter(self.system, self.workspace_manager)
+        hyperparams = self._hyperparams(
+            count_transition=True, transition_matrix_size=None)
+
+        output_files = exporter.export_all(
+            molecule_counts={"A": 250},
+            box_nm=(200.0, 200.0, 200.0),
+            parms_overrides={"hyperparams": hyperparams}
+        )
+
+        content = output_files['A_mol'].read_text()
+        self.assertIn("countTransition = true", content)
+        self.assertIn("transitionMatrixSize = 250", content)
+
+    def test_transition_matrix_size_large_enough_is_kept(self):
+        """A sufficient explicit transition_matrix_size is written unchanged."""
+        exporter = NERDSSExporter(self.system, self.workspace_manager)
+        hyperparams = self._hyperparams(
+            count_transition=True, transition_matrix_size=600)
+
+        output_files = exporter.export_all(
+            molecule_counts={"A": 500},
+            box_nm=(200.0, 200.0, 200.0),
+            parms_overrides={"hyperparams": hyperparams}
+        )
+
+        content = output_files['A_mol'].read_text()
+        self.assertIn("transitionMatrixSize = 600", content)
+
+
 class TestAngleCalculation(unittest.TestCase):
     """Test angle calculation methods."""
 

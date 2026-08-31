@@ -72,6 +72,11 @@ from ionerdss.model.titrate.parms_titrator import parse_mol_file
 
 #------------ exporter class ---------------
 
+# Fallback transitionMatrixSize used when no molecule count is available to size
+# the matrix from (e.g. dry runs that never receive molecule counts).
+DEFAULT_TRANSITION_MATRIX_SIZE = 500
+
+
 class NERDSSExporter:
     """Exporter for converting ionerdss System to NERDSS simulation files.
 
@@ -326,7 +331,11 @@ class NERDSSExporter:
 
         # Export .mol files for each molecule type (this builds the mapping)
         for mol_type in self.system.molecule_types:
-            mol_file_path = self._write_mol_file(mol_type, parms_overrides.get('hyperparams') if parms_overrides else None)
+            mol_file_path = self._write_mol_file(
+                mol_type,
+                parms_overrides.get('hyperparams') if parms_overrides else None,
+                molecule_count=molecule_counts.get(mol_type.name),
+            )
             output_files[f"{mol_type.name}_mol"] = mol_file_path
 
         # after the loop that calls _write_mol_file(...) for all mol types
@@ -1016,7 +1025,62 @@ class NERDSSExporter:
 
         return True
 
-    def _write_mol_file(self, mol_type: MoleculeType, hyperparams=None, dry_run: bool = False) -> Optional[Path]:
+    def _resolve_transition_matrix_size(self, mol_name: str, hyperparams,
+                                        molecule_count: Optional[int]) -> int:
+        """Resolve and validate transitionMatrixSize for one molecule type.
+
+        NERDSS indexes ``transitionMatrix[N - 1]`` for a complex holding ``N``
+        copies of a molecule type without ever checking ``N`` against
+        ``transitionMatrixSize``. A complex larger than the matrix therefore
+        writes out of bounds and the simulation segfaults, so the matrix has to
+        be able to hold every copy of that molecule type in the simulation.
+
+        Args:
+            mol_name: Molecule type the .mol file is written for.
+            hyperparams: Hyperparameters carrying count_transition and
+                transition_matrix_size.
+            molecule_count: Number of copies of this molecule type in the
+                simulation, or None when unknown.
+
+        Returns:
+            transitionMatrixSize to write into the .mol file.
+
+        Raises:
+            ValueError: If transition counting is enabled and the explicitly
+                configured size is smaller than the molecule count.
+        """
+        configured = getattr(hyperparams, 'transition_matrix_size', None)
+        count_transition = bool(getattr(hyperparams, 'count_transition', False))
+
+        if configured is None:
+            size = max(int(molecule_count), 1) if molecule_count else DEFAULT_TRANSITION_MATRIX_SIZE
+            if count_transition and self.workspace_manager:
+                self.workspace_manager.logger.info(
+                    "transition_matrix_size not set; sizing the transition matrix "
+                    "of molecule type %s to its molecule count (%d).", mol_name, size
+                )
+            return size
+
+        configured = int(configured)
+        if count_transition and molecule_count is not None and configured < molecule_count:
+            message = (
+                f"transition_matrix_size ({configured}) is smaller than the number of "
+                f"copies of molecule type {mol_name} in the simulation "
+                f"({molecule_count}). With count_transition=True, NERDSS writes "
+                f"transitionMatrix[N-1] for a complex holding N copies of a molecule "
+                f"type without any bounds check, so a complex larger than "
+                f"transition_matrix_size corrupts memory and the simulation dies with "
+                f"a segfault. Set transition_matrix_size >= {molecule_count}, or leave "
+                f"it unset to size it automatically from the molecule counts."
+            )
+            if self.workspace_manager:
+                self.workspace_manager.logger.error(message)
+            raise ValueError(message)
+
+        return configured
+
+    def _write_mol_file(self, mol_type: MoleculeType, hyperparams=None, dry_run: bool = False,
+                        molecule_count: Optional[int] = None) -> Optional[Path]:
         mol_file_path = self.output_dir / f"{mol_type.name}.mol"
 
         # Get the representative instance for this molecule type
@@ -1127,8 +1191,10 @@ class NERDSSExporter:
             # Write transition matrix parameters if hyperparameters provided
             if hyperparams:
                 count_trans = str(hyperparams.count_transition).lower()
+                matrix_size = self._resolve_transition_matrix_size(
+                    mol_type.name, hyperparams, molecule_count)
                 f.write(f"countTransition = {count_trans}\n")
-                f.write(f"transitionMatrixSize = {hyperparams.transition_matrix_size}\n")
+                f.write(f"transitionMatrixSize = {matrix_size}\n")
             
             D_t = mol_type.D_t_nm2_us; D_r = mol_type.D_r_rad2_us
             f.write("# translational diffusion constants\n")
