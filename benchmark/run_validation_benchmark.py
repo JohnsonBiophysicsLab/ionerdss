@@ -141,6 +141,11 @@ def _run_validation_attempt(
             "restartWrite": iterations,
             "checkPoint": iterations,
             "pdbWrite": iterations,
+            # NERDSS leaves bondedComplexWrite at -1 unless it is asked for, so DATA/COMPLEXES
+            # stays empty and validation silently falls back to the terminal restart snapshot --
+            # which only sees the final state and misses an assembly that formed and then grew.
+            # 100 snapshots per run keeps the JSON output bounded at any nItr.
+            "bondedComplexWrite": max(1, iterations // 100),
         },
     )
 
