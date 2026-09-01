@@ -2895,64 +2895,84 @@ class TemplateBuilder:
                 self.workspace_manager.logger.info(f"DEBUG: Sample chain {sample_chain}: {chain_to_interfaces[sample_chain]}")
             self.workspace_manager.logger.info(f"DEBUG: interface_to_type_mapping size: {len(self.interface_to_type_mapping)}")
 
+        # Interface types with observed chain-level occupancy. Co-occurrence is
+        # only decisive for these; anything absent here has no evidence either
+        # way and falls back to the geometric heuristic.
+        observed_types: Set[str] = set()
+        for types in chain_to_interfaces.values():
+            observed_types.update(types)
+
         for template_name, interface_template in self.interface_templates.items():
             # For each interface, check for potential clashes with other interfaces
-            # on the same molecule type
-            mol_type = interface_template.this_mol_type
-            if mol_type:
-                other_interfaces = [
-                    name for name, intf in self.interface_templates.items()
-                    if (intf.this_mol_type == mol_type and name != template_name)
-                ]
+            # on the same molecule type.
+            # NOTE: this uses this_mol_type_name rather than the this_mol_type
+            # back-reference, which is still None at template-build time -- it is
+            # only wired up later by SystemBuilder._establish_cross_references().
+            mol_type_name = interface_template.this_mol_type_name
+            if not mol_type_name:
+                continue
 
-                # Simple distance-based clash detection
-                # (Real implementation would use detailed atomic coordinates)
-                for other_name in other_interfaces:
-                    # Co-occurrence Check
-                    coexists = False
-                    for chain, types in chain_to_interfaces.items():
-                        if template_name in types and other_name in types:
-                            coexists = True
-                            break
-                    
-                    if coexists:
-                        continue  # Skip clash check for compatible interfaces
+            other_interfaces = [
+                name for name, intf in self.interface_templates.items()
+                if (intf.this_mol_type_name == mol_type_name and name != template_name)
+            ]
 
-                    # Geometric Fallback:
-                    # If interfaces are physically distant or on opposite sides, assume compatible
-                    # even if not explicitly co-occurring in a single chain.
-                    other_intf = self.interface_templates[other_name]
-                    distance = np.linalg.norm(
-                        interface_template.local_coord - other_intf.local_coord
+            for other_name in other_interfaces:
+                other_intf = self.interface_templates[other_name]
+
+                # Primary rule: chain-level co-occurrence.
+                # Two interface types are mutually exclusive if they never
+                # co-occur on any single chain of the input structure. This
+                # recovers quasi-equivalence exactly (e.g. a T=3 capsid becomes
+                # an effective 3-state molecule) with no new molecule types.
+                if template_name in observed_types and other_name in observed_types:
+                    coexists = any(
+                        template_name in types and other_name in types
+                        for types in chain_to_interfaces.values()
                     )
-                    
-                    if distance > 2.5: # 2.5 nm safe distance
-                        continue
+                    if not coexists:
+                        self._mark_mutually_exclusive(
+                            template_name, interface_template, other_name, other_intf
+                        )
+                    continue
 
-                    # Calculate dynamic threshold based on partner radii
-                    threshold = 0.5  # default 0.5 nm threshold
-                    
-                    # Enhance detection for large partners
-                    if interface_template.partner_mol_type_name and other_intf.partner_mol_type_name:
-                        try:
-                            # Get radii of the partners that would bind at these interfaces
-                            r1 = self.molecule_templates[interface_template.partner_mol_type_name].radius_nm
-                            r2 = self.molecule_templates[other_intf.partner_mol_type_name].radius_nm
-                            
-                            # Heuristic: if interfaces are closer than 0.6 * sum of radii
-                            # Reduced from 0.75 to 0.6 to be less aggressive given geometric checks
-                            # Make this a hyperparameter
-                            #threshold = max(0.5, (r1 + r2) * 0.75)
-                            threshold = (r1 + r2) * 1.0
-                        except (KeyError, AttributeError):
-                            pass
+                # Secondary heuristic: geometric proximity. Only reached when
+                # at least one of the two interfaces was never observed on a
+                # chain, so the co-occurrence test cannot decide.
+                distance = np.linalg.norm(
+                    interface_template.local_coord - other_intf.local_coord
+                )
 
-                    # If interfaces are very close, mark as mutually exclusive
-                    if distance < threshold:
-                        if other_name not in interface_template.required_free:
-                            interface_template.required_free.append(other_name)
-                        if template_name not in other_intf.required_free:
-                            other_intf.required_free.append(template_name)
+                # Dynamic threshold based on the radii of the partners that would
+                # bind at these interfaces; 0.5 nm contact radius otherwise.
+                threshold = 0.5
+                if interface_template.partner_mol_type_name and other_intf.partner_mol_type_name:
+                    try:
+                        r1 = self.molecule_templates[interface_template.partner_mol_type_name].radius_nm
+                        r2 = self.molecule_templates[other_intf.partner_mol_type_name].radius_nm
+                        threshold = (r1 + r2) * 1.0
+                    except (KeyError, AttributeError):
+                        pass
+
+                # If interfaces are close enough that their partners would
+                # overlap, mark as mutually exclusive.
+                if distance < threshold:
+                    self._mark_mutually_exclusive(
+                        template_name, interface_template, other_name, other_intf
+                    )
+
+    @staticmethod
+    def _mark_mutually_exclusive(
+        name_a: str,
+        intf_a: InterfaceType,
+        name_b: str,
+        intf_b: InterfaceType,
+    ) -> None:
+        """Record that two interface types cannot be occupied simultaneously."""
+        if name_b not in intf_a.required_free:
+            intf_a.required_free.append(name_b)
+        if name_a not in intf_b.required_free:
+            intf_b.required_free.append(name_a)
 
     def get_molecule_templates(self) -> Dict[str, MoleculeType]:
         """Get all molecular templates.

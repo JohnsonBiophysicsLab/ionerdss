@@ -1912,7 +1912,7 @@ class NERDSSExporter:
         min_dt = float('inf')
         
         reaction_re = re.compile(
-            r"^\s*([A-Za-z0-9_]+)\(([A-Za-z0-9_]+)\)\s*\+\s*([A-Za-z0-9_]+)\(([A-Za-z0-9_]+)\)"
+            r"^\s*([A-Za-z0-9_]+)\(([^)]+)\)\s*\+\s*([A-Za-z0-9_]+)\(([^)]+)\)"
         )
         
         found_interaction = False
@@ -1921,6 +1921,8 @@ class NERDSSExporter:
             match = reaction_re.match(rxn_str)
             if not match: continue
             
+            # Site groups may carry comma-separated ancillary (required-free)
+            # sites, e.g. "aa1f,aa4b"; only the molecule names matter here.
             mol1, _, mol2, _ = match.groups()
             sigma = sigma_list[i]
             
@@ -2070,7 +2072,7 @@ class NERDSSExporter:
 
         # Regex to parse reactions
         reaction_re = re.compile(
-            r"^\s*([A-Za-z0-9_]+)\(([A-Za-z0-9_]+)\)\s*\+\s*([A-Za-z0-9_]+)\(([A-Za-z0-9_]+)\)"
+            r"^\s*([A-Za-z0-9_]+)\(([^)]+)\)\s*\+\s*([A-Za-z0-9_]+)\(([^)]+)\)"
         )
         forced_off_rate = None
         titration_on_rate = None
@@ -2148,15 +2150,25 @@ class NERDSSExporter:
                 # Parse reaction to get molecule types and sites
                 match = reaction_re.match(reaction)
                 if match:
-                    mol1, site1, mol2, site2 = match.groups()
+                    mol1, site1_full, mol2, site2_full = match.groups()
+
+                    # The site string may carry required-free (steric exclusion)
+                    # sites after the binding site, e.g. "aa1f,aa4b". The
+                    # binding site is always the first one.
+                    site1 = site1_full.split(',')[0].strip()
+                    site2 = site2_full.split(',')[0].strip()
 
                     # Get calculated normal vectors for each species and site
                     norm1_local = self._local_x_with_degeneracy(mol1, site1)
                     norm2_local = self._local_x_with_degeneracy(mol2, site2)
 
                 else:
-                    # Fallback
-                    norm1_local = np.array([0.0, 0.0, 1.0])
+                    # Fallback: unparseable reaction, use neutral defaults so the
+                    # downstream rate/energy lookups degrade instead of crashing.
+                    if self.workspace_manager:
+                        self.workspace_manager.logger.warning(
+                            "Reaction regex failed to match, using defaults: %s", reaction)
+                    mol1 = site1 = mol2 = site2 = ""
                     norm1_local = np.array([0.0, 0.0, 1.0])
                     norm2_local = np.array([0.0, 0.0, 1.0])
 
