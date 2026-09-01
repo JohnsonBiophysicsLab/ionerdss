@@ -239,9 +239,9 @@ class PDBModelHyperparameters:
         default=False,
         metadata={"description": "Enable transition matrix tracking during NERDSS simulation"}
     )
-    transition_matrix_size: int = field(
-        default=500,
-        metadata={"description": "Size of transition matrix"}
+    transition_matrix_size: Optional[int] = field(
+        default=None,
+        metadata={"description": "Size of transition matrix, i.e. the largest number of copies of a single molecule type NERDSS can track inside one complex. Must be >= the number of copies of that molecule type in the simulation, otherwise NERDSS writes past the end of the matrix and crashes. If None, it is set automatically to the molecule count of each type."}
     )
     transition_write: Optional[int] = field(
         default=None,
