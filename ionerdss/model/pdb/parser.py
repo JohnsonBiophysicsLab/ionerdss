@@ -268,7 +268,7 @@ if len(coords) > 0:
 
 """
 
-from typing import Any, Dict, List, Tuple, Optional, Union
+from typing import Any, Dict, List, Set, Tuple, Optional, Union
 from pathlib import Path
 import shutil
 import tempfile
@@ -282,7 +282,7 @@ from Bio.PDB import PDBParser as BioPDBParser, MMCIFParser, PDBList
 from Bio.PDB.Structure import Structure
 from Bio.PDB.Chain import Chain
 # from Bio.PDB.Residue import Residue
-from Bio.PDB.Polypeptide import PPBuilder, is_aa
+from Bio.PDB.Polypeptide import PPBuilder, is_aa, protein_letters_3to1
 
 from ionerdss.model.components.units import Units
 from .file_manager import WorkspaceManager
@@ -306,7 +306,8 @@ class PDBParser:
     def __init__(self, source: Union[str, Path], units: Optional[Units] = None,
                  fetch_from_pdb: bool = False, file_format: str = 'mmcif',
                  workspace_manager: Optional[WorkspaceManager] = None,
-                 concat_all_frames=True, max_frames=None):
+                 concat_all_frames=True, max_frames=None,
+                 include_modified_residues: bool = True):
         """Initialize parser with PDB/mmCIF file or PDB ID for fetching.
 
         Args:
@@ -315,6 +316,9 @@ class PDBParser:
             fetch_from_pdb: If True, treat source as PDB ID and fetch from database.
             file_format: Format for fetching ('pdb' or 'mmcif'). Default 'mmcif'.
             workspace_manager: Workspace manager for file organization.
+            include_modified_residues: Keep non-standard residues that belong to a
+                polymer entity (modified amino acids, terminal caps). Set False to
+                restore the older standard-amino-acids-only behaviour.
         """
         self.units = units or Units()
         self.structure: Optional[Structure] = None
@@ -322,6 +326,9 @@ class PDBParser:
         self.pdb_id: Optional[str] = None
         self.filepath: Optional[Path] = None
         self.workspace_manager = workspace_manager
+        self.include_modified_residues = include_modified_residues
+        self._polymer_residue_names: Optional[Set[str]] = None
+        self._reported_skipped_residues: Set[str] = set()
 
         # Dealing with PDB with multiple frames
         self.concat_all_frames = concat_all_frames
@@ -739,17 +746,79 @@ class PDBParser:
                 list(self.chain_data.keys())
             )
 
+    def _get_polymer_residue_names(self) -> Set[str]:
+        """Residue names belonging to polymer entities, read from the mmCIF header.
+
+        Modified residues (e.g. selenomethionine, D-amino acids, non-natural
+        side chains) and terminal caps are stored as HETATM and are not
+        recognised by BioPython's is_aa, but they are listed in
+        _entity_poly_seq alongside the standard residues of the same chain.
+
+        Only the header is scanned, so this stays cheap on large assemblies.
+        """
+        cached = getattr(self, '_polymer_residue_names', None)
+        if cached is not None:
+            return cached
+
+        names: Set[str] = set()
+        filepath = getattr(self, 'filepath', None)
+        if filepath and filepath.suffix.lower() in ('.cif', '.mmcif'):
+            try:
+                with open(filepath, 'r', errors='replace') as handle:
+                    in_loop = False
+                    columns: List[str] = []
+                    for line in handle:
+                        # the header always precedes the coordinates; stop there
+                        if line.startswith('_atom_site.'):
+                            break
+                        stripped = line.strip()
+                        if stripped.startswith('_entity_poly_seq.'):
+                            in_loop = True
+                            columns.append(stripped.split('.', 1)[1])
+                            continue
+                        if in_loop:
+                            if not stripped or stripped.startswith(('#', '_', 'loop_')):
+                                in_loop = False
+                                columns = []
+                                continue
+                            parts = stripped.split()
+                            if 'mon_id' in columns and len(parts) == len(columns):
+                                names.add(parts[columns.index('mon_id')].strip('\'"'))
+            except OSError as e:
+                if getattr(self, 'workspace_manager', None):
+                    self.workspace_manager.logger.warning(
+                        "Could not read polymer residue names from %s: %s", filepath, e)
+
+        self._polymer_residue_names = names
+        return names
+
+    def _is_polymer_residue(self, residue) -> bool:
+        """Check whether a residue is part of a polymer chain.
+
+        Standard amino acids always qualify. Non-standard ones qualify only
+        when include_modified_residues is set, and then only if the header
+        lists them as polymer monomers (or BioPython recognises them as a
+        modified amino acid, which covers PDB-format files with no header).
+        """
+        if is_aa(residue, standard=True):
+            return True
+        if not getattr(self, 'include_modified_residues', True):
+            return False
+        if residue.get_resname() in self._get_polymer_residue_names():
+            return True
+        return bool(is_aa(residue, standard=False))
+
     def _is_valid_chain(self, chain: Chain) -> bool:
-        """Check if chain contains at least one standard amino acid.
+        """Check if chain contains at least one polymer residue.
 
         Args:
             chain: BioPython Chain object.
 
         Returns:
-            True if chain contains standard amino acids, False otherwise.
+            True if chain contains polymer residues, False otherwise.
         """
         for residue in chain:
-            if is_aa(residue, standard=True):
+            if self._is_polymer_residue(residue):
                 return True
         return False
 
@@ -763,13 +832,14 @@ class PDBParser:
             Dictionary containing chain data including coordinates,
             residues, COM, and radius.
         """
-        # Extract amino acid residues with Cα atoms
+        # Extract polymer residues with Cα atoms
         residues = []
         all_coords = []
         ca_coords = []
+        no_ca = []
 
         for residue in chain:
-            if is_aa(residue, standard=True):
+            if self._is_polymer_residue(residue):
                 # Get Cα coordinate if available
                 if 'CA' in residue:
                     ca_coord = residue['CA'].get_coord()
@@ -780,10 +850,24 @@ class PDBParser:
                     }
                     residues.append(residue_data)
                     ca_coords.append(ca_coord)
+                else:
+                    # Interface detection is Cα-based, so a residue with no Cα
+                    # (typically a terminal cap) can only contribute to COM,
+                    # radius and the bounding box.
+                    no_ca.append(residue.get_resname())
 
                 # Collect all atom coordinates for COM/radius calculation
                 for atom in residue:
                     all_coords.append(atom.get_coord())
+
+        # Report each such residue name once rather than per chain
+        reported = getattr(self, '_reported_skipped_residues', None)
+        if no_ca and reported is not None and self.workspace_manager:
+            for name in sorted(set(no_ca) - reported):
+                reported.add(name)
+                self.workspace_manager.logger.warning(
+                    "Polymer residue %s has no CA atom; it contributes to the chain "
+                    "COM and radius but not to interface detection", name)
 
         # Convert to numpy arrays
         all_coords = np.array(all_coords) if all_coords else np.empty((0, 3))
@@ -805,7 +889,7 @@ class PDBParser:
             'radius': radius,
             'bbox_min': bbox_min,
             'bbox_max': bbox_max,
-            'sequence': self._extract_sequence(chain)
+            'sequence': self._extract_sequence(chain, residues)
         }
 
         if self.workspace_manager:
@@ -857,15 +941,24 @@ class PDBParser:
             return np.zeros(3), np.zeros(3)
         return coords.min(axis=0), coords.max(axis=0)
 
-    def _extract_sequence(self, chain: Chain) -> str:
+    def _extract_sequence(self, chain: Chain, residues: Optional[List[dict]] = None) -> str:
         """Extract amino acid sequence from chain.
 
         Args:
             chain: BioPython Chain object.
+            residues: Kept residue records. When given, the sequence is built
+                from these so it stays index-for-index consistent with
+                chain_data['residues'] and ['ca_coords']; PPBuilder would drop
+                modified residues and desynchronise the two. Unknown residue
+                names become 'X'.
 
         Returns:
             Single-letter amino acid sequence string.
         """
+        if residues:
+            return ''.join(
+                protein_letters_3to1.get(r['name'].upper(), 'X') for r in residues)
+
         ppb = PPBuilder()
         peptides = ppb.build_peptides(chain)
         if peptides:

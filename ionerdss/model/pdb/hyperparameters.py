@@ -38,6 +38,10 @@ class PDBModelHyperparameters:
         default=4,
         metadata={"description": "Minimum number of residues for a chain to be included (filters out small molecules)", "unit": "residues"}
     )
+    include_modified_residues: bool = field(
+        default=True,
+        metadata={"description": "Keep non-standard residues that belong to a polymer entity (modified amino acids such as D-amino acids or selenomethionine, and terminal caps). These are stored as HETATM and are invisible to BioPython's is_aa, but they often form the binding interfaces. Set False for the older standard-amino-acids-only behaviour."}
+    )
     
     # Interface type assignment parameters (for template building)
     interface_type_assignment_distance_threshold: float = field(

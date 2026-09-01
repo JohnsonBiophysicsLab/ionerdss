@@ -154,7 +154,8 @@ class PDBModelBuilder:
                 source=self.source,
                 units=units,
                 file_format=file_format,
-                workspace_manager=self.workspace_manager
+                workspace_manager=self.workspace_manager,
+                include_modified_residues=hyperparams.include_modified_residues
             )
             self.pdb_id = self.parser.get_pdb_id() or pdb_id
 
