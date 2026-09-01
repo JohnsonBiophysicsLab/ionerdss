@@ -352,8 +352,8 @@ for x, y, label in stage_labels:
 
 # Add information boxes
 hyperparams_text = """Key Hyperparameters:
-• distance_cutoff (0.6 nm)
-• residue_cutoff (3)
+• distance_cutoff (0.9 nm)
+• residue_cutoff (2)
 • matching_mode (default/sequence/structure)
 • rmsd_threshold (2.0 Å)
 • seq_threshold (0.5)

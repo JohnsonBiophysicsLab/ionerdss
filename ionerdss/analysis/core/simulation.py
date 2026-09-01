@@ -206,9 +206,12 @@ class Simulation:
         else:
             target_sizes = np.array([sum([comp[monomer] for monomer in comp]) for comp in target_comps])
 
-        largest_size_ts = np.zeros(len(self.data.hist_times))
-        for i,row in enumerate(self.data.hist_matrix):
-            largest_size_ts[i] = np.amax(target_sizes[row[target_indices].toarray()>0])
+        # (num_times x num_target_comps) dense counts; slice-by-column-list works for
+        # every supported scipy version, unlike indexing the rows yielded by iteration
+        comp_counts = self.data.hist_matrix[:,target_indices].toarray()
+
+        # size of the largest target complex present at each time (0 if none are present)
+        largest_size_ts = np.amax(np.where(comp_counts>0, target_sizes, 0), axis=1).astype(float)
 
         return self.data.hist_times, largest_size_ts
 
@@ -241,10 +244,6 @@ class Simulation:
 
         target_comps = list(self.data.hist_comps) # make a copy that we will modify
 
-        if len(target_comps) == 0:
-            logger.error(f"No matching complexes found in simulation {self.id} for include={include} and exclude={exclude}")
-            return self.data.hist_times, np.zeros(len(self.data.hist_times))
-
         if include is not None:
             for inc in include:
                 # restrict to complexes containing desired monomer
@@ -253,7 +252,11 @@ class Simulation:
         # restrict to complexes which do not contain any of the excluded monomers
         for e in exclude:
             target_comps = [comp for comp in target_comps if e not in comp]
-        
+
+        if len(target_comps) == 0:
+            logger.error(f"No matching complexes found in simulation {self.id} for include={include} and exclude={exclude}")
+            return self.data.hist_times, np.zeros(len(self.data.hist_times))
+
         target_indices = [self.data.hist_comps.index(comp) for comp in target_comps]
         
         if only_count_these is not None:
@@ -263,11 +266,16 @@ class Simulation:
         else:
             target_sizes = np.array([sum([comp[monomer] for monomer in comp]) for comp in target_comps])
 
-        average_size_ts = np.zeros(len(self.data.hist_times))
-        for i,row in enumerate(self.data.hist_matrix):
-            comp_counts = row[target_indices].toarray()
-            num_monomers = np.sum(comp_counts * target_sizes)
-            average_size_ts[i] = np.sum(target_sizes * comp_counts * target_sizes) / num_monomers
+        # (num_times x num_target_comps) dense counts; slice-by-column-list works for
+        # every supported scipy version, unlike indexing the rows yielded by iteration
+        comp_counts = self.data.hist_matrix[:,target_indices].toarray()
+
+        num_monomers = np.sum(comp_counts * target_sizes, axis=1)
+        weighted_sizes = np.sum(comp_counts * target_sizes * target_sizes, axis=1)
+        # times with no target complexes at all have no defined average size
+        average_size_ts = np.divide(weighted_sizes, num_monomers,
+                                    out=np.full(len(self.data.hist_times), np.nan),
+                                    where=num_monomers>0)
 
         return self.data.hist_times, average_size_ts
 

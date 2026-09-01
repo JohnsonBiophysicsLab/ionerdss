@@ -434,7 +434,7 @@ def test_build_system_raises_early_for_disconnected_designed_assembly(monkeypatc
             return self.workspace_path / f"{report_type}.txt"
 
     class FakeParser:
-        def __init__(self, source, units, file_format, workspace_manager):
+        def __init__(self, source, units, file_format, workspace_manager, **kwargs):
             self.source = source
             self.units = units
             self.file_format = file_format
@@ -520,7 +520,7 @@ def test_build_system_allows_connected_designed_assembly(monkeypatch, tmp_path):
             return self.workspace_path / f"{report_type}.txt"
 
     class FakeParser:
-        def __init__(self, source, units, file_format, workspace_manager):
+        def __init__(self, source, units, file_format, workspace_manager, **kwargs):
             self.source = source
             self.units = units
             self.file_format = file_format

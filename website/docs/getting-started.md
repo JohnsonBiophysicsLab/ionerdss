@@ -13,6 +13,8 @@ pip install "ioNERDSS[jupyter]"
 pip install "ioNERDSS[ovito_rendering]"
 ```
 
+On clusters running RHEL/Rocky 8 -- Rockfish among them -- pip installs OVITO 3.15 instead of 3.16: 3.16 pins a PySide6 whose Linux wheels need glibc 2.34, newer than those systems ship. Rendering still works there; ioNERDSS falls back to OVITO's software ray tracer, which is slower than the OpenGL path but needs no display. If the install instead fails with `No matching distribution found for PySide6`, you are on ioNERDSS 2.2.3 or earlier -- `pip install -U ioNERDSS` and retry.
+
 ProAffinity-GNN, which predicts protein-protein binding free energies, is installed differently -- see below.
 
 ## Development install

@@ -225,6 +225,66 @@ class TestPDBParser(unittest.TestCase):
         sequence = parser._extract_sequence(chain)
         self.assertEqual(sequence, "")
 
+    def test_extract_sequence_from_kept_residues(self):
+        """Sequence follows the kept residues so it stays aligned with ca_coords."""
+        parser = PDBParser.__new__(PDBParser)
+
+        residues = [{'id': 1, 'name': '4J2', 'ca_coord': np.zeros(3)},
+                    {'id': 2, 'name': 'CYS', 'ca_coord': np.zeros(3)},
+                    {'id': 3, 'name': 'TYR', 'ca_coord': np.zeros(3)}]
+
+        # modified residues have no one-letter code, so they become X
+        self.assertEqual(parser._extract_sequence(Mock(), residues), "XCY")
+
+    def test_polymer_residue_names_from_mmcif_header(self):
+        """Polymer monomers are read from _entity_poly_seq, coordinates ignored."""
+        parser = PDBParser.__new__(PDBParser)
+        parser.workspace_manager = None
+        parser._polymer_residue_names = None
+
+        cif = Path(self.temp_dir) / "tiny.cif"
+        cif.write_text(
+            "data_TEST\n"
+            "loop_\n"
+            "_entity_poly_seq.entity_id\n"
+            "_entity_poly_seq.num\n"
+            "_entity_poly_seq.mon_id\n"
+            "1 1 4J2\n"
+            "1 2 CYS\n"
+            "1 3 DTR\n"
+            "#\n"
+            "loop_\n"
+            "_atom_site.group_PDB\n"
+            "_atom_site.label_comp_id\n"
+            "HETATM LIG\n"
+        )
+        parser.filepath = cif
+
+        self.assertEqual(parser._get_polymer_residue_names(), {"4J2", "CYS", "DTR"})
+        # the ligand past _atom_site. must not leak in
+        self.assertNotIn("LIG", parser._get_polymer_residue_names())
+
+    @patch('ionerdss.model.pdb.parser.is_aa')
+    def test_is_polymer_residue_honours_flag(self, mock_is_aa):
+        """A header-listed modified residue counts only when the flag is set."""
+        mock_is_aa.return_value = False       # not a standard (or known) amino acid
+        residue = Mock()
+        residue.get_resname.return_value = 'DTR'
+
+        parser = PDBParser.__new__(PDBParser)
+        parser._polymer_residue_names = {'DTR', 'CYS'}
+
+        parser.include_modified_residues = True
+        self.assertTrue(parser._is_polymer_residue(residue))
+
+        parser.include_modified_residues = False
+        self.assertFalse(parser._is_polymer_residue(residue))
+
+        # something absent from the header stays out either way
+        residue.get_resname.return_value = 'HOH'
+        parser.include_modified_residues = True
+        self.assertFalse(parser._is_polymer_residue(residue))
+
     def test_convert_coords_to_nm(self):
         """Test convert_coords_to_nm method."""
         parser = PDBParser.__new__(PDBParser)  # Skip __init__

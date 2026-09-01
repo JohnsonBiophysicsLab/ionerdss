@@ -28,7 +28,7 @@ system = builder.build_system(workspace_path="6bno_dir")
 #### `interface_detect_distance_cutoff`
 
 - type: `float`
-- default: `0.6`
+- default: `0.9`
 - units: `nm`
 - purpose: contact search radius used when detecting candidate interfaces from atomic positions
 
@@ -37,7 +37,7 @@ Increase this when interface detection is too conservative. Decrease it when too
 #### `interface_detect_n_residue_cutoff`
 
 - type: `int`
-- default: `3`
+- default: `2`
 - units: `residues`
 - purpose: minimum number of contacting residues required on each chain before an interface is accepted
 
@@ -358,9 +358,11 @@ If omitted, the pipeline uses concentrations derived from the NERDSS export assu
 
 #### `transition_matrix_size`
 
-- type: `int`
-- default: `500`
-- purpose: set the dimensions of the tracked transition matrix
+- type: `Optional[int]`
+- default: `None`
+- purpose: set the dimensions of the tracked transition matrix, i.e. the largest number of copies of a single molecule type NERDSS can track inside one complex
+
+If left as `None`, each molecule type gets a matrix sized to its own molecule count. NERDSS does not bounds check this value, so a complex holding more copies of a molecule type than `transition_matrix_size` corrupts memory and crashes the simulation. When `count_transition=True`, the export raises a `ValueError` if an explicit `transition_matrix_size` is smaller than the number of copies of a molecule type in the simulation.
 
 #### `transition_write`
 

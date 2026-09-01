@@ -20,8 +20,8 @@ class TestPDBModelHyperparameters(unittest.TestCase):
         params = PDBModelHyperparameters()
 
         # Check default values
-        self.assertEqual(params.interface_detect_distance_cutoff, 0.6)
-        self.assertEqual(params.interface_detect_n_residue_cutoff, 3)
+        self.assertEqual(params.interface_detect_distance_cutoff, 0.9)
+        self.assertEqual(params.interface_detect_n_residue_cutoff, 2)
         self.assertEqual(params.chain_grouping_rmsd_threshold, 2.0)
         self.assertEqual(params.chain_grouping_seq_threshold, 0.5)
         self.assertEqual(params.chain_grouping_matching_mode, "default")
@@ -101,8 +101,8 @@ class TestPDBModelHyperparameters(unittest.TestCase):
         result = params.to_dict()
 
         # Check basic fields
-        self.assertEqual(result['interface_detect_distance_cutoff'], 0.6)
-        self.assertEqual(result['interface_detect_n_residue_cutoff'], 3)
+        self.assertEqual(result['interface_detect_distance_cutoff'], 0.9)
+        self.assertEqual(result['interface_detect_n_residue_cutoff'], 2)
         self.assertEqual(result['chain_grouping_rmsd_threshold'], 2.0)
         self.assertEqual(result['chain_grouping_seq_threshold'], 0.5)
         self.assertEqual(result['chain_grouping_matching_mode'], "default")
@@ -180,8 +180,8 @@ class TestPDBModelHyperparameters(unittest.TestCase):
         params = PDBModelHyperparameters.from_dict({})
 
         # Should create default instance
-        self.assertEqual(params.interface_detect_distance_cutoff, 0.6)
-        self.assertEqual(params.interface_detect_n_residue_cutoff, 3)
+        self.assertEqual(params.interface_detect_distance_cutoff, 0.9)
+        self.assertEqual(params.interface_detect_n_residue_cutoff, 2)
         self.assertIsInstance(params.chain_grouping_custom_aligner, PairwiseAligner)
 
     def test_from_dict_none(self):
@@ -189,8 +189,8 @@ class TestPDBModelHyperparameters(unittest.TestCase):
         params = PDBModelHyperparameters.from_dict(None)
 
         # Should create default instance
-        self.assertEqual(params.interface_detect_distance_cutoff, 0.6)
-        self.assertEqual(params.interface_detect_n_residue_cutoff, 3)
+        self.assertEqual(params.interface_detect_distance_cutoff, 0.9)
+        self.assertEqual(params.interface_detect_n_residue_cutoff, 2)
 
     def test_from_dict_basic_fields(self):
         """Test from_dict with basic field values."""
@@ -352,8 +352,8 @@ class TestPDBModelHyperparameters(unittest.TestCase):
         str_repr = str(params)
 
         self.assertIn("PDBModelHyperparameters", str_repr)
-        self.assertIn("distance_cutoff=0.6", str_repr)
-        self.assertIn("residue_cutoff=3", str_repr)
+        self.assertIn("distance_cutoff=0.9", str_repr)
+        self.assertIn("residue_cutoff=2", str_repr)
         self.assertIn("matching_mode='default'", str_repr)
         self.assertIn("steric_clash_mode='off'", str_repr)
 

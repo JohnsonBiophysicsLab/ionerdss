@@ -47,6 +47,8 @@ pip install "ioNERDSS[jupyter]"
 pip install "ioNERDSS[ovito_rendering]"
 ```
 
+On an HPC cluster, read step 4 before installing: the OVITO extras resolve differently there, and the environment belongs on scratch rather than in your home directory.
+
 The ODE pipeline does not require a separate extra; it is included in the main package install.
 
 `proaffinity` is the exception: it needs an environment of its own, set up in step 3 below.
@@ -94,6 +96,62 @@ system = build_system_from_pdb(source="8erq", predict_affinity=True)
 ```
 
 Affinity prediction also needs the ADFR suite. See [docs/Proaffinity.md](docs/Proaffinity.md) for that, for the `venv` and cluster variants, and for pointing at the environment explicitly instead of using the variable.
+
+### 4. On an HPC cluster (Rockfish and other Slurm systems)
+
+Nothing below needs root or a GPU, and all of it runs on a login node.
+
+**Build the environment on scratch, not in your home directory.** `[all]` is several GB once OVITO and Qt land, and the ProAffinity sidecar adds several more in torch and model weights -- more than most home quotas allow. Send pip's cache and temporary directory there too, or the build will fill your home quota even when the environment itself does not live there.
+
+```bash
+module load anaconda                      # whatever `module avail conda` offers
+export PIP_CACHE_DIR=/scratch/$USER/.cache/pip
+export TMPDIR=/scratch/$USER/tmp && mkdir -p "$TMPDIR"
+
+conda create -y -p /scratch/$USER/envs/ionerdss python=3.12
+conda activate /scratch/$USER/envs/ionerdss
+pip install "ioNERDSS[all]"
+```
+
+Substitute your cluster's scratch path -- on Rockfish that is your `~/scratch4-<PI>` or `~/data-<PI>` space. Python 3.10 through 3.13 all work for this environment; the ProAffinity sidecar below is the one piece that needs 3.10-3.12.
+
+**OVITO resolves to 3.15 on RHEL/Rocky 8 clusters, by design.** OVITO 3.16 pins a PySide6 whose Linux wheels require glibc 2.34, and RHEL/Rocky 8 -- Rockfish included -- ships glibc 2.28. ioNERDSS therefore asks for `ovito>=3.15` rather than `>=3.16`, so pip installs OVITO 3.15.5 with PySide6 6.9.3 there and takes 3.16 on newer systems. To see which side of that line you are on:
+
+```bash
+python -c "import platform; print(platform.libc_ver())"
+```
+
+If that prints 2.34 or newer you get OVITO 3.16 and its OpenGL renderer; below that you get 3.15 and the software ray tracer. Both render without a display.
+
+If the install fails with `No matching distribution found for PySide6`, you are on ioNERDSS 2.2.3 or earlier, which floors OVITO at 3.16 and so cannot resolve on glibc 2.28 at all:
+
+```bash
+pip install -U "ioNERDSS[all]"
+```
+
+If you have to stay on an older ioNERDSS, install the rendering extras by hand instead: `pip install "ovito<3.16" imageio Pillow`.
+
+**Rendering needs no display, but does want cores.** `visualize_trajectory_ovito` renders in a child process with no X11 connection, so it works on a compute node as it stands. Where OVITO 3.15 is what resolved, the frames come from a CPU ray tracer, so give the job a few cores and expect it to be slower than a desktop OpenGL render:
+
+```bash
+srun -n 1 -c 8 --pty bash        # or the equivalent in your sbatch script
+```
+
+**Notebooks.** Register the environment as a Jupyter kernel so your cluster's notebook portal can find it:
+
+```bash
+python -m ipykernel install --user --name ionerdss --display-name "ioNERDSS"
+```
+
+**ProAffinity.** The sidecar environment belongs on scratch as well, for the same quota reason:
+
+```bash
+conda create -y -p /scratch/$USER/envs/ionerdss-proaffinity python=3.10
+conda run -p /scratch/$USER/envs/ionerdss-proaffinity pip install "ioNERDSS[proaffinity]"
+export IONERDSS_PROAFFINITY_PYTHON=/scratch/$USER/envs/ionerdss-proaffinity/bin/python
+```
+
+Put that `export` in your `~/.bashrc` and in any sbatch script, since batch jobs do not inherit your login shell's environment. See [docs/Proaffinity.md](docs/Proaffinity.md) for the ADFR suite, which prediction also requires.
 
 To run simulations for structures generated from ioNERDSS you will also need to install NERDSS.
 

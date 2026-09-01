@@ -75,8 +75,8 @@ class PDBModelBuilder:
 
         Args:
             workspace_path: Path for workspace directory.
-            distance_cutoff: Contact search radius in nm. Default 0.6.
-            residue_cutoff: Minimum contacting residues per chain. Default 3.
+            distance_cutoff: Contact search radius in nm. Default 0.9.
+            residue_cutoff: Minimum contacting residues per chain. Default 2.
             rmsd_threshold: RMSD threshold for structure grouping in Å. Default 2.0.
             seq_threshold: Sequence similarity threshold. Default 0.5.
             matching_mode: Chain grouping mode. Default "default".
@@ -154,7 +154,8 @@ class PDBModelBuilder:
                 source=self.source,
                 units=units,
                 file_format=file_format,
-                workspace_manager=self.workspace_manager
+                workspace_manager=self.workspace_manager,
+                include_modified_residues=hyperparams.include_modified_residues
             )
             self.pdb_id = self.parser.get_pdb_id() or pdb_id
 

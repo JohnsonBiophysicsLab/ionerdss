@@ -27,16 +27,20 @@ class PDBModelHyperparameters:
 
     # Core detection parameters
     interface_detect_distance_cutoff: float = field(
-        default=0.6,
+        default=0.9,
         metadata={"description": "Contact search radius per atom pair for interface detection", "unit": "nm"}
     )
     interface_detect_n_residue_cutoff: int = field(
-        default=3,
+        default=2,
         metadata={"description": "Minimum number of contacting residues (on each chain) to accept an interface", "unit": "residues"}
     )
     min_chain_length: int = field(
         default=4,
         metadata={"description": "Minimum number of residues for a chain to be included (filters out small molecules)", "unit": "residues"}
+    )
+    include_modified_residues: bool = field(
+        default=True,
+        metadata={"description": "Keep non-standard residues that belong to a polymer entity (modified amino acids such as D-amino acids or selenomethionine, and terminal caps). These are stored as HETATM and are invisible to BioPython's is_aa, but they often form the binding interfaces. Set False for the older standard-amino-acids-only behaviour."}
     )
     
     # Interface type assignment parameters (for template building)
@@ -66,9 +70,9 @@ class PDBModelHyperparameters:
         default=None,
         metadata={"description": "Custom Bio.Align.PairwiseAligner for sequence alignment (None uses default settings)"}
     )
-    chain_grouping_matching_mode: Literal["default", "sequence", "structure"] = field(
+    chain_grouping_matching_mode: Literal["default", "sequence", "structure", "sequence_structure"] = field(
         default="default",
-        metadata={"description": "Mode for determining repeated chains: 'default' (mmCIF header with sequence fallback), 'sequence' (sequence-based), 'structure' (structure-based)"}
+        metadata={"description": "Mode for determining repeated chains: 'default' (mmCIF header with sequence fallback), 'sequence' (sequence-based), 'structure' (structure-based), 'sequence_structure' (both must pass; separates quasi-equivalent conformers of one sequence)"}
     )
 
     # Steric clash detection
@@ -239,9 +243,9 @@ class PDBModelHyperparameters:
         default=False,
         metadata={"description": "Enable transition matrix tracking during NERDSS simulation"}
     )
-    transition_matrix_size: int = field(
-        default=500,
-        metadata={"description": "Size of transition matrix"}
+    transition_matrix_size: Optional[int] = field(
+        default=None,
+        metadata={"description": "Size of transition matrix, i.e. the largest number of copies of a single molecule type NERDSS can track inside one complex. Must be >= the number of copies of that molecule type in the simulation, otherwise NERDSS writes past the end of the matrix and crashes. If None, it is set automatically to the molecule count of each type."}
     )
     transition_write: Optional[int] = field(
         default=None,

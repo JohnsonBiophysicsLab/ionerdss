@@ -162,8 +162,10 @@ def _failure_message(trajectory_path, excluded, stderr):
             "This usually means OVITO cannot render offscreen on this machine. Headless "
             "rendering works out of the box from OVITO 3.16 onwards, so try: "
             "pip install -U ovito\n"
-            "(If pip refuses to upgrade, a numpy<2 pin is holding it back -- current "
-            "OVITO requires numpy>=2.)"
+            "(If pip will not go that high, something is holding it back: OVITO 3.16 "
+            "requires numpy>=2, and it pins a PySide6 whose Linux wheels need glibc "
+            "2.34 or newer, which RHEL/Rocky 8 clusters do not have. There, OVITO 3.15 "
+            "with a software ray tracer is as far as it goes.)"
         )
     else:
         # The child never got as far as picking a renderer, so this is a problem
