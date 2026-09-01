@@ -31,7 +31,7 @@ class PDBModelHyperparameters:
         metadata={"description": "Contact search radius per atom pair for interface detection", "unit": "nm"}
     )
     interface_detect_n_residue_cutoff: int = field(
-        default=3,
+        default=2,
         metadata={"description": "Minimum number of contacting residues (on each chain) to accept an interface", "unit": "residues"}
     )
     min_chain_length: int = field(

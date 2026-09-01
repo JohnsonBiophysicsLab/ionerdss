@@ -37,7 +37,7 @@ Increase this when interface detection is too conservative. Decrease it when too
 #### `interface_detect_n_residue_cutoff`
 
 - type: `int`
-- default: `3`
+- default: `2`
 - units: `residues`
 - purpose: minimum number of contacting residues required on each chain before an interface is accepted
 
