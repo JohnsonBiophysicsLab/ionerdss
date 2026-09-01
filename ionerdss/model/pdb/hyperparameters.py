@@ -27,7 +27,7 @@ class PDBModelHyperparameters:
 
     # Core detection parameters
     interface_detect_distance_cutoff: float = field(
-        default=0.6,
+        default=0.9,
         metadata={"description": "Contact search radius per atom pair for interface detection", "unit": "nm"}
     )
     interface_detect_n_residue_cutoff: int = field(
