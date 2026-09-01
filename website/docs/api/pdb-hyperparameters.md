@@ -28,7 +28,7 @@ system = builder.build_system(workspace_path="6bno_dir")
 #### `interface_detect_distance_cutoff`
 
 - type: `float`
-- default: `0.6`
+- default: `0.9`
 - units: `nm`
 - purpose: contact search radius used when detecting candidate interfaces from atomic positions
 

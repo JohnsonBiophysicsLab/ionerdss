@@ -43,7 +43,7 @@ def build_system_from_pdb(
         structure_validation_options: Options passed to the validation export.
         **hyperparams_kwargs: Any PDBModelHyperparameters field as keyword arguments.
             Common options:
-                - interface_detect_distance_cutoff: float (default 0.6)
+                - interface_detect_distance_cutoff: float (default 0.9)
                 - generate_nerdss_files: bool (default True)
                 - nerdss_water_box: list[float] (default [100, 100, 100])
                 - ode_enabled: bool (default False)
