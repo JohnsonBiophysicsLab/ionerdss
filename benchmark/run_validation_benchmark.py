@@ -104,8 +104,18 @@ def _partial_chain_counts(builder) -> tuple[int, int]:
 def _status_from_partial_builder(builder) -> Optional[str]:
     """Infer FP/DC from partial pipeline state after a build failure."""
     chains_count, _chain_types_count = _partial_chain_counts(builder)
-    if chains_count < 2:
+
+    # Only claim FP when coarse-graining actually ran and counted the chains. A builder
+    # that died earlier -- a failed download, a full disk -- also reports zero chains, and
+    # calling that "too few protein chains" turns an infrastructure failure into a
+    # scientific result.
+    coarse_summary = getattr(builder, "coarse_summary", None)
+    coarse_graining_completed = bool(coarse_summary) and "num_chains" in coarse_summary
+
+    if coarse_graining_completed and chains_count < 2:
         return "FP"
+    if not coarse_graining_completed:
+        return None
 
     system = getattr(builder, "system", None)
     if system is not None:
