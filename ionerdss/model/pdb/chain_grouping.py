@@ -322,7 +322,8 @@ Chain groups are used downstream for:
 """
 
 from collections.abc import Sequence
-from typing import Dict, List, Optional
+from difflib import SequenceMatcher
+from typing import Dict, List, Optional, Tuple
 import numpy as np
 from Bio.PDB.Superimposer import Superimposer
 
@@ -402,6 +403,8 @@ class ChainGrouper:
             self._group_by_sequence()
         elif matching_mode == "structure":
             self._group_by_structure()
+        elif matching_mode == "sequence_structure":
+            self._group_by_sequence_structure()
         else:
             raise ValueError(
                 f"Unknown matching_mode: {matching_mode}")
@@ -532,6 +535,150 @@ class ChainGrouper:
                 for chain_id in group_members:
                     self.chain_to_group[chain_id] = representative
                 
+    def _sequence_identity(self, seq_i: str, seq_j: str) -> float:
+        """Fractional sequence identity, scored the same way as _group_by_sequence."""
+        if not seq_i or not seq_j:
+            return 0.0
+
+        aligner = getattr(
+            self.hyperparams,
+            "chain_grouping_custom_aligner",
+            None,
+        )
+        if aligner is None:
+            return 1.0 if seq_i == seq_j else 0.0
+
+        score = aligner.align(seq_i, seq_j).score
+        return score / max(len(seq_i), len(seq_j))
+
+    @staticmethod
+    def _aligned_ca_pairs(chain_data_i: Dict, chain_data_j: Dict) -> Tuple[np.ndarray, np.ndarray]:
+        """Corresponding Cα coordinates for two chains, matched residue by residue.
+
+        Residue numbering is not comparable across the chains of a biological
+        assembly (each copy carries its own offset), and two copies of the same
+        protein often differ in how many residues were modelled. Matching by
+        array position is therefore unsafe, so the correspondence is taken from
+        the residue sequence itself.
+        """
+        res_i = chain_data_i.get('residues') or []
+        res_j = chain_data_j.get('residues') or []
+        if not res_i or not res_j:
+            return np.empty((0, 3)), np.empty((0, 3))
+
+        # autojunk would treat the commonest residue names as noise on chains
+        # of this length, so it has to stay off
+        matcher = SequenceMatcher(
+            None,
+            [r['name'] for r in res_i],
+            [r['name'] for r in res_j],
+            autojunk=False,
+        )
+
+        idx_i: List[int] = []
+        idx_j: List[int] = []
+        for block in matcher.get_matching_blocks():
+            idx_i.extend(range(block.a, block.a + block.size))
+            idx_j.extend(range(block.b, block.b + block.size))
+
+        if not idx_i:
+            return np.empty((0, 3)), np.empty((0, 3))
+
+        coords_i = np.array([res_i[k]['ca_coord'] for k in idx_i], dtype=float)
+        coords_j = np.array([res_j[k]['ca_coord'] for k in idx_j], dtype=float)
+        return coords_i, coords_j
+
+    @staticmethod
+    def _kabsch_rmsd(coords_i: np.ndarray, coords_j: np.ndarray) -> float:
+        """RMSD of two paired coordinate sets after optimal superposition."""
+        p = coords_i - coords_i.mean(axis=0)
+        q = coords_j - coords_j.mean(axis=0)
+
+        _, singular_values, _ = np.linalg.svd(p.T @ q)
+        # right-handed rotations only: a reflection would fit mirror images
+        if np.linalg.det(p.T @ q) < 0:
+            singular_values[-1] = -singular_values[-1]
+
+        residual = (p ** 2).sum() + (q ** 2).sum() - 2.0 * singular_values.sum()
+        return float(np.sqrt(max(0.0, residual) / len(p)))
+
+    def _are_structures_similar_aligned(self, chain_data_i: Dict, chain_data_j: Dict) -> bool:
+        """Check two chains superimpose below the RMSD threshold, aligning first."""
+        coords_i, coords_j = self._aligned_ca_pairs(chain_data_i, chain_data_j)
+
+        # a superposition on fewer than 3 points is unconstrained
+        if len(coords_i) < 3:
+            return False
+
+        rmsd = self._kabsch_rmsd(coords_i, coords_j)
+        return rmsd <= getattr(
+            self.hyperparams,
+            "chain_grouping_rmsd_threshold",
+            2.0,
+        )
+
+    def _group_by_sequence_structure(self) -> None:
+        """Group chains that match on sequence *and* superimpose within RMSD.
+
+        Sequence alone cannot separate quasi-equivalent conformers: in a T=3
+        capsid every subunit carries the same sequence while adopting distinct
+        conformations that make distinct contacts. Requiring both tests keeps
+        those conformers in separate groups, so each gets its own molecule type
+        and its own rigid geometry.
+        """
+        chain_ids = self._valid_chain_ids()
+        chain_data = {
+            chain_id: self.parser.get_chain_data(chain_id)
+            for chain_id in chain_ids
+        }
+
+        chains_groups = []
+        visited = set()
+
+        for i, ci in enumerate(chain_ids):
+            if ci in visited:
+                continue
+            group = [ci]
+
+            for cj in chain_ids[i + 1:]:
+                if cj in visited:
+                    continue
+
+                try:
+                    same_sequence = self._sequence_identity(
+                        chain_data[ci].get('sequence', ''),
+                        chain_data[cj].get('sequence', ''),
+                    ) >= getattr(
+                        self.hyperparams,
+                        "chain_grouping_seq_threshold",
+                        0.5,
+                    )
+                    if not same_sequence:
+                        continue
+
+                    if not self._are_structures_similar_aligned(
+                        chain_data[ci], chain_data[cj]
+                    ):
+                        continue
+                except Exception as e:
+                    print(
+                        f"Warning: Comparison failed for chains {ci} and {cj}: {e}")
+                    continue
+
+                group.append(cj)
+                visited.add(cj)
+
+            visited.update(group)
+            chains_groups.append(group)
+
+        for group_members in chains_groups:
+            if group_members:
+                representative = self._select_representative(group_members)
+                self.groups.append(
+                    ChainGroup(representative, group_members, "sequence_structure"))
+                for chain_id in group_members:
+                    self.chain_to_group[chain_id] = representative
+
     def _group_by_structure(self) -> None:
         """Group chains based on structural similarity."""
         # Get chain data

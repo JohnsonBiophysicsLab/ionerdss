@@ -349,6 +349,90 @@ class TestChainGrouper(unittest.TestCase):
             self.assertIn("size", group_info)
             self.assertIn("method", group_info)
 
+    def _quasi_equivalent_chain_data(self):
+        """Four chains of one sequence: A/B in one conformation, C/D in another."""
+        def helix(twist):
+            # a short backbone whose shape depends on `twist`
+            return [
+                {"id": i, "name": name,
+                 "ca_coord": np.array([i * 3.8, twist * i * i * 0.4, 0.0])}
+                for i, name in enumerate("HCGKHCGK")
+            ]
+
+        return {
+            "A": {"sequence": "HCGKHCGK", "residues": helix(0.0)},
+            "B": {"sequence": "HCGKHCGK", "residues": helix(0.0)},
+            "C": {"sequence": "HCGKHCGK", "residues": helix(1.0)},
+            "D": {"sequence": "HCGKHCGK", "residues": helix(1.0)},
+        }
+
+    def test_sequence_structure_grouping_splits_conformers(self):
+        """Identical sequence but different shape must land in different groups."""
+        self.hyperparams.chain_grouping_matching_mode = "sequence_structure"
+        self.hyperparams.chain_grouping_custom_aligner = None
+        self.hyperparams.chain_grouping_rmsd_threshold = 1.0
+
+        chain_data = self._quasi_equivalent_chain_data()
+        self.mock_parser.get_chain_data.side_effect = lambda x: chain_data[x]
+
+        with patch.object(ChainGrouper, '_ensure_all_chains_grouped'):
+            grouper = ChainGrouper(
+                self.mock_parser, self.mock_coarse_grainer, self.hyperparams)
+
+        self.assertEqual(len(grouper.groups), 2)
+        groups_by_rep = {g.representative: g.members for g in grouper.groups}
+        self.assertIn("B", groups_by_rep["A"])
+        self.assertIn("D", groups_by_rep["C"])
+        self.assertEqual(grouper.groups[0].grouping_method, "sequence_structure")
+
+    def test_sequence_structure_grouping_merges_when_rmsd_permits(self):
+        """A loose RMSD threshold collapses the conformers back into one group."""
+        self.hyperparams.chain_grouping_matching_mode = "sequence_structure"
+        self.hyperparams.chain_grouping_custom_aligner = None
+        self.hyperparams.chain_grouping_rmsd_threshold = 100.0
+
+        chain_data = self._quasi_equivalent_chain_data()
+        self.mock_parser.get_chain_data.side_effect = lambda x: chain_data[x]
+
+        with patch.object(ChainGrouper, '_ensure_all_chains_grouped'):
+            grouper = ChainGrouper(
+                self.mock_parser, self.mock_coarse_grainer, self.hyperparams)
+
+        self.assertEqual(len(grouper.groups), 1)
+
+    def test_sequence_structure_grouping_requires_matching_sequence(self):
+        """Same shape is not enough when the sequences differ."""
+        self.hyperparams.chain_grouping_matching_mode = "sequence_structure"
+        self.hyperparams.chain_grouping_custom_aligner = None
+        self.hyperparams.chain_grouping_rmsd_threshold = 100.0
+
+        chain_data = self._quasi_equivalent_chain_data()
+        chain_data["C"]["sequence"] = "KCGHKCGH"
+        chain_data["D"]["sequence"] = "KCGHKCGH"
+        self.mock_parser.get_chain_data.side_effect = lambda x: chain_data[x]
+
+        with patch.object(ChainGrouper, '_ensure_all_chains_grouped'):
+            grouper = ChainGrouper(
+                self.mock_parser, self.mock_coarse_grainer, self.hyperparams)
+
+        self.assertEqual(len(grouper.groups), 2)
+
+    def test_aligned_ca_pairs_tolerates_unequal_lengths(self):
+        """Correspondence comes from the residues, not from array position."""
+        long_chain = {"residues": [
+            {"id": i, "name": name, "ca_coord": np.array([i * 3.8, 0.0, 0.0])}
+            for i, name in enumerate("XYHCGKHCGK")]}
+        short_chain = {"residues": [
+            {"id": i, "name": name, "ca_coord": np.array([i * 3.8, 0.0, 0.0])}
+            for i, name in enumerate("HCGKHCGK")]}
+
+        coords_i, coords_j = ChainGrouper._aligned_ca_pairs(long_chain, short_chain)
+
+        # the shared 8-residue block is matched despite the 2-residue overhang
+        self.assertEqual(len(coords_i), 8)
+        self.assertEqual(len(coords_j), 8)
+        self.assertAlmostEqual(ChainGrouper._kabsch_rmsd(coords_i, coords_j), 0.0, places=6)
+
     def test_invalid_matching_mode(self):
         """Test handling of invalid matching mode."""
         self.hyperparams.chain_grouping_matching_mode = "invalid_mode"

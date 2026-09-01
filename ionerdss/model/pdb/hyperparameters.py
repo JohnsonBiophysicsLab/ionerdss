@@ -66,9 +66,9 @@ class PDBModelHyperparameters:
         default=None,
         metadata={"description": "Custom Bio.Align.PairwiseAligner for sequence alignment (None uses default settings)"}
     )
-    chain_grouping_matching_mode: Literal["default", "sequence", "structure"] = field(
+    chain_grouping_matching_mode: Literal["default", "sequence", "structure", "sequence_structure"] = field(
         default="default",
-        metadata={"description": "Mode for determining repeated chains: 'default' (mmCIF header with sequence fallback), 'sequence' (sequence-based), 'structure' (structure-based)"}
+        metadata={"description": "Mode for determining repeated chains: 'default' (mmCIF header with sequence fallback), 'sequence' (sequence-based), 'structure' (structure-based), 'sequence_structure' (both must pass; separates quasi-equivalent conformers of one sequence)"}
     )
 
     # Steric clash detection
