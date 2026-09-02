@@ -1249,3 +1249,136 @@ def test_collect_structure_validation_results_accepts_data_dir(monkeypatch, tmp_
     assert result.simulation_dir == run_dir
     assert result.full_assembly_found is True
     assert result.histogram_file == data_dir / "histogram_complexes_time.dat"
+
+
+class _FakeProcess:
+    """Stand-in for a NERDSS subprocess that records whether it was waited on."""
+
+    def __init__(self, returncode=0):
+        self.returncode = returncode
+        self.wait_calls = 0
+
+    def wait(self):
+        self.wait_calls += 1
+        return self.returncode
+
+    def poll(self):
+        return self.returncode
+
+
+def _prepare_run_new_simulations_dirs(tmp_path):
+    work_dir = tmp_path / "work"
+    work_dir.mkdir()
+    (work_dir / "parms.inp").write_text("parms", encoding="utf-8")
+
+    nerdss_bin_dir = tmp_path / "NERDSS" / "bin"
+    nerdss_bin_dir.mkdir(parents=True)
+    (nerdss_bin_dir / "nerdss").write_text("#!/bin/sh\n", encoding="utf-8")
+    return work_dir
+
+
+def test_run_new_simulations_raises_when_nerdss_exits_nonzero(monkeypatch, tmp_path):
+    from ionerdss.nerdss_simulation.simulation import Simulation
+
+    work_dir = _prepare_run_new_simulations_dirs(tmp_path)
+
+    def fake_popen(cmd, **kwargs):
+        log_file = kwargs.get("stdout")
+        log_file.write("error while loading shared libraries: libgsl.so.25\n")
+        log_file.flush()
+        return _FakeProcess(returncode=127)
+
+    monkeypatch.setattr("ionerdss.nerdss_simulation.simulation.subprocess.Popen", fake_popen)
+
+    simulation = Simulation(str(work_dir))
+    with pytest.raises(RuntimeError) as excinfo:
+        simulation.run_new_simulations(
+            sim_dir=str(tmp_path / "out"),
+            nerdss_dir=str(tmp_path / "NERDSS"),
+            progress=False,
+            verbose=False,
+        )
+
+    message = str(excinfo.value)
+    assert "exited with code 127" in message
+    assert "libgsl.so.25" in message
+
+
+def test_run_new_simulations_waits_when_verbose_without_progress(monkeypatch, tmp_path):
+    from ionerdss.nerdss_simulation.simulation import Simulation
+
+    work_dir = _prepare_run_new_simulations_dirs(tmp_path)
+    created = []
+
+    def fake_popen(cmd, **kwargs):
+        process = _FakeProcess()
+        created.append(process)
+        return process
+
+    monkeypatch.setattr("ionerdss.nerdss_simulation.simulation.subprocess.Popen", fake_popen)
+
+    simulation = Simulation(str(work_dir))
+    simulation.run_new_simulations(
+        sim_dir=str(tmp_path / "out"),
+        nerdss_dir=str(tmp_path / "NERDSS"),
+        progress=False,
+        verbose=True,
+    )
+
+    assert created and created[0].wait_calls == 1
+
+
+def test_run_new_simulations_waits_for_parallel_runs_when_quiet(monkeypatch, tmp_path):
+    from ionerdss.nerdss_simulation.simulation import Simulation
+
+    work_dir = _prepare_run_new_simulations_dirs(tmp_path)
+    created = []
+
+    def fake_popen(cmd, **kwargs):
+        process = _FakeProcess()
+        created.append(process)
+        return process
+
+    monkeypatch.setattr("ionerdss.nerdss_simulation.simulation.subprocess.Popen", fake_popen)
+
+    simulation = Simulation(str(work_dir))
+    simulation.run_new_simulations(
+        sim_indices=[1, 2],
+        sim_dir=str(tmp_path / "out"),
+        nerdss_dir=str(tmp_path / "NERDSS"),
+        parallel=True,
+        progress=False,
+        verbose=False,
+    )
+
+    assert len(created) == 2
+    assert all(process.wait_calls == 1 for process in created)
+
+
+def test_resolve_simulation_output_dir_descends_into_single_replicate(tmp_path):
+    from ionerdss.model.pdb.structure_validation import _resolve_simulation_output_dir
+
+    sim_dir = tmp_path / "validation_output"
+    (sim_dir / "1" / "DATA").mkdir(parents=True)
+
+    assert _resolve_simulation_output_dir(sim_dir) == sim_dir / "1"
+
+
+def test_resolve_simulation_output_dir_rejects_ambiguous_replicates(tmp_path):
+    from ionerdss.model.pdb.structure_validation import _resolve_simulation_output_dir
+
+    sim_dir = tmp_path / "validation_output"
+    (sim_dir / "1" / "DATA").mkdir(parents=True)
+    (sim_dir / "2" / "DATA").mkdir(parents=True)
+
+    with pytest.raises(ValueError) as excinfo:
+        _resolve_simulation_output_dir(sim_dir)
+
+    assert "more than one NERDSS run" in str(excinfo.value)
+
+
+def test_resolve_simulation_output_dir_rejects_directory_without_data(tmp_path):
+    from ionerdss.model.pdb.structure_validation import _resolve_simulation_output_dir
+
+    with pytest.raises(FileNotFoundError):
+        _resolve_simulation_output_dir(tmp_path / "no_such_run")
