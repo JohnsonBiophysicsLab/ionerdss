@@ -410,29 +410,69 @@ class Simulation:
                     if verbose: print(f"Running simulation {index}...")
                     process = subprocess.Popen(cmd, cwd=sim_subdir, stdout=log_file, stderr=log_file, env=sim_env)
 
-                    if verbose:
-                        if progress:
-                            from tqdm import tqdm
-                            progress_bars[index] = tqdm(total=100, desc=f"Simulation {index}")
-                            while process.poll() is None:
-                                progress = self.calculate_progress_percentage(sim_subdir)
-                                progress_bars[index].n = progress
-                                progress_bars[index].refresh()
-                                time.sleep(2)
-                            
-                            progress_bars[index].close()
-                    else:
-                        process.wait()
+                    if verbose and progress:
+                        from tqdm import tqdm
+                        progress_bars[index] = tqdm(total=100, desc=f"Simulation {index}")
+                        while process.poll() is None:
+                            progress_bars[index].n = self.calculate_progress_percentage(sim_subdir)
+                            progress_bars[index].refresh()
+                            time.sleep(2)
+                        
+                        progress_bars[index].close()
+
+                    # Wait unconditionally. The progress bar above already polls to
+                    # completion, so this returns immediately in that case, but every
+                    # other combination of verbose/progress needs it: returning while
+                    # NERDSS is still running leaves an empty output directory that
+                    # looks exactly like a finished run that produced nothing.
+                    returncode = process.wait()
+                    self._check_simulation_exit(returncode, index, sim_subdir, output_log)
         
-        if parallel and verbose:
+        if parallel:
             for index, process in processes:
-                print(f"Waiting for simulation {index} to complete...")
-                process.wait()
-                print(f"Simulation {index} completed.")
+                if verbose: print(f"Waiting for simulation {index} to complete...")
+                returncode = process.wait()
+                sim_subdir = os.path.join(sim_dir, f"{index}")
+                self._check_simulation_exit(
+                    returncode, index, sim_subdir, os.path.join(sim_subdir, "output.log")
+                )
+                if verbose: print(f"Simulation {index} completed.")
         
-        if verbose:
-            if progress: 
-                print("All simulations completed.")
+        if verbose and progress:
+            print("All simulations completed.")
+
+    @staticmethod
+    def _check_simulation_exit(returncode: int, index: int, sim_subdir: str, output_log: str) -> None:
+        """Raise if the NERDSS process failed, quoting the tail of its log.
+
+        NERDSS writes nothing when it dies at startup -- a missing shared library, an
+        unreadable input deck -- so without this check a crashed run is indistinguishable
+        from one that completed and formed no assembly. The downstream validation code
+        then reports the empty directory as a negative scientific result.
+
+        Args:
+            returncode (int): Exit status of the NERDSS process.
+            index (int): Simulation index, for the error message.
+            sim_subdir (str): Directory the simulation ran in.
+            output_log (str): Path to the log holding the process's stdout and stderr.
+
+        Raises:
+            RuntimeError: If `returncode` is non-zero.
+        """
+        if returncode == 0:
+            return
+
+        try:
+            with open(output_log, "r", errors="replace") as log_file:
+                tail = log_file.read()[-2000:].strip() or "(the log is empty)"
+        except OSError:
+            tail = "(no output.log was written)"
+
+        raise RuntimeError(
+            f"NERDSS simulation {index} exited with code {returncode}.\n"
+            f"Run directory: {sim_subdir}\n"
+            f"Last output from {output_log}:\n{tail}"
+        )
 
     def calculate_progress_percentage(self, sim_subdir: str) -> int:
         """

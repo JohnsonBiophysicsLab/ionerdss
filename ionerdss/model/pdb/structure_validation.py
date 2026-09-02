@@ -1352,11 +1352,48 @@ def run_structure_validation_simulation(
 
 
 def _resolve_simulation_output_dir(simulation_dir: Union[str, Path]) -> Path:
-    """Accept either a NERDSS run directory or the ``DATA`` directory it wrote."""
+    """Accept either a NERDSS run directory or the ``DATA`` directory it wrote.
+
+    :func:`run_structure_validation_simulation` nests its run one level deeper than a
+    hand-launched one -- ``<sim_dir_name>/<sim_index>/DATA`` rather than
+    ``<run_dir>/DATA`` -- because the launcher indexes runs by replicate. A path built
+    by hand therefore often points one level too high, so descend into the replicate
+    directory when there is exactly one.
+
+    Raises rather than returning a path with no ``DATA`` directory under it: the caller
+    reports "no full assembly found" for a directory it cannot read, which would turn a
+    mistyped path into what looks like a scientific result.
+    """
     resolved = Path(simulation_dir).expanduser()
     if resolved.name == "DATA" and resolved.is_dir():
         return resolved.parent
-    return resolved
+    if (resolved / "DATA").is_dir():
+        return resolved
+
+    if resolved.is_dir():
+        replicates = sorted(
+            (
+                child
+                for child in resolved.iterdir()
+                if child.name.isdigit() and (child / "DATA").is_dir()
+            ),
+            key=lambda child: int(child.name),
+        )
+        if len(replicates) == 1:
+            return replicates[0]
+        if len(replicates) > 1:
+            available = ", ".join(child.name for child in replicates)
+            raise ValueError(
+                f"{resolved} holds more than one NERDSS run ({available}). Pass the "
+                f"specific run directory to read, for example {replicates[0]}."
+            )
+
+    raise FileNotFoundError(
+        f"No NERDSS DATA directory was found at or below {resolved}. Pass the directory "
+        "the run wrote its DATA directory into. For a run launched by run_simulation "
+        "that is <sim_dir_name>/<sim_index>, which is the path reported by "
+        "StructureValidationSimulationResult.simulation_dir."
+    )
 
 
 def collect_structure_validation_results(
