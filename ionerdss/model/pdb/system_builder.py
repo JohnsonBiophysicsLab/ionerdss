@@ -485,6 +485,7 @@ from .template_builder import TemplateBuilder
 from .file_manager import WorkspaceManager
 from .visualizer import PDBVisualizer
 from .ring_regularizer import RingRegularizer
+from .symmetry_regularizer import SymmetryRegularizer
 from .structure_validation import (
     StructureValidationArtifacts,
     StructureValidationConfig,
@@ -518,6 +519,60 @@ def _kabsch_rotation(P: np.ndarray, Q: np.ndarray) -> np.ndarray:
         R = np.dot(Vt.T, U.T)
         
     return R
+
+
+def _paired_ca_coordinates(rep_data: dict, curr_data: dict):
+    """Pair two chains' Cα atoms by residue number for orientation alignment.
+
+    Copies of the same protein routinely resolve different loops, so their Cα arrays
+    differ in length and cannot be paired positionally. Requiring equal lengths
+    discards the alignment entirely and leaves the copy on the representative's
+    orientation, which makes every copy share one frame -- fatal for a cyclic
+    assembly, whose generator transform then degenerates to a pure translation.
+
+    Pair on residue number instead, keeping only residues present in both chains with
+    a matching residue name. Residue numbers that repeat within a chain (insertion
+    codes, which ``chain_data['residues']`` does not preserve) are ambiguous and are
+    dropped rather than guessed.
+
+    Returns:
+        ``(P, Q)`` Nx3 arrays of matched coordinates, or ``(None, None)`` if the
+        chains cannot be paired this way.
+    """
+    rep_residues = rep_data.get('residues')
+    curr_residues = curr_data.get('residues')
+    if not rep_residues or not curr_residues:
+        return None, None
+
+    def _by_residue_number(residues):
+        seen, duplicated = {}, set()
+        for residue in residues:
+            key = residue.get('id')
+            if key is None or residue.get('ca_coord') is None:
+                continue
+            if key in seen:
+                duplicated.add(key)
+                continue
+            seen[key] = residue
+        for key in duplicated:
+            seen.pop(key, None)
+        return seen
+
+    rep_map = _by_residue_number(rep_residues)
+    curr_map = _by_residue_number(curr_residues)
+
+    shared = sorted(set(rep_map) & set(curr_map))
+    P, Q = [], []
+    for key in shared:
+        if rep_map[key].get('name') != curr_map[key].get('name'):
+            continue
+        P.append(rep_map[key]['ca_coord'])
+        Q.append(curr_map[key]['ca_coord'])
+
+    if len(P) < 3:
+        return None, None
+    return np.asarray(P, dtype=float), np.asarray(Q, dtype=float)
+
 
 class SystemBuilder:
     """Builder for complete ionerdss System objects.
@@ -591,7 +646,17 @@ class SystemBuilder:
         # Step 4: Create the final system
         self._create_system()
 
-        # Step 5: Sphere regularization (if enabled)
+        # Step 5: Geometric regularization (if enabled)
+        geometric_mode = getattr(self.hyperparams, 'geometric_regularization', 'off')
+        if geometric_mode and geometric_mode != 'off':
+            SymmetryRegularizer(
+                system=self.system,
+                workspace_manager=self.workspace_manager,
+                com_shift_cap=float(getattr(self.hyperparams, 'com_shift_cap_ang', 6.0)),
+                fold_tolerance=float(getattr(self.hyperparams, 'symmetry_fold_tolerance', 0.15)),
+            ).apply(geometric_mode)
+
+        # Sphere projection stays available as its own, independent mode.
         if hasattr(self.hyperparams, 'is_on_sphere') and self.hyperparams.is_on_sphere:
             ring_regularizer = RingRegularizer(
                 system=self.system,
@@ -647,22 +712,35 @@ class SystemBuilder:
             # that maps the representative to this chain instance
             if chain_id != group.representative:
                 try:
-                    coords_rep = self.parser.get_chain_data(group.representative)['ca_coords']
-                    coords_curr = self.parser.get_chain_data(chain_id)['ca_coords']
-                    
-                    if len(coords_rep) == len(coords_curr) and len(coords_rep) > 2:
+                    rep_data = self.parser.get_chain_data(group.representative)
+                    curr_data = self.parser.get_chain_data(chain_id)
+
+                    # Pair by residue number: copies of the same protein commonly
+                    # resolve different loops, so equal Cα counts cannot be assumed.
+                    coords_rep, coords_curr = _paired_ca_coordinates(rep_data, curr_data)
+
+                    if coords_rep is None:
+                        # Fall back to positional pairing when residue records are
+                        # unavailable but the arrays happen to correspond.
+                        fallback_rep = rep_data['ca_coords']
+                        fallback_curr = curr_data['ca_coords']
+                        if len(fallback_rep) == len(fallback_curr) and len(fallback_rep) > 2:
+                            coords_rep, coords_curr = fallback_rep, fallback_curr
+
+                    if coords_rep is not None:
                         # Use Kabsch algorithm to find rotation
                         # P = coords_rep (template/source)
                         # Q = coords_curr (instance/target)
                         rot = _kabsch_rotation(coords_rep, coords_curr)
-                        
+
                         # Apply rotation to reference vectors
                         ref1 = rot @ ref1
                         ref2 = rot @ ref2
                     else:
                         if self.workspace_manager:
                             self.workspace_manager.logger.warning(
-                                "Cannot align chain %s to representative %s for orientation (different lengths or too short). Using default orientation.",
+                                "Cannot align chain %s to representative %s for orientation "
+                                "(fewer than 3 shared residues). Using default orientation.",
                                 chain_id, group.representative
                             )
                 except Exception as e:
