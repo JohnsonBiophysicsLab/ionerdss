@@ -80,6 +80,11 @@ def _generate_hyperparameters_docstring() -> str:
             "homotypic_detection_residue_similarity_threshold",
             "homotypic_detection_interface_radius",
         ],
+        "Geometric Regularization": [
+            "geometric_regularization",
+            "symmetry_fold_tolerance",
+            "com_shift_cap_ang",
+        ],
         "Ring Regularization Parameters": [
             "ring_regularization_mode",
             "ring_geometry",

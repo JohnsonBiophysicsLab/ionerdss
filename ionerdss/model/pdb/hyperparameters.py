@@ -109,6 +109,32 @@ class PDBModelHyperparameters:
         metadata={"description": "Interface detection radius for homotypic binding", "unit": "Å"}
     )
 
+    # Geometric regularization
+    geometric_regularization: str = field(
+        default="off",
+        metadata={"description": "Snap the assembly onto its detected point group: "
+                                 "'off', or 'auto' to detect and regularize cyclic (Cn) "
+                                 "rings. Cyclic homomers built from head-to-tail interfaces "
+                                 "only close in simulation if the generator transform is "
+                                 "exactly n-fold; 'auto' enforces that and synthesises "
+                                 "per-subunit orientations from the group element."}
+    )
+
+    symmetry_fold_tolerance: float = field(
+        default=0.15,
+        metadata={"description": "Accept an n-fold symmetry only if rotating the subunit "
+                                 "centres of mass by 2*pi/n maps the set onto itself to "
+                                 "within this fraction of the assembly radius. Raising it "
+                                 "regularizes looser assemblies; lowering it is stricter."}
+    )
+    com_shift_cap_ang: float = field(
+        default=6.0,
+        metadata={"description": "Refuse geometric regularization if it would move any "
+                                 "subunit centre of mass further than this. Also caps "
+                                 "template regularization.",
+                  "unit": "Angstrom"}
+    )
+
     # Ring regularizer parameters
     is_on_sphere: bool = field(
         default=False,
