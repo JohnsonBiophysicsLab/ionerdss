@@ -31,6 +31,7 @@ from typing import Optional
 from ionerdss.model.pdb import PDBModelBuilder
 from ionerdss.model import pdb
 from ionerdss.model.pdb.structure_validation import get_disconnected_design_message
+from ionerdss.model.pdb.structure_validation import get_free_interface_capacity
 
 FAST_VALIDATION_ITERATIONS = 100000
 
@@ -137,12 +138,18 @@ def _run_validation_attempt(
     iterations: int,
     nerdss_dir: str,
     sim_dir_name: str,
+    copies: int = 1,
 ):
+    # Supplying `copies` times the deposited stoichiometry is what makes over-assembly
+    # reachable at all: with one copy the largest possible assembly IS the target, so
+    # OA can never be observed. Scale the box by copies**(1/3) so the added subunits
+    # raise the particle count without also raising the concentration.
+    scaled_box = box_size * (float(copies) ** (1.0 / 3.0))
     artifacts = pdb.validation.setup_simulation(
         system,
         workspace_manager=workspace_manager,
-        box_nm=(box_size, box_size, box_size),
-        initial_molecule_count=1,
+        box_nm=(scaled_box, scaled_box, scaled_box),
+        initial_molecule_count=copies,
         titration_on_rate=titration_rates,
         parms_overrides={
             "nItr": iterations,
@@ -190,7 +197,12 @@ def main():
     parser.add_argument("--nerdss_dir", required=True, type=str, help="Path to the compiled NERDSS binary directory")
     parser.add_argument("--output", default="benchmark_output/benchmark_results.csv", type=str, help="Output CSV file path")
     parser.add_argument("--iterations", default=1000000, type=int, help="Number of NERDSS iterations for the long rerun after the initial 100000-step probe")
-    parser.add_argument("--box_size", default=50.0, type=float, help="Box dimensions in nm")
+    parser.add_argument("--box_size", default=50.0, type=float,
+                        help="Box edge in nm for a single copy of the assembly; the actual box is "
+                             "scaled by copies**(1/3) so concentration stays fixed")
+    parser.add_argument("--copies", default=1, type=int,
+                        help="Copies of the deposited stoichiometry to supply. >1 makes "
+                             "over-assembly (OA) observable; the target composition is unchanged")
     
     args = parser.parse_args()
     
@@ -222,7 +234,7 @@ def main():
     if not output_path.exists():
         with open(output_path, 'w', newline='') as f:
             writer = csv.writer(f)
-            writer.writerow(["PDB ID", "Number of chains in PDB", "Number of chain types in PDB", "Status", "RMSD"])
+            writer.writerow(["PDB ID", "Number of chains in PDB", "Number of chain types in PDB", "Status", "RMSD", "Free interface slots"])
     
     for count, pdb_id in enumerate(all_pdb_ids, 1):
         print(f"\n[{count}/{len(all_pdb_ids)}] Testing PDB: {pdb_id}")
@@ -231,6 +243,7 @@ def main():
         chain_types_count = 0
         status = "Crashed"
         rmsd = None
+        free_interface_slots = ""
         
         builder = None
 
@@ -257,6 +270,15 @@ def main():
                 status = "FP"
                 print("  -> Too few protein chains remain after coarse-graining; marking as FP.")
             
+            # Unused binding capacity predicts over-assembly; record it so the run can be
+            # cross-tabulated against the outcome actually observed.
+            free_interface_slots = sum(
+                sum(interfaces.values())
+                for interfaces in get_free_interface_capacity(system).values()
+            )
+            if free_interface_slots:
+                print(f"  -> {free_interface_slots} free interface slot(s); over-assembly possible.")
+
             disconnected_design_message = get_disconnected_design_message(
                 system,
                 prefix="Validation preflight warning",
@@ -285,6 +307,7 @@ def main():
                     iterations=FAST_VALIDATION_ITERATIONS,
                     nerdss_dir=args.nerdss_dir,
                     sim_dir_name="validation_output_fast",
+                    copies=args.copies,
                 )
 
                 # 3. If the target never appears in the histogram, rerun longer.
@@ -301,6 +324,7 @@ def main():
                         iterations=args.iterations,
                         nerdss_dir=args.nerdss_dir,
                         sim_dir_name="validation_output_full",
+                        copies=args.copies,
                     )
                 
                 # 4. Check results and compute RMSD if successful
@@ -355,7 +379,8 @@ def main():
         with open(output_path, 'a', newline='') as f:
             writer = csv.writer(f)
             rmsd_val = f"{rmsd:.4f} nm" if rmsd is not None else ""
-            writer.writerow([pdb_id, chains_count, chain_types_count, status, rmsd_val])
+            writer.writerow([pdb_id, chains_count, chain_types_count, status, rmsd_val,
+                             free_interface_slots])
             
 if __name__ == "__main__":
     main()
