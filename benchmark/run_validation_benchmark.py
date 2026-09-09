@@ -200,6 +200,11 @@ def main():
     parser.add_argument("--box_size", default=50.0, type=float,
                         help="Box edge in nm for a single copy of the assembly; the actual box is "
                              "scaled by copies**(1/3) so concentration stays fixed")
+    parser.add_argument("--geometric_regularization", default="off", type=str,
+                        choices=["off", "auto"],
+                        help="Snap a detected cyclic assembly onto exact Cn geometry before "
+                             "simulating. Cyclic designs only close when the generator "
+                             "transform is exactly n-fold; 'auto' enforces that")
     parser.add_argument("--copies", default=1, type=int,
                         help="Copies of the deposited stoichiometry to supply. >1 makes "
                              "over-assembly (OA) observable; the target composition is unchanged")
@@ -234,7 +239,7 @@ def main():
     if not output_path.exists():
         with open(output_path, 'w', newline='') as f:
             writer = csv.writer(f)
-            writer.writerow(["PDB ID", "Number of chains in PDB", "Number of chain types in PDB", "Status", "RMSD", "Free interface slots"])
+            writer.writerow(["PDB ID", "Number of chains in PDB", "Number of chain types in PDB", "Status", "RMSD", "Free interface slots", "Symmetry"])
     
     for count, pdb_id in enumerate(all_pdb_ids, 1):
         print(f"\n[{count}/{len(all_pdb_ids)}] Testing PDB: {pdb_id}")
@@ -244,6 +249,7 @@ def main():
         status = "Crashed"
         rmsd = None
         free_interface_slots = ""
+        symmetry = ""
         
         builder = None
 
@@ -255,6 +261,7 @@ def main():
                 generate_visualizations=False,
                 generate_nerdss_files=False,
                 logger_level=logging.WARNING,
+                geometric_regularization=args.geometric_regularization,
                 #interface_detect_distance_cutoff=1.5,
                 #interface_detect_n_residue_cutoff=6,
             )
@@ -272,6 +279,9 @@ def main():
             
             # Unused binding capacity predicts over-assembly; record it so the run can be
             # cross-tabulated against the outcome actually observed.
+            detection = getattr(system, "symmetry_detection", None)
+            symmetry = getattr(detection, "group", "") if detection is not None else ""
+
             free_interface_slots = sum(
                 sum(interfaces.values())
                 for interfaces in get_free_interface_capacity(system).values()
@@ -380,7 +390,7 @@ def main():
             writer = csv.writer(f)
             rmsd_val = f"{rmsd:.4f} nm" if rmsd is not None else ""
             writer.writerow([pdb_id, chains_count, chain_types_count, status, rmsd_val,
-                             free_interface_slots])
+                             free_interface_slots, symmetry])
             
 if __name__ == "__main__":
     main()
