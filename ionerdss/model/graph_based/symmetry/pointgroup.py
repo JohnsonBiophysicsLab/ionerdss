@@ -183,7 +183,7 @@ class PointGroup:
 
         :return:
         """
-        idx = utils.get_non_degenerated(self._eigenvalues, self._tolerance_eig)
+        idx = inertia_tensors.get_non_degenerated(self._eigenvalues, self._tolerance_eig)
         main_axis = self._eigenvectors[idx]
 
         self._max_order = self._get_axis_rot_order(main_axis, n_max=9)

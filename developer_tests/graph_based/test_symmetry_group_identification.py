@@ -12,6 +12,7 @@ Tests
 1. Octahedral (Oh) symmetry from an SF6-like configuration
 2. Tetrahedral (Td) symmetry from a regular tetrahedron
 3. Lower symmetry in a flipped tetrahedral dimer (C2 or D2h-like)
+4. Cyclic (Cn) symmetry from planar rings, which reach the symmetric-top branch
 
 Each test ensures the returned point group string is valid and structurally expected.
 
@@ -75,6 +76,39 @@ class TestPointGroupSymmetry(unittest.TestCase):
         pg_str = pg.get_point_group()
         self.assertIsInstance(pg_str, str)
         self.assertGreater(len(pg_str), 0)
+
+    def test_planar_rings_give_cyclic_symmetry(self):
+        """Planar rings are symmetric tops and must resolve to Cn.
+
+        A ring of n points in the xy plane has inertia eigenvalues
+        (nr^2/2, nr^2/2, nr^2), a two-fold degeneracy that routes
+        classification through ``_symmetric``.  That branch is the one a
+        cyclic protein assembly takes, so leaving it untested once let a
+        bad module reference there go unnoticed.
+        """
+        for n in range(3, 9):
+            with self.subTest(n=n):
+                theta = 2 * np.pi * np.arange(n) / n
+                coords = np.column_stack(
+                    [10 * np.cos(theta), 10 * np.sin(theta), np.zeros(n)]
+                )
+                pg = PointGroup(positions=coords, symbols=["B"] * n)
+                self.assertEqual(pg.get_point_group(), f"C{n}")
+
+    def test_symmetric_top_off_the_ring_plane(self):
+        """A two-tier ring stays a symmetric top and still classifies."""
+        n = 6
+        theta = 2 * np.pi * np.arange(n) / n
+        inner = np.column_stack(
+            [4 * np.cos(theta), 4 * np.sin(theta), np.full(n, 3.0)]
+        )
+        outer = np.column_stack(
+            [9 * np.cos(theta), 9 * np.sin(theta), np.full(n, -3.0)]
+        )
+        pg = PointGroup(positions=np.vstack([inner, outer]), symbols=["B"] * (2 * n))
+        pg_str = pg.get_point_group()
+        self.assertIsInstance(pg_str, str)
+        self.assertTrue(pg_str.startswith("C6"), pg_str)
 
 
 if __name__ == "__main__":
