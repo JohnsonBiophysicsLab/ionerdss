@@ -1,3 +1,17 @@
+> **SUPERSEDED — do not cite these numbers.**
+>
+> The full paired rerun (`pdb_benchmark/BENCHMARK_v224_x5_auto.md`) shows neither change
+> moves the benchmark. The improvement below is an artifact of two errors:
+>
+> 1. `poc_run.py` ran only the 100,000-iteration fast probe, while the "before" labels
+>    came from the benchmark's full protocol, which reruns at 1,000,000 iterations when
+>    the target does not appear — ten times longer for complexes to fuse. The two arms
+>    were never comparable.
+> 2. The alignment fix corrects `MoleculeInstance.ref1`/`ref2`, which the NERDSS export
+>    and validation paths never read, so it cannot change a simulation outcome.
+>
+> Kept for the record.
+
 # POC: over-assembly after the orientation and regularization fixes
 
 120 PDB IDs sampled at random (seed 20260908) from the 53,377-entry x5 benchmark set,
