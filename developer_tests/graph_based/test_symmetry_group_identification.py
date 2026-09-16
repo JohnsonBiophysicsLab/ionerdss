@@ -15,6 +15,7 @@ Tests
 4. Dihedral (Dn) symmetry from planar and stacked rings, via the symmetric-top branch
 5. Cyclic (Cn) symmetry from a chiral propeller, whose tilt breaks the C2 axes
 6. Icosahedral (I) symmetry from all three of its special-position orbits
+7. Cubic groups under positional noise, degrading to subgroups rather than raising
 
 Each test ensures the returned point group string is valid and structurally expected.
 
@@ -24,6 +25,8 @@ Auto-generated and maintained as part of the ioNERDSS framework
 for molecular complex modeling and reaction network generation.
 """
 
+import contextlib
+import io
 import itertools
 import unittest
 
@@ -169,6 +172,92 @@ class TestPointGroupSymmetry(unittest.TestCase):
             with self.subTest(orbit=name, n=len(coords)):
                 pg = PointGroup(positions=coords, symbols=["B"] * len(coords))
                 self.assertEqual(pg.get_point_group(), "I")
+
+    def _noisy(self, coords, fraction, seed):
+        rng = np.random.default_rng(seed)
+        radius = np.linalg.norm(coords, axis=1).mean()
+        jittered = coords + rng.normal(scale=fraction * radius, size=coords.shape)
+        return jittered - jittered.mean(axis=0)
+
+    def test_cubic_groups_survive_realistic_positional_noise(self):
+        """Deposited geometry is never exact, and routing must not veto detection.
+
+        Branch selection used to compare the inertia eigenvalue spread against
+        tolerance_eig (0.01).  A 12-point icosahedron perturbed by 2% of its
+        radius has a spread of about 0.019 -- so it was sent to the symmetric
+        branch, where get_non_degenerated then raised, even though the set still
+        satisfies its own C5 operator.  The operator tests, not the eigenvalue
+        bookkeeping, have to be what decides.
+        """
+        phi = (1 + np.sqrt(5)) / 2
+        base = np.array([[0, s1, s2 * phi] for s1 in (1, -1) for s2 in (1, -1)])
+        icosahedron = np.vstack(
+            [base, np.roll(base, 1, axis=1), np.roll(base, 2, axis=1)]
+        )
+        icosahedron = icosahedron / np.linalg.norm(icosahedron[0]) * 10
+        octahedron = np.vstack([np.identity(3), -np.identity(3)]) * 10
+        tetrahedron = np.array(
+            [[1, 1, 1], [-1, -1, 1], [-1, 1, -1], [1, -1, -1]], float
+        ) / np.sqrt(3) * 10
+
+        for name, coords, expected in (("icosahedron", icosahedron, "I"),
+                                       ("octahedron", octahedron, "O"),
+                                       ("tetrahedron", tetrahedron, "T")):
+            for seed in range(6):
+                with self.subTest(shape=name, noise="1.5%", seed=seed):
+                    coords_n = self._noisy(coords, 0.015, seed)
+                    pg = PointGroup(positions=coords_n, symbols=["B"] * len(coords_n))
+                    self.assertEqual(pg.get_point_group(), expected)
+
+    def test_degradation_is_to_a_subgroup_never_an_exception(self):
+        """Past the point of recognition the answer weakens; it does not blow up.
+
+        Heavy noise used to raise RuntimeError from get_non_degenerated or
+        ValueError from the orientation search.  A caller that wraps detection in
+        a broad except records those as "no symmetry", which is how crashes got
+        counted as findings.
+        """
+        phi = (1 + np.sqrt(5)) / 2
+        base = np.array([[0, s1, s2 * phi] for s1 in (1, -1) for s2 in (1, -1)])
+        icosahedron = np.vstack(
+            [base, np.roll(base, 1, axis=1), np.roll(base, 2, axis=1)]
+        )
+        icosahedron = icosahedron / np.linalg.norm(icosahedron[0]) * 10
+
+        # I contains T contains C3 contains C1: every acceptable answer is a
+        # subgroup of the truth, so the detector may under-claim but not invent.
+        allowed = {"I", "T", "C3", "C2", "C1", "D2", "D3"}
+        for fraction in (0.03, 0.05, 0.08, 0.15, 0.30):
+            for seed in range(3):
+                with self.subTest(noise=fraction, seed=seed):
+                    coords = self._noisy(icosahedron, fraction, seed)
+                    pg = PointGroup(positions=coords, symbols=["B"] * len(coords))
+                    self.assertIn(pg.get_point_group(), allowed)
+
+    def test_spherical_branch_declines_instead_of_looping(self):
+        """A near-isotropic set with no cubic axis must be handed back, quietly.
+
+        _spherical used to loop ``while main_axis is None``, multiplying the
+        angular tolerance by 1.01 per miss and printing 'increase tolerance', so
+        it could only ever return an answer -- eventually one found at a
+        tolerance nobody asked for.
+        """
+        phi = (1 + np.sqrt(5)) / 2
+        base = np.array([[0, s1, s2 * phi] for s1 in (1, -1) for s2 in (1, -1)])
+        icosahedron = np.vstack(
+            [base, np.roll(base, 1, axis=1), np.roll(base, 2, axis=1)]
+        )
+        icosahedron = icosahedron / np.linalg.norm(icosahedron[0]) * 10
+        scrambled = self._noisy(icosahedron, 0.12, 11)
+
+        pg = PointGroup(positions=scrambled, symbols=["B"] * len(scrambled))
+        tolerance_before = pg._tolerance_ang
+
+        captured = io.StringIO()
+        with contextlib.redirect_stdout(captured):
+            self.assertFalse(pg._spherical())
+        self.assertEqual(captured.getvalue(), "")
+        self.assertEqual(pg._tolerance_ang, tolerance_before)
 
     def test_cubic_groups_are_not_disturbed_by_the_icosahedral_axis(self):
         """T and O must keep their own orientation routines' answers."""
