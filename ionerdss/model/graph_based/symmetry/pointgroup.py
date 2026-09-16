@@ -297,8 +297,48 @@ class PointGroup:
         return
 
     def _cyclic(self, main_axis):
+        """Name the proper rotation group about main_axis: Cn, or Dn.
+
+        Dn differs from Cn by n two-fold axes perpendicular to the principal
+        axis. Without that test every dihedral assembly is reported as its bare
+        cyclic subgroup, which is why no D symbol was reachable at all.
+
+        Note what is being classified: a set of points, not an assembly of
+        oriented subunits. n points evenly spaced on a circle carry the
+        perpendicular C2 axes whether or not the bodies sitting on them do, so
+        a planar Cn ring of protein chains is correctly Dn *as a point set*
+        while the assembly it stands for is only Cn. Callers that hold subunit
+        frames should confirm against those before treating Dn as physical.
+        """
+        p_axis = self._perpendicular_c2_axis(main_axis)
+        if p_axis is not None:
+            self._schoenflies_symbol = "D{}".format(self._max_order)
+            self._set_orientation(main_axis, p_axis)
+            return
+
         self._schoenflies_symbol = "C{}".format(self._max_order)
         return
+
+    def _perpendicular_c2_axis(self, main_axis):
+        """Return a C2 axis perpendicular to main_axis, or None if there is none.
+
+        A Dn group carries n such axes evenly spaced by pi/n about the principal
+        axis, so sweeping a half turn meets one whatever the starting phase.
+
+        :param main_axis: principal rotation axis (must be unitary)
+        :return: a unit C2 axis perpendicular to main_axis, or None
+        """
+        if self._max_order < 2:
+            return None
+
+        base = get_perpendicular_vector(main_axis)
+        # One step per degree: fine enough to land inside the angular window of
+        # any real C2 axis, and only 180 operator checks.
+        for angle in np.arange(0.0, np.pi, np.deg2rad(1.0)):
+            axis = np.dot(base, rotation_matrix(main_axis, angle).T)
+            if self._check_op(Rotation(axis, order=2)):
+                return axis
+        return None
 
     def _get_axis_rot_order(self, axis, n_max):
         """
