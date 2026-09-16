@@ -231,10 +231,9 @@ if identity >= seq_threshold:
 ### Structural Superposition
 
 ```python
-# For chains with same number of Cα atoms
-superimposer = Superimposer()
-superimposer.set_atoms(coords1, coords2)
-rmsd = superimposer.rms
+# For chains with same number of Cα atoms, the optimal superposition
+# RMSD is computed directly from the coordinate arrays (Kabsch algorithm)
+rmsd = grouper._kabsch_rmsd(coords1, coords2)
 
 # Grouping decision
 if rmsd <= rmsd_threshold:
@@ -324,12 +323,14 @@ Chain groups are used downstream for:
 from collections.abc import Sequence
 from difflib import SequenceMatcher
 from typing import Dict, List, Optional, Tuple
+import logging
 import numpy as np
-from Bio.PDB.Superimposer import Superimposer
 
 from .hyperparameters import PDBModelHyperparameters
 from .parser import PDBParser
 from .coarse_graining import CoarseGrainer
+
+logger = logging.getLogger(__name__)
 
 
 class ChainGroup:
@@ -590,9 +591,17 @@ class ChainGrouper:
 
     @staticmethod
     def _kabsch_rmsd(coords_i: np.ndarray, coords_j: np.ndarray) -> float:
-        """RMSD of two paired coordinate sets after optimal superposition."""
-        p = coords_i - coords_i.mean(axis=0)
-        q = coords_j - coords_j.mean(axis=0)
+        """RMSD of two paired coordinate sets after optimal superposition.
+
+        Raises:
+            numpy.linalg.LinAlgError: If the SVD fails to converge.
+        """
+        # float64 throughout: ca_coords arrive as float32 and the residual is a
+        # difference of large sums, so it cancels badly at single precision.
+        p = np.asarray(coords_i, dtype=np.float64)
+        q = np.asarray(coords_j, dtype=np.float64)
+        p = p - p.mean(axis=0)
+        q = q - q.mean(axis=0)
 
         _, singular_values, _ = np.linalg.svd(p.T @ q)
         # right-handed rotations only: a reflection would fit mirror images
@@ -768,35 +777,33 @@ class ChainGrouper:
         Returns:
             True if structures are similar below RMSD threshold.
         """
-        try:
-            # Need same number of Cα atoms for superposition
-            if len(coords_i) != len(coords_j) or len(coords_i) == 0:
-                return False
-
-            # Handle very short chains
-            if len(coords_i) < 3:
-                # For very short chains, use simple distance comparison
-                distances = np.linalg.norm(coords_i - coords_j, axis=1)
-                mean_distance = np.mean(distances)
-                return mean_distance <= getattr(
-                    self.hyperparams,
-                    "chain_grouping_rmsd_threshold",
-                    2.0,
-                )
-
-            # Perform structural superposition
-            sup = Superimposer()
-            sup.set_atoms(coords_i, coords_j)
-            rmsd = sup.rms
-            return rmsd <= getattr(
-                self.hyperparams,
-                "chain_grouping_rmsd_threshold",
-                2.0,
-            )
-
-        except Exception as e:
-            print(f"Warning: Structure comparison failed: {e}")
+        # Need same number of Cα atoms for superposition
+        if len(coords_i) != len(coords_j) or len(coords_i) == 0:
             return False
+
+        threshold = getattr(
+            self.hyperparams,
+            "chain_grouping_rmsd_threshold",
+            2.0,
+        )
+
+        # Handle very short chains
+        if len(coords_i) < 3:
+            # For very short chains, use simple distance comparison
+            distances = np.linalg.norm(
+                np.asarray(coords_i, dtype=np.float64)
+                - np.asarray(coords_j, dtype=np.float64),
+                axis=1,
+            )
+            return float(np.mean(distances)) <= threshold
+
+        try:
+            rmsd = self._kabsch_rmsd(coords_i, coords_j)
+        except np.linalg.LinAlgError as e:
+            logger.warning("Structure comparison failed: %s", e)
+            return False
+
+        return rmsd <= threshold
 
     def _ensure_all_chains_grouped(self) -> None:
         """Ensure all chains are assigned to groups (create singleton groups if needed)."""
