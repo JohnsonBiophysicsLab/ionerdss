@@ -228,7 +228,10 @@ class PointGroup:
         # I
         if self._schoenflies_symbol == 'I':
             def determine_orientation_I(main_axis):
-                r_matrix = rotation_matrix(p_axis_base, np.arcsin((np.sqrt(5)+1)/(2*np.sqrt(3))))
+                # Angle between two 5-fold axes of an icosahedron: arccos(1/sqrt(5)),
+                # equivalently arctan(2), = 63.4349 deg. The search below looks for a
+                # second C5, so this is the tilt that has to be probed.
+                r_matrix = rotation_matrix(p_axis_base, np.arccos(1.0/np.sqrt(5.0)))
                 axis = np.dot(main_axis, r_matrix.T)
 
                 # set molecule orientation in I

@@ -14,6 +14,7 @@ Tests
 3. Lower symmetry in a flipped tetrahedral dimer (C2 or D2h-like)
 4. Dihedral (Dn) symmetry from planar and stacked rings, via the symmetric-top branch
 5. Cyclic (Cn) symmetry from a chiral propeller, whose tilt breaks the C2 axes
+6. Icosahedral (I) symmetry from all three of its special-position orbits
 
 Each test ensures the returned point group string is valid and structurally expected.
 
@@ -23,7 +24,9 @@ Auto-generated and maintained as part of the ioNERDSS framework
 for molecular complex modeling and reaction network generation.
 """
 
+import itertools
 import unittest
+
 import numpy as np
 from ionerdss.model.graph_based.symmetry.pointgroup import PointGroup
 
@@ -121,6 +124,64 @@ class TestPointGroupSymmetry(unittest.TestCase):
         coords = [[5, 5, 0], [-5, -5, 0], [0, 0, 5], [0, 0, -5]]
         pg = PointGroup(positions=coords, symbols=["B"] * 4)
         self.assertEqual(pg.get_point_group(), "D2")
+
+    def test_every_icosahedral_orbit_classifies_at_the_default_tolerance(self):
+        """The three special-position orbits of I must all resolve as I.
+
+        Subunits on the 5-folds give 12 points (an icosahedron), on the 3-folds
+        20 (a dodecahedron), on the 2-folds 30 (an icosidodecahedron).  All are
+        perfect I orbits, so none may raise or fall back to a subgroup.
+
+        ``determine_orientation_I`` searches for a *second* C5 axis, and so has
+        to probe the 5-fold/5-fold angle, arccos(1/sqrt(5)) = 63.4349 deg.  It
+        used to probe 69.0948 deg -- arcsin applied to the cosine of the
+        5-fold/3-fold angle -- which sits outside the acceptance window and made
+        a mathematically perfect dodecahedron raise ValueError.
+        """
+        phi = (1 + np.sqrt(5)) / 2
+        base = np.array([[0, s1, s2 * phi] for s1 in (1, -1) for s2 in (1, -1)])
+        icosahedron = np.vstack(
+            [base, np.roll(base, 1, axis=1), np.roll(base, 2, axis=1)]
+        )
+        icosahedron = icosahedron / np.linalg.norm(icosahedron[0]) * 10
+
+        cube = np.array(list(itertools.product((1, -1), repeat=3)), float)
+        rect = np.array([[0, s1 / phi, s2 * phi] for s1 in (1, -1) for s2 in (1, -1)])
+        dodecahedron = np.vstack(
+            [cube, rect, np.roll(rect, 1, axis=1), np.roll(rect, 2, axis=1)]
+        )
+        dodecahedron = dodecahedron / np.linalg.norm(dodecahedron[0]) * 10
+
+        # Edge midpoints of the icosahedron: its 30 two-fold positions.
+        spacing = min(
+            np.linalg.norm(icosahedron[0] - p)
+            for p in icosahedron[1:]
+        )
+        icosidodecahedron = np.array([
+            (icosahedron[i] + icosahedron[j]) / 2
+            for i in range(12) for j in range(i + 1, 12)
+            if abs(np.linalg.norm(icosahedron[i] - icosahedron[j]) - spacing) < 1e-6
+        ])
+
+        for name, coords in (("icosahedron", icosahedron),
+                             ("dodecahedron", dodecahedron),
+                             ("icosidodecahedron", icosidodecahedron)):
+            with self.subTest(orbit=name, n=len(coords)):
+                pg = PointGroup(positions=coords, symbols=["B"] * len(coords))
+                self.assertEqual(pg.get_point_group(), "I")
+
+    def test_cubic_groups_are_not_disturbed_by_the_icosahedral_axis(self):
+        """T and O must keep their own orientation routines' answers."""
+        cube = np.array(list(itertools.product((1, -1), repeat=3)), float) * 10
+        octahedron = np.vstack([np.identity(3), -np.identity(3)]) * 10
+        tetrahedron = np.array(
+            [[1, 1, 1], [-1, -1, 1], [-1, 1, -1], [1, -1, -1]], float
+        ) * 10
+        self.assertEqual(PointGroup(positions=cube, symbols=["B"] * 8).get_point_group(), "O")
+        self.assertEqual(
+            PointGroup(positions=octahedron, symbols=["B"] * 6).get_point_group(), "O")
+        self.assertEqual(
+            PointGroup(positions=tetrahedron, symbols=["B"] * 4).get_point_group(), "T")
 
     def test_chiral_propeller_stays_cyclic(self):
         """Tilting every blade the same way breaks the perpendicular C2 axes."""
