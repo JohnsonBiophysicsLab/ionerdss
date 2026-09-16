@@ -274,6 +274,9 @@ import shutil
 import tempfile
 import gzip
 import re
+import contextlib
+import socket
+import time
 import urllib.request
 import urllib.error
 
@@ -286,6 +289,83 @@ from Bio.PDB.Polypeptide import PPBuilder, is_aa, protein_letters_3to1
 
 from ionerdss.model.components.units import Units
 from .file_manager import WorkspaceManager
+
+
+# Neither urllib.request.urlretrieve nor BioPython's PDBList takes a timeout, and
+# neither has one by default, so a connection to RCSB that opens and then stalls
+# blocks the calling thread indefinitely. In a worker pool that is not one slow
+# download but a wedged run: every worker ends up parked on a socket read and the
+# job sits at 0% CPU until it is killed.
+DOWNLOAD_TIMEOUT_SECONDS = 30.0
+DOWNLOAD_ATTEMPTS = 3
+DOWNLOAD_BACKOFF_SECONDS = 1.0
+
+
+@contextlib.contextmanager
+def _socket_timeout(seconds: float):
+    """Bound blocking socket operations inside the block.
+
+    For code that offers no timeout parameter of its own -- BioPython's PDBList --
+    the socket default is the only lever available. It is process-global, so the
+    previous value is restored on the way out.
+    """
+    previous = socket.getdefaulttimeout()
+    socket.setdefaulttimeout(seconds)
+    try:
+        yield
+    finally:
+        socket.setdefaulttimeout(previous)
+
+
+def download_with_retry(url: str, destination: Path, timeout: float, attempts: int,
+                 backoff: float = DOWNLOAD_BACKOFF_SECONDS, logger=None) -> None:
+    """Stream ``url`` into ``destination``, retrying transient failures.
+
+    Replaces urlretrieve so that the timeout covers the whole transfer: it applies
+    to each socket read, so a connection that stalls partway through raises rather
+    than hanging.
+
+    A 4xx is the server saying the file is not there, which retrying cannot change,
+    so it propagates on the first attempt; timeouts, reset connections and 5xx are
+    retried with a linear backoff.
+
+    Args:
+        url: Source URL.
+        destination: File to write; removed again if an attempt fails partway.
+        timeout: Seconds any single socket operation may block.
+        attempts: Total attempts, including the first.
+        backoff: Seconds to wait after the first failure, scaled by attempt number.
+        logger: Optional logger for retry notices.
+
+    Raises:
+        urllib.error.HTTPError: Non-retryable HTTP status.
+        OSError: The last transport error, once the attempts are spent.
+    """
+    last_error: Optional[BaseException] = None
+
+    for attempt in range(1, attempts + 1):
+        try:
+            with urllib.request.urlopen(url, timeout=timeout) as response:
+                with open(destination, 'wb') as handle:
+                    shutil.copyfileobj(response, handle)
+            return
+        except urllib.error.HTTPError as exc:
+            if exc.code < 500:
+                raise
+            last_error = exc
+        except (urllib.error.URLError, TimeoutError, OSError) as exc:
+            last_error = exc
+
+        if destination.exists():
+            destination.unlink()
+        if attempt < attempts:
+            if logger:
+                logger.warning(
+                    f"Download of {url} failed ({last_error}); "
+                    f"retrying ({attempt + 1}/{attempts})")
+            time.sleep(backoff * attempt)
+
+    raise last_error
 
 
 class PDBParser:
@@ -307,7 +387,9 @@ class PDBParser:
                  fetch_from_pdb: bool = False, file_format: str = 'mmcif',
                  workspace_manager: Optional[WorkspaceManager] = None,
                  concat_all_frames=True, max_frames=None,
-                 include_modified_residues: bool = True):
+                 include_modified_residues: bool = True,
+                 download_timeout: float = DOWNLOAD_TIMEOUT_SECONDS,
+                 download_attempts: int = DOWNLOAD_ATTEMPTS):
         """Initialize parser with PDB/mmCIF file or PDB ID for fetching.
 
         Args:
@@ -319,6 +401,11 @@ class PDBParser:
             include_modified_residues: Keep non-standard residues that belong to a
                 polymer entity (modified amino acids, terminal caps). Set False to
                 restore the older standard-amino-acids-only behaviour.
+            download_timeout: Seconds any single socket operation may block while
+                fetching from RCSB. Raise it on a slow link; lower it in a batch
+                run where failing fast and retrying beats waiting.
+            download_attempts: Total download attempts, including the first.
+                Timeouts, reset connections and 5xx are retried; a 4xx is not.
         """
         self.units = units or Units()
         self.structure: Optional[Structure] = None
@@ -327,6 +414,8 @@ class PDBParser:
         self.filepath: Optional[Path] = None
         self.workspace_manager = workspace_manager
         self.include_modified_residues = include_modified_residues
+        self.download_timeout = float(download_timeout)
+        self.download_attempts = int(download_attempts)
         self._polymer_residue_names: Optional[Set[str]] = None
         self._reported_skipped_residues: Set[str] = set()
 
@@ -439,7 +528,11 @@ class PDBParser:
         
         try:
             # Download the .gz file
-            urllib.request.urlretrieve(url, temp_gz)
+            download_with_retry(
+                url, temp_gz,
+                timeout=self.download_timeout,
+                attempts=self.download_attempts,
+                logger=self.workspace_manager.logger if self.workspace_manager else None)
             
             # Decompress the file
             with gzip.open(temp_gz, 'rb') as f_in:
@@ -526,20 +619,23 @@ class PDBParser:
             # Initialize PDB downloader with HTTPS server (more reliable than FTP)
             pdb_list = PDBList(server='https://files.rcsb.org')
 
-            if file_format.lower() == 'mmcif':
-                # Download mmCIF file
-                downloaded_file = pdb_list.retrieve_pdb_file(
-                    pdb_id,
-                    pdir=str(temp_dir),
-                    file_format='mmCif'
-                )
-            else:  # pdb format
-                # Download PDB file
-                downloaded_file = pdb_list.retrieve_pdb_file(
-                    pdb_id,
-                    pdir=str(temp_dir),
-                    file_format='pdb'
-                )
+            # PDBList exposes no timeout, so the socket default is the only bound
+            # available on a stalled read.
+            with _socket_timeout(self.download_timeout):
+                if file_format.lower() == 'mmcif':
+                    # Download mmCIF file
+                    downloaded_file = pdb_list.retrieve_pdb_file(
+                        pdb_id,
+                        pdir=str(temp_dir),
+                        file_format='mmCif'
+                    )
+                else:  # pdb format
+                    # Download PDB file
+                    downloaded_file = pdb_list.retrieve_pdb_file(
+                        pdb_id,
+                        pdir=str(temp_dir),
+                        file_format='pdb'
+                    )
 
             # The downloaded file path returned by BioPython may not exist
             # Check what was actually downloaded in the temp directory
