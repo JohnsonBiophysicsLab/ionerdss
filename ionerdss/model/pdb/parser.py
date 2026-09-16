@@ -381,7 +381,18 @@ class PDBParser:
         pdb_id: PDB identifier if fetched from database.
         filepath: Path to the structure file (in workspace).
         workspace_manager: Workspace manager for file organization.
+        download_timeout: Seconds any single socket operation may block when
+            fetching from RCSB.
+        download_attempts: Total download attempts, including the first.
     """
+
+    # Class-level defaults so that a parser reaches the fetch paths configured
+    # however it was built. __init__ overrides them per instance; keeping them
+    # here rather than reading them back with getattr means the attributes are
+    # declared once, and a parser constructed for a narrow purpose still has
+    # working network bounds instead of an AttributeError.
+    download_timeout: float = DOWNLOAD_TIMEOUT_SECONDS
+    download_attempts: int = DOWNLOAD_ATTEMPTS
 
     def __init__(self, source: Union[str, Path], units: Optional[Units] = None,
                  fetch_from_pdb: bool = False, file_format: str = 'mmcif',
