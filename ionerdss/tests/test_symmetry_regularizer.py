@@ -149,10 +149,101 @@ def test_off_mode_is_a_no_op():
         assert np.allclose(before, np.asarray(inst.com, float))
 
 
+def test_dihedral_symbol_still_yields_a_usable_cyclic_order():
+    # Dn contains Cn, and the n-fold rotation is the only thing regularization
+    # applies. Rejecting 'D6' here would push dihedral assemblies out of the ring
+    # path their cyclic subgroup qualifies them for.
+    order_of = SymmetryRegularizer._cyclic_order_from_symbol
+    assert order_of("C6") == 6
+    assert order_of("D6") == 6
+    assert order_of("T") is None
+    assert order_of("Cinfv") is None
+    assert order_of(None) is None
+
+
+def test_family_label_is_not_mistaken_for_a_verified_ring():
+    # 'C-family' must not satisfy regularizable on its leading letter, and must be
+    # visibly distinct from a verified 'C6' wherever the two are tabulated together.
+    from ionerdss.model.pdb.symmetry_regularizer import SymmetryDetection
+
+    family = SymmetryDetection(group=SymmetryRegularizer._group_family("C4"), order=8)
+    assert family.group == "C-family"
+    assert not family.regularizable
+
+    verified = SymmetryDetection(group="C6", order=6, axis=np.array([0.0, 0.0, 1.0]))
+    assert verified.regularizable
+
+
 def test_dimer_is_too_small_to_regularize():
     detection = SymmetryRegularizer(_ring_system(2)).detect()
     assert not detection.regularizable
     assert "nothing to regularize" in detection.reason
+
+
+# --------------------------------------------------------------------------
+# Dihedral resolution: PointGroup sees points, an assembly has oriented bodies
+# --------------------------------------------------------------------------
+
+
+def _stacked_ring_system(n, *, chiral):
+    """Two rings stacked along z, bonded within each ring.
+
+    With chiral=False the lower ring is the mirror partner of the upper one, so a
+    C2 in the plane maps the assembly onto itself and the group really is Dn.
+    With chiral=True every subunit carries the same handed frame, which breaks
+    those axes and leaves only Cn.
+    """
+    system = System(workspace_path=".")
+    mol_type = MoleculeType(name="A")
+    mol_type.interfaces_neighbors_map = {"AA1f": "A", "AA1b": "A"}
+    system.molecule_types.add(mol_type)
+
+    instances = []
+    for tier, z in enumerate((6.0, -6.0)):
+        for k in range(n):
+            theta = 2.0 * np.pi * k / n
+            com = np.array([10 * np.cos(theta), 10 * np.sin(theta), z])
+            ref1 = np.array([np.cos(theta), np.sin(theta), 0.0])
+            if chiral or tier == 0:
+                ref2 = np.array([0.0, 0.0, 1.0])
+            else:
+                ref2 = np.array([0.0, 0.0, -1.0])   # lower tier flipped
+            inst = MoleculeInstance(
+                name=f"a{tier * n + k}", molecule_type=mol_type, com=com,
+                norm=np.array([0.0, 0.0, 1.0]), ref1=ref1, ref2=ref2,
+                interfaces_neighbors_map={})
+            instances.append(inst)
+            system.molecule_instances.add(inst)
+    return system
+
+
+def test_point_group_reports_dihedral_when_frames_agree():
+    system = _stacked_ring_system(4, chiral=False)
+    regularizer = SymmetryRegularizer(system)
+    instances = _ordered(system)
+    assert regularizer._point_group_symbol(instances) == "D4"
+
+
+def test_dihedral_is_downgraded_when_frames_are_all_one_hand():
+    # The centres of mass are identical to the case above, so PointGroup alone
+    # still says D4; only the frames distinguish them.
+    system = _stacked_ring_system(4, chiral=True)
+    regularizer = SymmetryRegularizer(system)
+    instances = _ordered(system)
+    assert regularizer._point_group_symbol(instances) == "C4"
+
+
+def test_flat_protein_ring_is_not_reported_as_dihedral():
+    # The dominant real case: n chiral subunits on a circle. The point set is Dn,
+    # the assembly is Cn, and reporting Dn would relabel most cyclic rings.
+    system = _ring_system(6)
+    assert SymmetryRegularizer(system)._point_group_symbol(_ordered(system)) == "C6"
+
+
+def test_flat_ring_still_detects_as_a_cyclic_ring():
+    detection = SymmetryRegularizer(_ring_system(6)).detect()
+    assert detection.group == "C6"
+    assert detection.point_group_symbol == "C6"
 
 
 # --------------------------------------------------------------------------

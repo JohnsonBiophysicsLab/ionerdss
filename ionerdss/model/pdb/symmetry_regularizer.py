@@ -30,8 +30,18 @@ SCOPE
 Cyclic (``Cn``) assemblies are detected and regularized. Helical/open assemblies are
 detected and deliberately left alone -- a filament such as actin genuinely extends
 past the deposited asymmetric unit, so forcing closure there would be wrong. Dihedral
-and cubic groups are detected and reported but not yet regularized; they fall through
-as a no-op. Anything unrecognised is left untouched.
+(``Dn``) assemblies are detected, and are regularized only when their subunits form a
+single n-fold orbit, in which case the operation applied is the ``Cn`` rotation about
+the principal axis; the perpendicular C2 axes are never touched. Cubic groups
+(``T``/``O``/``I``) are reported but not regularized. Anything unrecognised is left
+untouched.
+
+A caution specific to ``Dn``: PointGroup classifies centres of mass, and n points
+evenly spaced on a circle carry the perpendicular C2 axes of ``Dn`` whether or not the
+bodies sitting on them do. Protein subunits are chiral, so a flat ``Cn`` ring of them
+has dihedral centres of mass and a cyclic assembly. Every ``Dn`` symbol is therefore
+re-checked against the subunit frames before it is reported, and downgraded to ``Cn``
+when the C2 operation fails to map those frames onto each other.
 
 Detection reuses :class:`ionerdss.model.graph_based.symmetry.pointgroup.PointGroup`
 and the rotation helper in :mod:`ionerdss.utils.rotations` rather than reimplementing
@@ -58,13 +68,17 @@ __all__ = ["SymmetryDetection", "SymmetryRegularizer"]
 _RING_MATCH_RELATIVE_TOLERANCE = 0.15
 # Refuse to move any subunit further than this, in the system's own length units.
 _DEFAULT_COM_SHIFT_CAP = 6.0
+# Step of the sweep for a C2 axis perpendicular to the principal axis, in degrees.
+_C2_SCAN_STEP_DEG = 1.0
+# How far a subunit frame may be turned from its image and still count as matched.
+_FRAME_MATCH_TOLERANCE_DEG = 20.0
 
 
 @dataclass
 class SymmetryDetection:
     """What the detector concluded about an assembly."""
 
-    group: str = "unknown"                      # 'Cn', 'Dn', 'T'/'O'/'I', 'helical', 'none'
+    group: str = "unknown"                      # 'C<n>' verified, '<X>-family', 'helical', 'none'
     order: int = 1                              # n for Cn
     axis: Optional[np.ndarray] = None           # unit vector, cyclic groups only
     centre: Optional[np.ndarray] = None
@@ -74,7 +88,10 @@ class SymmetryDetection:
 
     @property
     def regularizable(self) -> bool:
-        return self.group.startswith("C") and self.order >= 3 and self.axis is not None
+        # Only a verified 'C<n>' qualifies; 'C-family' means the ring was never
+        # confirmed, and must not match on the leading letter alone.
+        verified_cyclic = self.group.startswith("C") and self.group[1:].isdigit()
+        return verified_cyclic and self.order >= 3 and self.axis is not None
 
 
 class SymmetryRegularizer:
@@ -337,25 +354,115 @@ class SymmetryRegularizer:
             coms = np.asarray([np.asarray(inst.com, float) for inst in instances])
             symbols = [inst.molecule_type.name if inst.molecule_type else "X"
                        for inst in instances]
-            return PointGroup(positions=coms - coms.mean(axis=0), symbols=symbols).get_point_group()
+            symbol = PointGroup(positions=coms - coms.mean(axis=0),
+                                symbols=symbols).get_point_group()
+            return self._resolve_dihedral(symbol, instances)
         except Exception as exc:  # detection must never break the build
             self._log("debug", "PointGroup detection unavailable: %s", exc)
             return None
 
+    def _resolve_dihedral(self, symbol: Optional[str],
+                          instances: Sequence[MoleculeInstance]) -> Optional[str]:
+        """Downgrade Dn to Cn unless the subunit frames back it up.
+
+        PointGroup classifies a cloud of points, and n points evenly spaced on a
+        circle carry the n perpendicular C2 axes of Dn whether or not the bodies
+        sitting on them do. Protein subunits are chiral, so a flat Cn ring of
+        them has Dn centres of mass and a Cn assembly -- taking the point-set
+        answer at face value would relabel most cyclic rings as dihedral.
+
+        A C2 perpendicular to the principal axis is real only if it maps subunit
+        *frames* onto each other as well as their positions. Test that; if it
+        does not hold, or there are no frames to test, report the cyclic
+        subgroup that is certain rather than the dihedral group that is not.
+        """
+        if not symbol or symbol[0].upper() != "D" or not symbol[1:].isdigit():
+            return symbol
+        if self._perpendicular_c2_maps_frames(instances):
+            return symbol
+        self._log("debug", "Dihedral %s not confirmed by subunit frames; reporting C%s",
+                  symbol, symbol[1:])
+        return "C" + symbol[1:]
+
+    def _perpendicular_c2_maps_frames(self, instances: Sequence[MoleculeInstance]) -> bool:
+        """Is there a C2 axis, perpendicular to the principal axis, that maps the
+        oriented assembly onto itself?"""
+        if len(instances) < 2 or not all(self._has_frame(i) for i in instances):
+            return False
+
+        coms = np.asarray([np.asarray(i.com, float) for i in instances])
+        _centre, axis = self._ring_frame(coms)
+        if axis is None:
+            return False
+
+        local = coms - coms.mean(axis=0)
+        radius = float(np.linalg.norm(local, axis=1).max())
+        if radius <= 0:
+            return False
+        frames = [self._frame(i) for i in instances]
+        names = [i.molecule_type.name if i.molecule_type else "X" for i in instances]
+
+        base, _v = self._plane_basis(axis)
+        # The n C2 axes of Dn are spaced by pi/n, so half a turn meets one.
+        for angle in np.arange(0.0, np.pi, np.deg2rad(_C2_SCAN_STEP_DEG)):
+            u = rotation_matrix(axis, float(angle)) @ base
+            if self._rigid_op_is_a_symmetry(rotation_matrix(u, np.pi),
+                                            local, frames, names, radius):
+                return True
+        return False
+
+    def _rigid_op_is_a_symmetry(self, rotation: np.ndarray, local: np.ndarray,
+                                frames: Sequence[np.ndarray], names: Sequence[str],
+                                radius: float) -> bool:
+        """Does `rotation` send every subunit onto a same-type subunit, frame included?"""
+        position_tolerance = self.fold_tolerance * radius
+        moved = local @ rotation.T
+        for k, point in enumerate(moved):
+            distances = np.linalg.norm(local - point, axis=1)
+            turned = rotation @ frames[k]
+            matched = False
+            for j in np.argsort(distances):
+                if distances[j] > position_tolerance:
+                    break                       # sorted, so nothing closer remains
+                if names[j] != names[k]:
+                    continue
+                cosine = (np.trace(turned.T @ frames[j]) - 1.0) / 2.0
+                if np.degrees(np.arccos(np.clip(cosine, -1.0, 1.0))) <= _FRAME_MATCH_TOLERANCE_DEG:
+                    matched = True
+                    break
+            if not matched:
+                return False
+        return True
+
     @staticmethod
     def _cyclic_order_from_symbol(symbol: Optional[str]) -> Optional[int]:
-        """n from a Schoenflies symbol such as 'C6'; None if it is not plain cyclic."""
-        if not symbol or symbol[0].upper() != "C":
+        """n from a Schoenflies symbol such as 'C6' or 'D6'; None if there is none.
+
+        Dn counts as well as Cn. Its principal axis carries the same n-fold
+        rotation, and that rotation is the only operation regularization ever
+        applies -- the perpendicular C2 axes are what distinguish the two groups
+        and are left alone. Rejecting Dn here would drop dihedral assemblies out
+        of the ring path that their cyclic subgroup qualifies them for.
+        """
+        if not symbol or symbol[0].upper() not in ("C", "D"):
             return None
         tail = symbol[1:]
         return int(tail) if tail.isdigit() else None
 
     @staticmethod
     def _group_family(symbol: Optional[str]) -> str:
+        """Coarse label for an assembly whose n-fold ring could not be verified.
+
+        Deliberately not spelled 'Cn'/'Dn': those sit beside verified labels like
+        'C6' in every table and figure, where they read as the family that
+        contains C6 when they mean the opposite -- the point group looked
+        cyclic but no ring passed the fold test.
+        """
         if not symbol:
             return "unknown"
         head = symbol[0].upper()
-        return {"C": "Cn", "D": "Dn", "T": "T", "O": "O", "I": "I"}.get(head, "unknown")
+        return {"C": "C-family", "D": "D-family", "T": "T-family",
+                "O": "O-family", "I": "I-family"}.get(head, "unknown")
 
     @staticmethod
     def _has_frame(inst: MoleculeInstance) -> bool:
