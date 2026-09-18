@@ -63,6 +63,7 @@ class StructureValidationArtifacts:
     target_file: Path
     nerdss_files: Dict[str, Path]
     preflight_warning_message: Optional[str] = None
+    free_interface_warning_message: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -603,6 +604,74 @@ def get_disconnected_design_message(system: System, *, prefix: str) -> Optional[
     )
 
 
+def get_free_interface_capacity(system: System) -> Dict[str, Dict[str, int]]:
+    """Return binding capacity the designed assembly leaves unused.
+
+    A molecule type declares every interface it can bind through; a given instance in
+    the deposited assembly only realizes the contacts actually observed in the PDB.
+    Anything declared but unrealized is a free interface, and because a fresh copy of
+    the partner type arrives with all of its own interfaces free, that slot can bind
+    another subunit and grow the assembly past the deposited stoichiometry.
+
+    Returns a mapping of molecule type name -> interface type name -> how many
+    instances of that type leave the interface free.
+    """
+    capacity: Dict[str, Dict[str, int]] = {}
+    for instance in system.molecule_instances:
+        molecule_type = instance.molecule_type
+        if molecule_type is None:
+            continue
+
+        declared = set(molecule_type.interfaces_neighbors_map)
+        if not declared:
+            continue
+
+        realized = set()
+        for interface_instance, partner in instance.interfaces_neighbors_map.items():
+            interface_type = getattr(interface_instance, "interface_type", None)
+            if partner is not None and interface_type is not None:
+                realized.add(interface_type.get_name())
+
+        for interface_name in sorted(declared - realized):
+            capacity.setdefault(molecule_type.name, {}).setdefault(interface_name, 0)
+            capacity[molecule_type.name][interface_name] += 1
+
+    return capacity
+
+
+def _format_free_interface_warning(
+    capacity: Mapping[str, Mapping[str, int]], *, prefix: str
+) -> Optional[str]:
+    """Describe unused binding capacity as an over-assembly risk."""
+    if not capacity:
+        return None
+
+    per_type = []
+    for molecule_name in sorted(capacity):
+        interfaces = capacity[molecule_name]
+        detail = ", ".join(
+            f"{interface} on {count} cop{'y' if count == 1 else 'ies'}"
+            for interface, count in sorted(interfaces.items())
+        )
+        per_type.append(f"{molecule_name} ({detail})")
+
+    total = sum(sum(interfaces.values()) for interfaces in capacity.values())
+    return (
+        f"{prefix}: the coarse-grained assembly leaves {total} interface "
+        f"{'slot' if total == 1 else 'slots'} unbound, so supplying more copies than the "
+        f"deposited stoichiometry may grow a larger structure than the PDB encodes "
+        f"(over-assembly). Free capacity: {'; '.join(per_type)}. This can be expected "
+        f"-- a filament such as actin genuinely nucleates beyond the deposited "
+        f"asymmetric unit -- or it can indicate spurious aggregation; compare the "
+        f"simulated assembly against the design before trusting it."
+    )
+
+
+def get_free_interface_message(system: System, *, prefix: str) -> Optional[str]:
+    """Return a formatted over-assembly (free interface) message for the given system."""
+    return _format_free_interface_warning(get_free_interface_capacity(system), prefix=prefix)
+
+
 def build_validation_molecule_counts(system: System, initial_molecule_count: int = 1) -> Dict[str, int]:
     """Return validation counts with a configurable initial copy number per molecule type."""
     target_counts = get_structure_validation_counts(system)
@@ -717,7 +786,10 @@ def prepare_structure_validation(
     preflight_warning_message = _format_disconnected_design_warning(
         _get_designed_connected_components(system)
     )
-    
+    free_interface_warning_message = get_free_interface_message(
+        system, prefix="Validation preflight warning"
+    )
+
     final_designed_coordinates = {
         key: tuple(float(value) for value in coords)
         for key, coords in (
@@ -758,6 +830,8 @@ def prepare_structure_validation(
 
     if preflight_warning_message:
         warnings.warn(preflight_warning_message, RuntimeWarning)
+    if free_interface_warning_message:
+        warnings.warn(free_interface_warning_message, RuntimeWarning)
 
     return StructureValidationArtifacts(
         molecule_counts=molecule_counts,
@@ -766,6 +840,7 @@ def prepare_structure_validation(
         target_file=target_file,
         nerdss_files=nerdss_files,
         preflight_warning_message=preflight_warning_message,
+        free_interface_warning_message=free_interface_warning_message,
     )
 
 

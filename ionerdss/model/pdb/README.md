@@ -582,8 +582,9 @@ print(f"Detected chains: {parser.get_chain_ids()}")
 
 # Configure the interface-detection and grouping settings from this tutorial.
 hyperparams = PDBModelHyperparameters(
-    interface_detect_distance_cutoff=0.7,
+    interface_detect_distance_cutoff=1.0,
     interface_detect_n_residue_cutoff=2,
+    nerdss_overlap_sep_limit=3.0,
     chain_grouping_seq_threshold=0.5,
     generate_nerdss_files=True,
     generate_visualizations=True,
@@ -613,8 +614,9 @@ subprocess.run(
 
 What this configuration changes:
 
-- `interface_detect_distance_cutoff=0.7`: considers atom pairs within 0.7 nm as potential contacts when identifying interfaces.
+- `interface_detect_distance_cutoff=1.0`: considers atom pairs within 1.0 nm as potential contacts when identifying interfaces. This merges all of the long-pitch contacts into a single `aa2f`/`aa2b` pair, giving the correct four binding sites; the 0.9 nm default splits the C–E and F–H contacts off into a spurious self-binding site.
 - `interface_detect_n_residue_cutoff=2`: keeps interfaces that have at least two contacting residues on each side.
+- `nerdss_overlap_sep_limit=3.0`: keeps subunit centres at least 3.0 nm apart during the NERDSS run. Without it, the filament mis-assembles and subunits collapse on top of one another. Values from 2.5 to 3.75 nm work for 6BNO; the pipeline caps this at 0.9 × the minimum chain COM distance (about 3.79 nm here).
 - `chain_grouping_seq_threshold=0.5`: groups repeated chains when their sequence identity is at least 50%.
 
 Where to look after the build finishes:
@@ -633,8 +635,9 @@ from ionerdss import build_system_from_pdb
 system = build_system_from_pdb(
     source="6bno",
     workspace_path="6bno_tutorial",
-    interface_detect_distance_cutoff=0.7,
+    interface_detect_distance_cutoff=1.0,
     interface_detect_n_residue_cutoff=2,
+    nerdss_overlap_sep_limit=3.0,
     chain_grouping_seq_threshold=0.5,
     generate_nerdss_files=True,
 )
