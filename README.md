@@ -178,6 +178,7 @@ Current examples live under `tutorials/` and are the supported starting point fo
 - `tutorials/quick_start_6bno.ipynb`
 - `tutorials/ionerdss_tutorial_5l93.ipynb`
 - `tutorials/ionerdss_tutorial_6bno.ipynb`
+- `tutorials/ionerdss_tutorial_geometric_regularization.ipynb`
 - `tutorials/ionerdss_tutorial_8y7s.ipynb`
 - `tutorials/additional_examples/4yd9.ipynb`
 
