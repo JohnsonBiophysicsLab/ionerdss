@@ -12,6 +12,7 @@ The maintained examples now live in the repository-level `tutorials/` folder. Th
 ## Validation and advanced workflow tutorials
 
 - [`ionerdss_tutorial_pdb_validation.ipynb`](https://github.com/JohnsonBiophysicsLab/ionerdss/blob/main/tutorials/ionerdss_tutorial_pdb_validation.ipynb): structure-validation workflow for comparing an assembled result against the designed coarse-grained target.
+- [`ionerdss_tutorial_geometric_regularization.ipynb`](https://github.com/JohnsonBiophysicsLab/ionerdss/blob/main/tutorials/ionerdss_tutorial_geometric_regularization.ipynb): detect an assembly's point group and snap a cyclic ring onto exact `Cn` geometry, so it closes instead of polymerising.
 - [`ionerdss_tutorial_with_proaffinity_8y7s.ipynb`](https://github.com/JohnsonBiophysicsLab/ionerdss/blob/main/tutorials/ionerdss_tutorial_with_proaffinity_8y7s.ipynb): ProAffinity-enabled workflow for binding-affinity prediction on a larger assembly.
 - [`ionerdss_tutorial_simularium.ipynb`](https://github.com/JohnsonBiophysicsLab/ionerdss/blob/main/tutorials/ionerdss_tutorial_simularium.ipynb): convert NERDSS trajectories into the Simularium 3D viewer format.
 - [`ionerdss_tutorial_ovito_gif.ipynb`](https://github.com/JohnsonBiophysicsLab/ionerdss/blob/main/tutorials/ionerdss_tutorial_ovito_gif.ipynb): render NERDSS trajectories into GIF animations using OVITO.

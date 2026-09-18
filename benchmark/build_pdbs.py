@@ -101,7 +101,7 @@ def classify_label(n_chains, homo):
     }
     return prefix + names.get(n_chains, f"_{n_chains}mer")
 
-def build_candidate_table(chain_counts=(2, 3, 4, 5, 6, 8)):
+def build_candidate_table(chain_counts=(2, 3, 4, 5, 6, 7, 8)):
     rows = []
     for n in chain_counts:
         for homo in (True, False):
@@ -128,6 +128,6 @@ def write_csv(rows, path):
         w.writerows(rows)
 
 if __name__ == "__main__":
-    rows = build_candidate_table(chain_counts=(2, 3, 4, 5, 6, 8))
+    rows = build_candidate_table(chain_counts=(2, 3, 4, 5, 6, 7, 8))
     write_csv(rows, OUTDIR / "assembly_candidates.csv")
     print(f"Wrote {len(rows)} candidates to {OUTDIR / 'assembly_candidates.csv'}")

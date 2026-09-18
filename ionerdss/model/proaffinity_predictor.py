@@ -14,8 +14,16 @@ import sys
 import subprocess
 import urllib.request
 import urllib.error
+from pathlib import Path
+
 import numpy as np
 import warnings
+
+from .pdb.parser import (
+    DOWNLOAD_ATTEMPTS,
+    DOWNLOAD_TIMEOUT_SECONDS,
+    download_with_retry,
+)
 
 # Suppress known benign warnings from dependencies
 # These warnings don't affect functionality and can be safely ignored
@@ -60,7 +68,11 @@ def download_pdb_direct(pdb_id, download_dir="pdbfiles", verbose=False):
         else:
             if verbose: 
                 print(f"Downloading {clean_id.upper()} from {url}...")
-            urllib.request.urlretrieve(url, filepath)
+            # A stalled RCSB connection would otherwise block here indefinitely:
+            # urlretrieve has no timeout and no default one.
+            download_with_retry(url, Path(filepath),
+                                timeout=DOWNLOAD_TIMEOUT_SECONDS,
+                                attempts=DOWNLOAD_ATTEMPTS)
             if os.path.exists(filepath) and os.path.getsize(filepath) > 0:
                 if verbose: 
                     print(f"✓ Successfully downloaded: {filepath}")
