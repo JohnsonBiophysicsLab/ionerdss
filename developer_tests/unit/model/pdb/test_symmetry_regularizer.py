@@ -246,6 +246,27 @@ def test_flat_ring_still_detects_as_a_cyclic_ring():
     assert detection.point_group_symbol == "C6"
 
 
+def test_dihedral_hexamer_is_labelled_dihedral_rather_than_none():
+    # Two stacked triangles are D3 and are never one 6-fold ring, so the fold test
+    # over all six chains cannot pass. With no cycle in the contact graph to blame,
+    # reporting 'none' for that both misnamed what failed and hid a real symmetry.
+    detection = SymmetryRegularizer(_stacked_ring_system(3, chiral=False)).detect()
+    assert detection.point_group_symbol == "D3"
+    assert detection.group == "D-family"
+    assert not detection.regularizable
+    assert "dihedral" in detection.reason
+    assert "cycle" not in detection.reason      # there was never a cycle to test
+
+
+def test_distorted_contact_cycle_is_still_none():
+    # The other half: here a degree-2 cycle really was found and really is not
+    # 4-fold, so 'none' is the honest answer and must survive the change above.
+    system = _ring_system(4, z_jitter=np.array([0.0, 40.0, 0.0, -40.0]))
+    detection = SymmetryRegularizer(system).detect()
+    assert detection.group == "none"
+    assert "cycle of 4 is not 4-fold symmetric" in detection.reason
+
+
 # --------------------------------------------------------------------------
 # Orientation alignment: pairing Cα atoms by residue number rather than
 # positionally, so copies that resolve different loops still get a real frame.
