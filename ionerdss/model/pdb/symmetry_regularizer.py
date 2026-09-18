@@ -166,6 +166,7 @@ class SymmetryRegularizer:
         # non-neighbours has a denser contact graph but is still an n-fold orbit, and
         # the geometric fold test below is what decides either way.
         ring = self._cycle_order(instances, adjacency) if all(d == 2 for d in degrees.values()) else None
+        ring_from_symbol = ring is None
         if ring is None:
             order = self._cyclic_order_from_symbol(symbol)
             if order is None or order < 3 or n % order != 0:
@@ -184,6 +185,15 @@ class SymmetryRegularizer:
 
         residual = self._fold_residual([inst.com for inst in ordered], centre, axis, len(ordered))
         if radius <= 0 or residual > self.fold_tolerance:
+            if ring_from_symbol:
+                # No cycle was ever read off the contact graph: every chain was put
+                # in one ring only because the symbol's n divides the chain count.
+                # A Dn assembly of 2n chains is two stacked n-fold rings, so the
+                # whole-set test was never going to pass -- calling that 'none'
+                # both misstates what failed and hides a symmetry that is there.
+                return SymmetryDetection(
+                    group=self._group_family(symbol), order=n, point_group_symbol=symbol,
+                    reason=self._symbol_ring_failure_reason(symbol, n, residual))
             return SymmetryDetection(
                 group="none", order=n, point_group_symbol=symbol,
                 reason=(f"cycle of {n} is not {n}-fold symmetric "
@@ -448,6 +458,23 @@ class SymmetryRegularizer:
             return None
         tail = symbol[1:]
         return int(tail) if tail.isdigit() else None
+
+    def _symbol_ring_failure_reason(self, symbol: Optional[str], count: int,
+                                    residual: float) -> str:
+        """Why an assembly whose ring came from the symbol, not the contact graph, failed.
+
+        The ring was a guess: with no cycle to read, every chain is provisionally
+        treated as one orbit whenever the symbol's n divides the chain count. The
+        commonest way that guess is wrong is a dihedral assembly of 2n chains,
+        which is two stacked n-fold rings rather than one 2n-fold one, so say so
+        instead of reporting a cycle that was never found.
+        """
+        detail = ""
+        if symbol and symbol[0].upper() == "D" and symbol[1:].isdigit():
+            detail = (f"; a dihedral assembly stacks {symbol[1:]}-fold rings rather than "
+                      f"forming a single {count}-fold one")
+        return (f"point group {symbol or 'unknown'}, but the {count}-fold test over all "
+                f"{count} chains failed (residual {residual:.3f} > {self.fold_tolerance}){detail}")
 
     @staticmethod
     def _group_family(symbol: Optional[str]) -> str:
