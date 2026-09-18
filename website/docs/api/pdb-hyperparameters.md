@@ -97,7 +97,7 @@ If omitted, the class creates a default `PairwiseAligner` in `__post_init__`.
 
 #### `chain_grouping_matching_mode`
 
-- type: `"default" | "sequence" | "structure"`
+- type: `"default" | "sequence" | "structure" | "sequence_structure"`
 - default: `"default"`
 - purpose: choose the repeated-chain grouping strategy
 
@@ -106,6 +106,7 @@ Modes:
 - `default`: use mmCIF/header information with sequence fallback
 - `sequence`: use sequence identity comparisons
 - `structure`: use structural superposition
+- `sequence_structure`: both must pass; separates quasi-equivalent conformers of one sequence
 
 ### Steric clash detection
 
@@ -220,7 +221,7 @@ Modes:
 #### `nerdss_overlap_sep_limit`
 
 - type: `float`
-- default: `2.0`
+- default: `0.1`
 - units: `nm`
 - purpose: minimum allowed separation distance between molecule centers to avoid overlap-related artifacts
 
