@@ -123,6 +123,8 @@ proaffinity-gnn/pdbfiles
 !website/assets/banner.png
 *.pml
 *.json
+# Checked in deliberately: the sweep settings behind benchmark/assembly_quality.
+!benchmark/assembly_quality/configs_6bno.json
 /sim_params_*
 *.zip
 /workspace_*
