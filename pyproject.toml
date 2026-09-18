@@ -1,5 +1,7 @@
 [build-system]
-requires = ["setuptools>=64", "wheel"]
+# 77 is the first setuptools that understands the PEP 639 license fields below
+# (an SPDX string for `license`, plus `license-files`).
+requires = ["setuptools>=77", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -7,7 +9,8 @@ name = "ioNERDSS"
 version = "2.2.4"
 description = "Package for preparing NERDSS inputs and analysing outputs."
 readme = "README.md"
-license = { text = "GPL-3.0" }
+license = "GPL-3.0-only"
+license-files = ["LICENSE"]
 authors = [
     { name = "Yue Moon Ying", email = "yying7@jh.edu"},
     { name = "Mankun Sang", email = "msang2@jhu.edu" },
@@ -21,7 +24,6 @@ classifiers = [
     "Development Status :: 5 - Production/Stable",
     "Intended Audience :: Science/Research",
     "Operating System :: OS Independent",
-    "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
     "Programming Language :: Python :: 3"
 ]
 dependencies = [
@@ -110,8 +112,22 @@ all = [
 [tool.setuptools]
 include-package-data = true
 
+# Only ionerdss is installed. In pyproject.toml, packages.find defaults to
+# namespaces = true, under which every directory counts as a PEP 420 package
+# whether or not it has an __init__.py. Without `include`, that swept benchmark/
+# and developer_tests/ into the wheel as top-level packages of their own, so
+# `pip install ioNERDSS` dropped site-packages/benchmark and
+# site-packages/developer_tests -- generic names another project could collide
+# with. (data/, docs/, website/ and the rest were discovered too, and stayed out
+# of the wheel only because they hold no .py files.)
+#
+# Do not "tidy" this by adding namespaces = false, the setting the setuptools
+# docs pair with `include`. A dozen subpackages have no __init__.py --
+# ionerdss.model.components, all of ionerdss.model.graph_based, ionerdss.tests
+# among them -- and would silently vanish from the wheel.
 [tool.setuptools.packages.find]
 where = ["."]
+include = ["ionerdss*"]
 
 [tool.pytest.ini_options]
 # Both test trees. ionerdss/tests had been collected by nobody: CI passed
