@@ -1,6 +1,13 @@
 recursive-include ionerdss *.pkl
-recursive-include ionerdss *.json
-recursive-include ionerdss *.csv
 recursive-include ionerdss *.txt
 recursive-include ionerdss *.inp
 recursive-include ionerdss *.mol
+
+# Source-distribution only. These used to reach the sdist as a side effect of
+# being installed as packages; pyproject.toml now limits installation to
+# ionerdss, so they are listed here to stay in the tarball. pyproject.toml's
+# testpaths names developer_tests, and
+# ionerdss/tests/test_validation_benchmark_status.py loads
+# benchmark/run_validation_benchmark.py by path from the project root.
+recursive-include benchmark *.py
+recursive-include developer_tests *.py
