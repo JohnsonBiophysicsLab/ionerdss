@@ -485,7 +485,6 @@ from .template_builder import TemplateBuilder
 from .file_manager import WorkspaceManager
 from .visualizer import PDBVisualizer
 from .ring_regularizer import RingRegularizer
-from .symmetry_regularizer import SymmetryRegularizer
 from .structure_validation import (
     StructureValidationArtifacts,
     StructureValidationConfig,
@@ -646,17 +645,7 @@ class SystemBuilder:
         # Step 4: Create the final system
         self._create_system()
 
-        # Step 5: Geometric regularization (if enabled)
-        geometric_mode = getattr(self.hyperparams, 'geometric_regularization', 'off')
-        if geometric_mode and geometric_mode != 'off':
-            SymmetryRegularizer(
-                system=self.system,
-                workspace_manager=self.workspace_manager,
-                com_shift_cap=float(getattr(self.hyperparams, 'com_shift_cap_ang', 6.0)),
-                fold_tolerance=float(getattr(self.hyperparams, 'symmetry_fold_tolerance', 0.15)),
-            ).apply(geometric_mode)
-
-        # Sphere projection stays available as its own, independent mode.
+        # Step 5: Sphere regularization (if enabled)
         if hasattr(self.hyperparams, 'is_on_sphere') and self.hyperparams.is_on_sphere:
             ring_regularizer = RingRegularizer(
                 system=self.system,
@@ -709,7 +698,13 @@ class SystemBuilder:
             ref2 = molecule_type.ref2_local
             
             # If this chain is not the representative, we need to find the rotation
-            # that maps the representative to this chain instance
+            # that maps the representative to this chain instance. The representative
+            # defines the frame, so it counts as aligned; a copy counts as aligned only
+            # once a rotation was actually computed, so that downstream code (the
+            # NERDSS exporter's mixed-frame fallback) never mistakes a failed
+            # alignment's identity frame for a copy that happens to share the
+            # representative's orientation.
+            orientation_aligned = chain_id == group.representative
             if chain_id != group.representative:
                 try:
                     rep_data = self.parser.get_chain_data(group.representative)
@@ -736,6 +731,7 @@ class SystemBuilder:
                         # Apply rotation to reference vectors
                         ref1 = rot @ ref1
                         ref2 = rot @ ref2
+                        orientation_aligned = True
                     else:
                         if self.workspace_manager:
                             self.workspace_manager.logger.warning(
@@ -762,6 +758,7 @@ class SystemBuilder:
                 ref1=ref1,
                 ref2=ref2
             )
+            molecule_instance.orientation_aligned = orientation_aligned
 
             instances.append(molecule_instance)
 

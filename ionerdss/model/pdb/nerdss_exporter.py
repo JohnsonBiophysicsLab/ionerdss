@@ -577,6 +577,21 @@ class NERDSSExporter:
             tgt_local = match.absolute_coord - target_instance.com
             ref_vecs.append(ref_local); tgt_vecs.append(tgt_local)
 
+        # Fewer than two matched interfaces leave the rotation underdetermined (a
+        # single shared site fixes an axis but not the twist about it), so a copy
+        # that occupies a different environment than the representative -- the
+        # case the mixed-frame fallback exists for -- would get its other sites
+        # placed at an arbitrary twist. The whole-chain orientation the system
+        # builder derived from the Calpha superposition is exact in that case.
+        if len(ref_vecs) < 2:
+            R = self._rotation_from_instance_frames(representative_instance, target_instance)
+            if R is not None:
+                if self.workspace_manager:
+                    self.workspace_manager.logger.info(
+                        "Rotation for %s from the instances' Calpha-aligned frames (%d matched interfaces)",
+                        mol_name, len(ref_vecs))
+                return R
+
         if not ref_vecs:
             if self.workspace_manager:
                 self.workspace_manager.logger.warning("No matched interfaces to define rotation for %s", mol_name)
@@ -589,6 +604,58 @@ class NERDSSExporter:
             self.workspace_manager.logger.warning("Computed rotation invalid; falling back to single-vector alignment")
         # last fallback: align first vector only
         return self._calculate_single_vector_rotation(ref_vecs[0], tgt_vecs[0])
+
+    @staticmethod
+    def _instance_frame(inst) -> Optional[np.ndarray]:
+        """Rotation taking the molecule type's local reference axes onto this instance's.
+
+        ``SystemBuilder`` stores each copy's orientation as ``ref1 = rot @ ref1_local``
+        and ``ref2 = rot @ ref2_local``; this recovers ``rot`` from the two vector
+        pairs. Returns None when the vectors are missing, degenerate, or when the
+        builder recorded that the copy's alignment failed (``orientation_aligned``
+        False), because such a copy carries the representative's frame by default
+        and that identity would be mistaken for a real orientation.
+        """
+        if inst is None or getattr(inst, "orientation_aligned", True) is False:
+            return None
+        mol_type = getattr(inst, "molecule_type", None)
+        l1, l2 = getattr(mol_type, "ref1_local", None), getattr(mol_type, "ref2_local", None)
+        r1, r2 = getattr(inst, "ref1", None), getattr(inst, "ref2", None)
+        if any(v is None for v in (l1, l2, r1, r2)):
+            return None
+
+        def basis(a, b):
+            a = np.asarray(a, float); b = np.asarray(b, float)
+            if np.linalg.norm(a) < 1e-9 or np.linalg.norm(b) < 1e-9:
+                return None
+            e1 = a / np.linalg.norm(a)
+            b_perp = b - e1 * np.dot(b, e1)
+            if np.linalg.norm(b_perp) < 1e-6:
+                return None
+            e2 = b_perp / np.linalg.norm(b_perp)
+            return np.column_stack([e1, e2, np.cross(e1, e2)])
+
+        L, Rm = basis(l1, l2), basis(r1, r2)
+        if L is None or Rm is None:
+            return None
+        rot = Rm @ L.T
+        if not np.allclose(rot @ rot.T, np.eye(3), atol=1e-6) or np.linalg.det(rot) < 0.5:
+            return None
+        return rot
+
+    def _rotation_from_instance_frames(self, representative_instance, target_instance) -> Optional[np.ndarray]:
+        """Rotation mapping the representative instance's frame onto the target's.
+
+        Both frames come from the Calpha superposition of each chain onto its group
+        representative (see ``SystemBuilder._create_molecule_instances``), so the
+        result is the rigid transform between the two chains and is defined even
+        when they share no interface type at all.
+        """
+        rot_rep = self._instance_frame(representative_instance)
+        rot_tgt = self._instance_frame(target_instance)
+        if rot_rep is None or rot_tgt is None:
+            return None
+        return rot_tgt @ rot_rep.T
 
 
     def _calculate_single_vector_rotation(self, ref_vec: np.ndarray, target_vec: np.ndarray) -> np.ndarray:
