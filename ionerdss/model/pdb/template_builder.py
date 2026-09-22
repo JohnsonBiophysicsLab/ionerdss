@@ -1794,13 +1794,18 @@ class TemplateBuilder:
         # Store the mapping
         self.interface_to_type_mapping[interface_key_i] = interface_type_name
 
-        # For heterotypic interfaces, also store the reverse mapping if it's a different type
-        if interface_type_name in self.interface_templates:
-            interface_template = self.interface_templates[interface_type_name]
-            if hasattr(interface_template, 'partner_interface_type') and interface_template.partner_interface_type:
-                partner_type_name = interface_template.partner_interface_type.name if hasattr(
-                    interface_template.partner_interface_type, 'name') else str(interface_template.partner_interface_type)
-                self.interface_to_type_mapping[interface_key_j] = partner_type_name
+        # The other side of the interface sits on chain_j. A heterotypic type
+        # points at its partner template, whose name is the type on chain_j. A
+        # homotypic (self-binding) type has no partner template: both sides
+        # carry the same type, so chain_j records the same name.
+        interface_template = self.interface_templates.get(interface_type_name)
+        if interface_template is None:
+            return
+        partner_template = getattr(interface_template, 'partner_interface_type', None)
+        if partner_template is not None:
+            self.interface_to_type_mapping[interface_key_j] = partner_template.get_name()
+        elif interface_template.partner_mol_type_name == interface_template.this_mol_type_name:
+            self.interface_to_type_mapping[interface_key_j] = interface_type_name
 
     def _create_new_interface_type(self, interface: InterfaceString,
                                 template_i: str, template_j: str,

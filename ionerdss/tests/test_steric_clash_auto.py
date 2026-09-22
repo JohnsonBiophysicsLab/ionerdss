@@ -303,3 +303,52 @@ def test_auto_time_step_parses_both_reaction_forms(tmp_path, reaction):
     )
 
     assert dt is not None and dt > 0.0
+
+
+# --------------------------------------------------------------------------
+# 4. The chain -> type mapping that the detector reads must name the type on
+#    BOTH chains of every interface record
+# --------------------------------------------------------------------------
+
+def _make_typed(this_mol, partner_mol, index=1):
+    return InterfaceType(
+        this_mol_type_name=this_mol,
+        partner_mol_type_name=partner_mol,
+        interface_index=index,
+        absolute_coord=np.zeros(3),
+        local_coord=np.zeros(3),
+    )
+
+
+def test_store_interface_mapping_names_the_type_on_both_chains():
+    """``_store_interface_mapping`` once looked up ``partner_interface_type.name``,
+    an attribute InterfaceType does not have, and fell back to ``str(template)``:
+    the partner chain was recorded under the template's repr instead of its type
+    name, and a homotypic (self-binding) type was never recorded on its partner
+    chain at all. ``_detect_steric_clashes`` then saw those types as absent from
+    the chains that carry them and reported false mutual exclusions (7UHY: every
+    site on the single-environment WDR59 chain was marked exclusive with its
+    neighbours)."""
+    builder = TemplateBuilder.__new__(TemplateBuilder)
+    ab, ba, aa = _make_typed("A", "B"), _make_typed("B", "A"), _make_typed("A", "A")
+    ab.partner_interface_type = ba
+    ba.partner_interface_type = ab
+    builder.interface_templates = {"AB1": ab, "BA1": ba, "AA1": aa}
+
+    heterotypic = SimpleNamespace(
+        chain_i="A", chain_j="B",
+        coord_i=np.array([1.0, 2.0, 3.0]), coord_j=np.array([4.0, 5.0, 6.0]),
+    )
+    homotypic = SimpleNamespace(
+        chain_i="A", chain_j="A2",
+        coord_i=np.array([7.0, 8.0, 9.0]), coord_j=np.array([1.0, 1.0, 1.0]),
+    )
+    builder._store_interface_mapping(heterotypic, "AB1")
+    builder._store_interface_mapping(homotypic, "AA1")
+
+    assert builder.interface_to_type_mapping == {
+        "A_B_1.000_2.000_3.000": "AB1",
+        "B_A_4.000_5.000_6.000": "BA1",
+        "A_A2_7.000_8.000_9.000": "AA1",
+        "A2_A_1.000_1.000_1.000": "AA1",
+    }
