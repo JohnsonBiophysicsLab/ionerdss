@@ -303,3 +303,119 @@ def test_auto_time_step_parses_both_reaction_forms(tmp_path, reaction):
     )
 
     assert dt is not None and dt > 0.0
+
+
+# --------------------------------------------------------------------------
+# 4. The chain -> type mapping that the detector reads must name the type on
+#    BOTH chains of every interface record
+# --------------------------------------------------------------------------
+
+def _make_typed(this_mol, partner_mol, index=1):
+    return InterfaceType(
+        this_mol_type_name=this_mol,
+        partner_mol_type_name=partner_mol,
+        interface_index=index,
+        absolute_coord=np.zeros(3),
+        local_coord=np.zeros(3),
+    )
+
+
+def test_store_interface_mapping_names_the_type_on_both_chains():
+    """``_store_interface_mapping`` once looked up ``partner_interface_type.name``,
+    an attribute InterfaceType does not have, and fell back to ``str(template)``:
+    the partner chain was recorded under the template's repr instead of its type
+    name, and a homotypic (self-binding) type was never recorded on its partner
+    chain at all. ``_detect_steric_clashes`` then saw those types as absent from
+    the chains that carry them and reported false mutual exclusions (7UHY: every
+    site on the single-environment WDR59 chain was marked exclusive with its
+    neighbours)."""
+    builder = TemplateBuilder.__new__(TemplateBuilder)
+    ab, ba, aa = _make_typed("A", "B"), _make_typed("B", "A"), _make_typed("A", "A")
+    ab.partner_interface_type = ba
+    ba.partner_interface_type = ab
+    builder.interface_templates = {"AB1": ab, "BA1": ba, "AA1": aa}
+
+    heterotypic = SimpleNamespace(
+        chain_i="A", chain_j="B",
+        coord_i=np.array([1.0, 2.0, 3.0]), coord_j=np.array([4.0, 5.0, 6.0]),
+    )
+    homotypic = SimpleNamespace(
+        chain_i="A", chain_j="A2",
+        coord_i=np.array([7.0, 8.0, 9.0]), coord_j=np.array([1.0, 1.0, 1.0]),
+    )
+    builder._store_interface_mapping(heterotypic, "AB1")
+    builder._store_interface_mapping(homotypic, "AA1")
+
+    assert builder.interface_to_type_mapping == {
+        "A_B_1.000_2.000_3.000": "AB1",
+        "B_A_4.000_5.000_6.000": "BA1",
+        "A_A2_7.000_8.000_9.000": "AA1",
+        "A2_A_1.000_1.000_1.000": "AA1",
+    }
+
+
+# --------------------------------------------------------------------------
+# 5. Mixed-frame fallback: a copy in another environment shares at most one
+#    interface with the representative, so its sites must be rotated with the
+#    chain's Calpha-aligned frame, not a twist-free single-vector guess
+# --------------------------------------------------------------------------
+
+def _rot_z(deg):
+    c, s = np.cos(np.radians(deg)), np.sin(np.radians(deg))
+    return np.array([[c, -s, 0.0], [s, c, 0.0], [0.0, 0.0, 1.0]])
+
+
+def _instance(rot, aligned=True):
+    mol_type = SimpleNamespace(ref1_local=np.array([1.0, 0.0, 0.0]), ref2_local=np.array([0.0, 0.0, 1.0]))
+    inst = SimpleNamespace(
+        molecule_type=mol_type,
+        ref1=rot @ mol_type.ref1_local,
+        ref2=rot @ mol_type.ref2_local,
+        orientation_aligned=aligned,
+    )
+    return inst
+
+
+def test_rotation_from_instance_frames_recovers_the_relative_rotation():
+    exporter = NERDSSExporter.__new__(NERDSSExporter)
+    rep = _instance(_rot_z(30.0))
+    target = _instance(_rot_z(120.0))
+
+    R = exporter._rotation_from_instance_frames(rep, target)
+
+    assert R is not None
+    np.testing.assert_allclose(R, _rot_z(90.0), atol=1e-9)
+
+
+def test_rotation_from_instance_frames_refuses_an_unaligned_copy():
+    """A copy whose Calpha alignment failed keeps the representative's reference
+    vectors, so its identity frame must not be read as a real orientation."""
+    exporter = NERDSSExporter.__new__(NERDSSExporter)
+    rep = _instance(np.eye(3))
+    target = _instance(np.eye(3), aligned=False)
+
+    assert exporter._rotation_from_instance_frames(rep, target) is None
+
+
+def test_single_matched_interface_uses_the_instance_frames():
+    """With one shared interface the interface-vector rotation is underdetermined
+    about that axis; the exporter must take the Calpha-aligned frames instead."""
+    exporter = NERDSSExporter.__new__(NERDSSExporter)
+    exporter.workspace_manager = None
+
+    class _Iface:  # hashable, unlike SimpleNamespace, so it can key the neighbours map
+        def __init__(self, coord):
+            self.interface_type = SimpleNamespace(get_name=lambda: "AA1")
+            self.absolute_coord = np.asarray(coord, float)
+
+    partner = SimpleNamespace(name="partner")
+    rep = _instance(np.eye(3))
+    rep.com = np.zeros(3)
+    rep.interfaces_neighbors_map = {_Iface([1.0, 0.0, 0.0]): partner}
+    target = _instance(_rot_z(90.0))
+    target.com = np.array([10.0, 0.0, 0.0])
+    target.interfaces_neighbors_map = {_Iface(target.com + np.array([0.0, 1.0, 0.0])): partner}
+
+    R = exporter._calculate_rotation_from_representative("A", rep, target)
+
+    np.testing.assert_allclose(R, _rot_z(90.0), atol=1e-9)

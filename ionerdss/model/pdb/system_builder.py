@@ -709,7 +709,13 @@ class SystemBuilder:
             ref2 = molecule_type.ref2_local
             
             # If this chain is not the representative, we need to find the rotation
-            # that maps the representative to this chain instance
+            # that maps the representative to this chain instance. The representative
+            # defines the frame, so it counts as aligned; a copy counts as aligned only
+            # once a rotation was actually computed, so that downstream code (the
+            # NERDSS exporter's mixed-frame fallback) never mistakes a failed
+            # alignment's identity frame for a copy that happens to share the
+            # representative's orientation.
+            orientation_aligned = chain_id == group.representative
             if chain_id != group.representative:
                 try:
                     rep_data = self.parser.get_chain_data(group.representative)
@@ -736,6 +742,7 @@ class SystemBuilder:
                         # Apply rotation to reference vectors
                         ref1 = rot @ ref1
                         ref2 = rot @ ref2
+                        orientation_aligned = True
                     else:
                         if self.workspace_manager:
                             self.workspace_manager.logger.warning(
@@ -762,6 +769,7 @@ class SystemBuilder:
                 ref1=ref1,
                 ref2=ref2
             )
+            molecule_instance.orientation_aligned = orientation_aligned
 
             instances.append(molecule_instance)
 
