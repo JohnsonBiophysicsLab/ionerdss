@@ -47,6 +47,12 @@ class PointGroup:
 
         self._tolerance_eig = tolerance_eig
         self._tolerance_ang = np.deg2rad(tolerance_ang)
+        # Spread of normalized inertia eigenvalues still worth treating as degenerate
+        # when choosing a branch. Tracks the caller's angular tolerance, clamped to a
+        # window measured from both sides: the operator tests stop confirming a noisy
+        # cubic group by a spread of about 0.08, while the least isotropic genuinely
+        # non-spherical arrangement -- two stacked square rings -- sits at 0.29.
+        self._branch_tolerance = float(np.clip(2.0 * self._tolerance_ang, 0.05, 0.20))
         self._symbols = symbols
         self._cent_coord = np.array(positions)
 
@@ -62,26 +68,28 @@ class PointGroup:
         self._schoenflies_symbol = ''
         self._max_order = 1
 
-        eig_degeneracy = inertia_tensors.get_degeneracy(self._eigenvalues, self._tolerance_eig)
-
         # Linear groups
         if np.min(abs(self._eigenvalues)) < self._tolerance_eig:
             self._lineal()
+            return
 
-        # Asymmetric group
-        elif eig_degeneracy == 1:
-            self._asymmetric()
+        # Eigenvalue degeneracy only says which branch *could* apply; the operator
+        # tests below are what actually decide. Routing must therefore not be the
+        # binding constraint, and with tolerance_eig it was: a 12-point icosahedron
+        # perturbed by 2% of its radius still satisfies its own C5 operator, but its
+        # eigenvalue spread (0.019) exceeds tolerance_eig (0.01), so it was routed away
+        # from _spherical and reported C1. Deposited geometry is never exact, and the
+        # coarse-grained centres of mass of a real cage are further off than that.
+        #
+        # Branches are tried from most to least symmetric, each free to decline, and
+        # the degeneracy thresholds only gate which ones are worth attempting.
+        loose = inertia_tensors.get_degeneracy(self._eigenvalues, self._branch_tolerance)
 
-        # Symmetric group
-        elif eig_degeneracy == 2:
-            self._symmetric()
-
-        # Spherical group
-        elif eig_degeneracy == 3:
-            self._spherical()
-
-        else:
-            raise ValueError('Group type error')
+        if loose == 3 and self._spherical():
+            return
+        if loose >= 2 and self._symmetric():
+            return
+        self._asymmetric()
 
     def _rename_point_group(self, pointgroup):
         """
@@ -158,7 +166,10 @@ class PointGroup:
         self._schoenflies_symbol = 'Cinfv'
 
     def _asymmetric(self):
+        """Handle asymmetric tops: at most a two-fold about a principal axis.
 
+        :return: True always; C1 is a valid answer and the branch of last resort
+        """
         self._set_orientation(self._eigenvectors[2], self._eigenvectors[1])
 
         n_axis_c2 = 0
@@ -176,59 +187,88 @@ class PointGroup:
             self._no_rot_axis()
         else:
             self._cyclic(main_axis)
+        return True
 
     def _symmetric(self):
+        """Handle symmetric tops: Cn about the unique principal axis, or Dn.
+
+        The unique axis used to come from get_non_degenerated, which raises when no
+        eigenvalue sits outside the tolerance of both others -- true of anything
+        nearly isotropic, including every cubic assembly that declined the spherical
+        branch. Refusing to classify there loses real symmetry, so all three principal
+        axes are tried and the one carrying the highest rotation order wins. For a
+        clean symmetric top that is the unique axis anyway: the other two carry at
+        most a two-fold.
+
+        :return: True if a rotation axis was found
         """
-        handle cyclic groups Cn
+        best_axis, best_order = None, 1
+        for axis in self._eigenvectors:
+            order = self._get_axis_rot_order(axis, n_max=9)
+            if order > best_order:
+                best_axis, best_order = axis, order
 
-        :return:
-        """
-        idx = utils.get_non_degenerated(self._eigenvalues, self._tolerance_eig)
-        main_axis = self._eigenvectors[idx]
+        if best_axis is None:
+            return False
 
-        self._max_order = self._get_axis_rot_order(main_axis, n_max=9)
-
-        self._cyclic(main_axis) 
+        self._max_order = best_order
+        self._cyclic(best_axis)
+        return True
 
     def _spherical(self):
-        """
-        Handle spherical groups (T, O, I)
+        """Handle spherical groups (T, O, I).
 
-        :return:
-        """
+        Declines rather than insisting. The previous version looped
+        ``while main_axis is None`` and multiplied the angular tolerance by 1.01 on
+        every miss, so an assembly with no three-, four- or five-fold axis at all --
+        which this branch is now free to be handed, since eigenvalue degeneracy no
+        longer proves sphericity -- span the full grid repeatedly at ever looser
+        tolerance until something eventually matched. Two costs: it printed to stdout,
+        and whatever it finally accepted was found at a tolerance nobody asked for.
 
+        Declining also matters for correctness, not just cost. Two stacked square
+        rings have a genuine C4, so this branch tentatively calls them ``O``; only the
+        failure of determine_orientation_O to find a second C4 at 90 degrees exposes
+        them as dihedral. That failure has to fall through to the symmetric branch
+        rather than propagate.
+
+        :return: True if a cubic group was identified and oriented
+        """
         main_axis = None
-        while main_axis is None:
-            for axis in get_cubed_sphere_grid_points(self._tolerance_ang):
-                c5 = Rotation(axis, order=5)
-                c4 = Rotation(axis, order=4)
-                c3 = Rotation(axis, order=3)
+        for axis in get_cubed_sphere_grid_points(self._tolerance_ang):
+            c5 = Rotation(axis, order=5)
+            c4 = Rotation(axis, order=4)
+            c3 = Rotation(axis, order=3)
 
-                if self._check_op(c5, tol_factor=utils.magic_formula(5)):
-                    self._schoenflies_symbol = "I"
-                    main_axis = axis
-                    self._max_order = 5
-                    break
-                elif self._check_op(c4, tol_factor=utils.magic_formula(4)):
-                    self._schoenflies_symbol = "O"
-                    main_axis = axis
-                    self._max_order = 4
-                    break
-                elif self._check_op(c3, tol_factor=utils.magic_formula(3)):
-                    self._schoenflies_symbol = "T"
-                    main_axis = axis
-                    self._max_order = 3
+            if self._check_op(c5, tol_factor=utils.magic_formula(5)):
+                self._schoenflies_symbol = "I"
+                main_axis = axis
+                self._max_order = 5
+                break
+            elif self._check_op(c4, tol_factor=utils.magic_formula(4)):
+                self._schoenflies_symbol = "O"
+                main_axis = axis
+                self._max_order = 4
+                break
+            elif self._check_op(c3, tol_factor=utils.magic_formula(3)):
+                self._schoenflies_symbol = "T"
+                main_axis = axis
+                self._max_order = 3
 
-            if main_axis is None:
-                print('increase tolerance')
-                self._tolerance_ang *= 1.01
+        if main_axis is None:
+            self._schoenflies_symbol = ''
+            self._max_order = 1
+            return False
 
         p_axis_base = get_perpendicular_vector(main_axis)
 
         # I
         if self._schoenflies_symbol == 'I':
             def determine_orientation_I(main_axis):
-                r_matrix = rotation_matrix(p_axis_base, np.arcsin((np.sqrt(5)+1)/(2*np.sqrt(3))))
+                # Angle between two 5-fold axes of an icosahedron: arccos(1/sqrt(5)),
+                # equivalently arctan(2), = 63.4349 deg. The search below looks for a
+                # second C5, so this is the tilt that has to be probed.
+                r_matrix = rotation_matrix(p_axis_base, np.arccos(1.0/np.sqrt(5.0)))
                 axis = np.dot(main_axis, r_matrix.T)
 
                 # set molecule orientation in I
@@ -242,9 +282,13 @@ class PointGroup:
                         t_axis = np.dot(main_axis, rotation_matrix(p_axis_base, np.pi/2).T)
                         return np.dot(t_axis, rot_matrix.T)
 
-                raise ValueError('Error orientation I group')
+                return None      # no second axis here; not really I
 
             p_axis = determine_orientation_I(main_axis)
+            if p_axis is None:
+                self._schoenflies_symbol = ''
+                self._max_order = 1
+                return False
             self._set_orientation(main_axis, p_axis)
 
         # O
@@ -264,9 +308,13 @@ class PointGroup:
                     if self._check_op(c4, tol_factor=utils.magic_formula(4)*np.sqrt(2)):
                         return axis
 
-                raise ValueError('Error orientation O group')
+                return None      # no second axis here; not really O
 
             p_axis = determine_orientation_O(main_axis)
+            if p_axis is None:
+                self._schoenflies_symbol = ''
+                self._max_order = 1
+                return False
             self._set_orientation(main_axis, p_axis)
 
         # T
@@ -287,18 +335,64 @@ class PointGroup:
                         t_axis = np.dot(main_axis, rotation_matrix(p_axis_base, np.pi/2).T)
                         return np.dot(t_axis, rot_matrix.T)
 
-                raise ValueError('Error orientation T group')
+                return None      # no second axis here; not really T
             
             p_axis = determine_orientation_T(main_axis)
+            if p_axis is None:
+                self._schoenflies_symbol = ''
+                self._max_order = 1
+                return False
             self._set_orientation(main_axis, p_axis)
+
+        return True
 
     def _no_rot_axis(self):
         self._schoenflies_symbol = 'C1'
         return
 
     def _cyclic(self, main_axis):
+        """Name the proper rotation group about main_axis: Cn, or Dn.
+
+        Dn differs from Cn by n two-fold axes perpendicular to the principal
+        axis. Without that test every dihedral assembly is reported as its bare
+        cyclic subgroup, which is why no D symbol was reachable at all.
+
+        Note what is being classified: a set of points, not an assembly of
+        oriented subunits. n points evenly spaced on a circle carry the
+        perpendicular C2 axes whether or not the bodies sitting on them do, so
+        a planar Cn ring of protein chains is correctly Dn *as a point set*
+        while the assembly it stands for is only Cn. Callers that hold subunit
+        frames should confirm against those before treating Dn as physical.
+        """
+        p_axis = self._perpendicular_c2_axis(main_axis)
+        if p_axis is not None:
+            self._schoenflies_symbol = "D{}".format(self._max_order)
+            self._set_orientation(main_axis, p_axis)
+            return
+
         self._schoenflies_symbol = "C{}".format(self._max_order)
         return
+
+    def _perpendicular_c2_axis(self, main_axis):
+        """Return a C2 axis perpendicular to main_axis, or None if there is none.
+
+        A Dn group carries n such axes evenly spaced by pi/n about the principal
+        axis, so sweeping a half turn meets one whatever the starting phase.
+
+        :param main_axis: principal rotation axis (must be unitary)
+        :return: a unit C2 axis perpendicular to main_axis, or None
+        """
+        if self._max_order < 2:
+            return None
+
+        base = get_perpendicular_vector(main_axis)
+        # One step per degree: fine enough to land inside the angular window of
+        # any real C2 axis, and only 180 operator checks.
+        for angle in np.arange(0.0, np.pi, np.deg2rad(1.0)):
+            axis = np.dot(base, rotation_matrix(main_axis, angle).T)
+            if self._check_op(Rotation(axis, order=2)):
+                return axis
+        return None
 
     def _get_axis_rot_order(self, axis, n_max):
         """

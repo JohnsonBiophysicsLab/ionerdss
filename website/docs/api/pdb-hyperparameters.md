@@ -97,7 +97,7 @@ If omitted, the class creates a default `PairwiseAligner` in `__post_init__`.
 
 #### `chain_grouping_matching_mode`
 
-- type: `"default" | "sequence" | "structure"`
+- type: `"default" | "sequence" | "structure" | "sequence_structure"`
 - default: `"default"`
 - purpose: choose the repeated-chain grouping strategy
 
@@ -106,6 +106,7 @@ Modes:
 - `default`: use mmCIF/header information with sequence fallback
 - `sequence`: use sequence identity comparisons
 - `structure`: use structural superposition
+- `sequence_structure`: both must pass; separates quasi-equivalent conformers of one sequence
 
 ### Steric clash detection
 
@@ -160,6 +161,48 @@ Modes:
 - purpose: search radius for homotypic interface detection
 
 ### Geometric regularization
+
+#### `geometric_regularization`
+
+- type: `str`
+- default: `"off"`
+- values: `"off"`, `"auto"`
+- purpose: detect the assembly's point group and snap its geometry onto it
+
+  A cyclic homomer built from head-to-tail self-binding interfaces (`AA1f` binds
+  `AA1b`) is a polymer subunit that happens to close into a ring. It only closes in
+  simulation if the generator transform `T` taking subunit *k* to subunit *k+1*
+  satisfies `T**n == I`. When the deposited geometry is only approximately n-fold,
+  the closure error accumulates over *n* bonds until the last one falls outside
+  NERDSS's binding tolerance, the chain elongates instead of closing, and the run
+  reports over-assembly.
+
+  `"auto"` places the subunits at exact `2*pi/n` spacing and — the important part —
+  **synthesises each subunit's orientation from the group element** rather than
+  recovering it by structural alignment.
+
+  Only cyclic (`Cn`, n >= 3) assemblies are regularized. Filaments are detected and
+  deliberately left alone: an actin filament genuinely extends past the deposited
+  asymmetric unit, so forcing closure would be wrong. Dihedral and cubic groups are
+  detected and reported but not yet regularized. The detected group is recorded on
+  the returned system as `system.symmetry_detection`.
+
+#### `symmetry_fold_tolerance`
+
+- type: `float`
+- default: `0.15`
+- purpose: accept an n-fold symmetry only if rotating the subunit centres of mass by
+  `2*pi/n` maps the set onto itself to within this fraction of the assembly radius
+
+  This is the guard that stops a D2 tetramer from being forced into a C4 ring. Raise
+  it to regularize looser assemblies, lower it to be stricter.
+
+#### `com_shift_cap_ang`
+
+- type: `float` (Å)
+- default: `6.0`
+- purpose: refuse geometric regularization if it would move any subunit centre of
+  mass further than this; also caps template regularization
 
 #### `is_on_sphere`
 
@@ -220,7 +263,7 @@ Modes:
 #### `nerdss_overlap_sep_limit`
 
 - type: `float`
-- default: `2.0`
+- default: `0.1`
 - units: `nm`
 - purpose: minimum allowed separation distance between molecule centers to avoid overlap-related artifacts
 

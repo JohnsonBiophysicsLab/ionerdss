@@ -59,6 +59,36 @@ Typical return values are packaged in `StructureValidationArtifacts`, including:
 - designed coarse-grained coordinates
 - target JSON file path
 - generated NERDSS input files
+- `preflight_warning_message`: set when the designed assembly graph is disconnected
+- `free_interface_warning_message`: set when the design leaves binding capacity unused
+
+### Over-assembly preflight warning
+
+A coarse-grained design can leave interfaces unbound. A molecule *type* declares every
+interface it can bind through, but a given copy in the deposited assembly only realizes
+the contacts observed in the PDB; anything declared but unrealized is a **free slot**.
+Because a fresh copy arrives with all of its own interfaces free, that slot can bind
+another subunit and grow the assembly past the deposited stoichiometry — over-assembly.
+
+`get_free_interface_capacity(system)` returns
+`{molecule type: {interface type: number of copies leaving it free}}`, and
+`get_free_interface_message(system, prefix=...)` formats it. Both live in
+`ionerdss.model.pdb.structure_validation`. The message is also raised as a
+`RuntimeWarning` during validation export and carried on the artifacts.
+
+Free interfaces are not necessarily a defect. A filament such as actin genuinely
+nucleates beyond the deposited asymmetric unit, so the warning says a larger structure
+*may* form, not that the model is wrong.
+
+Two caveats worth knowing:
+
+- The check is **static**, over the finished design. Over-assembly can also arise
+  kinetically: during assembly, partial complexes transiently expose interfaces, and
+  with irreversible binding they can fuse before completing. A saturated design is not
+  a guarantee.
+- Over-assembly is **unobservable at one copy** of the deposited stoichiometry, since
+  the largest possible assembly is then the target itself. Supply more copies to test
+  for it.
 
 ### `compare_structure_to_design`
 

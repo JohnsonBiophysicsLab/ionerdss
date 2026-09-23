@@ -754,6 +754,9 @@ class TestTemplateBuilderIntegration(unittest.TestCase):
         hyperparams.signature_precision = 6
         hyperparams.steric_clash_mode = "off"
         hyperparams.template_regularization_strength = 0.5
+        # Real numbers, not Mocks: regularize_group coerces these with float().
+        hyperparams.com_shift_cap_ang = 6.0
+        hyperparams.com_shift_reg = 1e-6
         hyperparams.min_chain_length = 4
 
         # Mock coarse-grained chains

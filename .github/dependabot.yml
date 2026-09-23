@@ -1,12 +1,67 @@
 version: 2
-registries:
-  pytorch-cuda:
-    type: python-index
-    url: https://download.pytorch.org/whl/cu121 #so Dependabot retrieves cuda wheels for torch
+
+# There is no `registries:` block here, and that is deliberate.
+#
+# Giving Dependabot access to ANY registry makes GitHub disable external code
+# execution for the pip jobs that can see it (the job is sent
+# "reject-external-code": true). dependabot-core's pip file parser does not
+# degrade gracefully in that mode, it refuses to run at all:
+#
+#     def parse
+#       raise Dependabot::UnexpectedExternalCode if @reject_external_code
+#
+# so every such job dies with `unexpected_external_code` before it has read a
+# single requirement. A top-level registry is also handed to security-update
+# jobs for directories that have no `updates` entry of their own, which is how
+# a registry listed only under "/" took down the security job for
+# /ionerdss/model as well.
+#
+# That is what happened to this repository. A PyTorch cu121 index was added in
+# July 2025 so that torch bumps would keep their +cu121 local version. From
+# that day until it was removed, Dependabot opened no pull request of any kind,
+# and every run whose log survives shows the weekly version update and the
+# security updates failing the same way. The index had stopped earning its keep
+# in any case. No manifest pins a +cu121
+# version any more, and cu121 wheels end at torch 2.5.1, below the 2.6.0 that
+# fixes the one critical advisory open against torch.
+#
+# If a registry is ever needed again, the `updates` entry that uses it must
+# also set `insecure-external-code-execution: allow`, or this breaks again.
+# That switch is a real tradeoff (it lets code from a dependency run inside the
+# updater), so weigh it rather than copying it in.
 updates:
   - package-ecosystem: "pip"
     directory: "/"
     schedule:
       interval: "weekly"
-    registries: ["pytorch-cuda"]
-
+    # The ProAffinity-GNN stack is frozen on purpose: see the comment above the
+    # `proaffinity` extra in pyproject.toml, and docs/Proaffinity.md. torch,
+    # torchvision and torchaudio only install as a matched set, transformers
+    # 4.48+ needs a newer tokenizers than the one pinned, and numpy must stay
+    # below 2 for torch 2.2.2. A bump of any one of them alone produces an
+    # environment pip cannot resolve, and CI would not notice because it never
+    # installs this extra. Moving the stack is a deliberate job: change all of
+    # pyproject.toml, ionerdss/model/proaffinity_requirements.txt and
+    # env/proaffinity/ together, then re-validate predictions against model.pkl.
+    #
+    # These entries name the dependency and nothing else, which silences
+    # version updates only. Security updates skip an ignore rule unless it
+    # lists `versions:`, so an advisory against one of these still raises a
+    # pull request. Do not add `versions:` to "quiet" that: a security job whose
+    # candidates are all ignored fails with `all_versions_ignored`, which is a
+    # red run on every push to main. To park an advisory on a frozen pin,
+    # dismiss the alert with a written reason instead.
+    #
+    # numpy and scipy are also ordinary dependencies with wide ranges
+    # (numpy>=1.26.4,<3 and scipy>=1.14,<2), and ignoring them by name covers
+    # those as well. That costs little: the ranges need no attention until
+    # numpy 3 or scipy 2.
+    ignore:
+      - dependency-name: "torch"
+      - dependency-name: "torchvision"
+      - dependency-name: "torchaudio"
+      - dependency-name: "torch_geometric"
+      - dependency-name: "transformers"
+      - dependency-name: "tokenizers"
+      - dependency-name: "numpy"
+      - dependency-name: "scipy"
