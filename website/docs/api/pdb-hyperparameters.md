@@ -72,6 +72,40 @@ Higher values make interface calls stricter.
 - default: `False`
 - purpose: split interfaces into spatial patches to speed up template building in some systems
 
+### Interface site placement and preflight
+
+#### `interface_com_proximity_threshold`
+
+- type: `float`
+- default: `0.15`
+- units: `nm`
+- purpose: distance below which a reacting interface site counts as sitting on its
+  molecule's centre of mass. NERDSS defines the binding angles theta and phi from the
+  COM-to-site vector and orients a molecule onto its template from the same vectors, so
+  a multi-interface molecule type whose sites all lie within this distance (or coincide)
+  makes NERDSS exit at the first association with `Cannot resolve phi angle`. The
+  preflight check in `build_system` and the validation export reports every such site
+  as a `RuntimeWarning`. Typical of chains that contact a partner along their whole
+  length: collagen-like triple helices, peptides in a groove, amyloid segments
+
+#### `interface_site_placement`
+
+- type: `Literal["centroid", "auto"]`
+- default: `"centroid"`
+- purpose: where an interface site is placed on its chain. `"centroid"` is the mean
+  position of the contacting Cα atoms. `"auto"` keeps the centroid except for the sites
+  the proximity preflight flags, which are moved onto the chain surface facing the
+  partner's centre of mass (the point where the chain's atoms end along the COM-to-COM
+  direction). For an elongated chain (longest extent at least three times the next)
+  whose partner lies within 45° of its long axis, as the strands of a collagen triple
+  helix do, the axial component is dropped so the site sits on the flank facing the
+  partner rather than at the rod's tip. The COM-to-site vector is then as long as the
+  chain is thick and points at the partner, so NERDSS can orient the molecule and define
+  theta; sigma runs along the same line, so phi is undefined for that bond and the
+  exporter writes it as `nan`, and the thetas and omega fix the relative orientation.
+  Rebuilding the x5-benchmark entries that NERDSS aborted on with this setting made
+  1CGD, 4DMT, 1D5M and 1FIP assemble (COM RMSD 0.07, 0.09, 0.00 and 0.2-0.5 nm)
+
 ### Chain grouping parameters
 
 #### `chain_grouping_rmsd_threshold`

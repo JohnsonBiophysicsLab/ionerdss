@@ -150,7 +150,7 @@ for group in groups:
 template_builder = TemplateBuilder(parser, coarse_grainer, chain_grouper, hyperparams)
 interface_templates = template_builder.get_interface_templates()
 
-# Example: A_B_1, A_B_2 for two different binding modes between A and B
+# Example: AB1, AB2 for two different binding modes between A and B
 for name, template in interface_templates.items():
     print(f"{name}: {template.this_mol_type_name} ↔ {template.partner_mol_type_name}")
 ```

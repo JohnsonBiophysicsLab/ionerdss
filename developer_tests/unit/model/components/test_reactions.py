@@ -201,7 +201,7 @@ class TestReactionRule(unittest.TestCase):
         self.assertIsNone(reaction.geometry)
 
         # Verify BNGL expression was auto-generated
-        expected_expr = "ProteinA(ProteinAProteinB1) + ProteinB(ProteinBProteinA1) <-> ProteinA(ProteinAProteinB1!1).ProteinB(ProteinBProteinA1!1)"
+        expected_expr = "ProteinA(8ProteinA8ProteinB1) + ProteinB(8ProteinB8ProteinA1) <-> ProteinA(8ProteinA8ProteinB1!1).ProteinB(8ProteinB8ProteinA1!1)"
         self.assertEqual(reaction.expr, expected_expr)
 
     def test_initialization_with_geometry(self):
@@ -221,8 +221,8 @@ class TestReactionRule(unittest.TestCase):
 
     def test_initialization_with_required_free(self):
         """Test initialization with required free interface constraints."""
-        required_free = (["ProteinAProteinC1"], [
-                         "ProteinBProteinD1", "ProteinBProteinE1"])
+        required_free = (["8ProteinA8ProteinC1"], [
+                         "8ProteinB8ProteinD1", "8ProteinB8ProteinE1"])
 
         reaction = ReactionRule(
             expr="test",
@@ -234,9 +234,9 @@ class TestReactionRule(unittest.TestCase):
         self.assertEqual(reaction.required_free, required_free)
 
         # Verify BNGL expression includes required free interfaces
-        expected_expr = ("ProteinA(ProteinAProteinB1,ProteinAProteinC1) + "
-                         "ProteinB(ProteinBProteinA1,ProteinBProteinD1,ProteinBProteinE1) <-> "
-                         "ProteinA(ProteinAProteinB1!1,ProteinAProteinC1).ProteinB(ProteinBProteinA1!1,ProteinBProteinD1,ProteinBProteinE1)")
+        expected_expr = ("ProteinA(8ProteinA8ProteinB1,8ProteinA8ProteinC1) + "
+                         "ProteinB(8ProteinB8ProteinA1,8ProteinB8ProteinD1,8ProteinB8ProteinE1) <-> "
+                         "ProteinA(8ProteinA8ProteinB1!1,8ProteinA8ProteinC1).ProteinB(8ProteinB8ProteinA1!1,8ProteinB8ProteinD1,8ProteinB8ProteinE1)")
         self.assertEqual(reaction.expr, expected_expr)
 
     def test_update_expr_simple(self):
@@ -249,7 +249,7 @@ class TestReactionRule(unittest.TestCase):
         # Manually call update_expr to test
         reaction.update_expr()
 
-        expected_expr = "ProteinA(ProteinAProteinB1) + ProteinB(ProteinBProteinA1) <-> ProteinA(ProteinAProteinB1!1).ProteinB(ProteinBProteinA1!1)"
+        expected_expr = "ProteinA(8ProteinA8ProteinB1) + ProteinB(8ProteinB8ProteinA1) <-> ProteinA(8ProteinA8ProteinB1!1).ProteinB(8ProteinB8ProteinA1!1)"
         self.assertEqual(reaction.expr, expected_expr)
 
     def test_build_molecule_expression_free(self):
@@ -324,7 +324,7 @@ class TestReactionRule(unittest.TestCase):
         )
 
         interface_names = reaction.get_reactant_interface_names()
-        expected_names = ("ProteinAProteinB1", "ProteinBProteinA1")
+        expected_names = ("8ProteinA8ProteinB1", "8ProteinB8ProteinA1")
         self.assertEqual(interface_names, expected_names)
 
     def test_to_dict_without_geometry(self):
@@ -341,7 +341,7 @@ class TestReactionRule(unittest.TestCase):
 
         expected_dict = {
             'expr': reaction.expr,  # Auto-generated BNGL expression
-            'reactant_interfaces': ["ProteinAProteinB1", "ProteinBProteinA1"],
+            'reactant_interfaces': ["8ProteinA8ProteinB1", "8ProteinB8ProteinA1"],
             'required_free': [["InterfaceA"], ["InterfaceB", "InterfaceC"]],
             'ka': 1e5,
             'kb': 1e-4,

@@ -14,6 +14,7 @@ Usage:
 | `Success` | Validation succeeded | The target assembly was found and RMSD was computed successfully |
 | `FP` | Too few protein chains | After coarse-graining, the structure has fewer than 2 protein chains, so assembly is guaranteed to fail |
 | `DC` | Disconnected graph | The designed assembly graph is disconnected, so it cannot form a single target `N`-mer |
+| `IC` | Interface at centre of mass | A molecule type's interface sites coincide or all lie within `--interface_com_proximity_threshold` of it, so NERDSS cannot define the binding angles (it would exit with "Cannot resolve phi angle"); the model is not simulated |
 | `NC` | NERDSS crash | NERDSS itself crashed, segfaulted, aborted, or otherwise died during simulation/export |
 | `UA` | Underassembly | The target assembly was not found, and the largest observed assembly size is smaller than the target assembly size |
 | `OA` | Overassembly | The target assembly was not found, and the largest observed assembly size is greater than or equal to the target assembly size |
@@ -30,8 +31,13 @@ from typing import Optional
 
 from ionerdss.model.pdb import PDBModelBuilder
 from ionerdss.model import pdb
+from ionerdss.model.pdb.structure_validation import DEFAULT_INTERFACE_COM_PROXIMITY_THRESHOLD_NM
+from ionerdss.model.pdb.structure_validation import get_box_fit_message
+from ionerdss.model.pdb.structure_validation import get_degenerate_site_layouts
 from ionerdss.model.pdb.structure_validation import get_disconnected_design_message
 from ionerdss.model.pdb.structure_validation import get_free_interface_capacity
+from ionerdss.model.pdb.structure_validation import get_interface_com_proximity_message
+from ionerdss.model.pdb.structure_validation import get_near_com_interface_sites
 
 FAST_VALIDATION_ITERATIONS = 100000
 
@@ -92,6 +98,45 @@ def _status_for_failed_validation(sim_result, target_assembly_size: int) -> str:
     return "Failed_Assembly"
 
 
+def _interface_com_proximity_threshold(builder) -> float:
+    """Return the threshold the builder ran with, or the module default before it ran."""
+    hyperparams = getattr(builder, "hyperparams", None)
+    threshold = getattr(hyperparams, "interface_com_proximity_threshold", None)
+    if threshold is None:
+        return DEFAULT_INTERFACE_COM_PROXIMITY_THRESHOLD_NM
+    return float(threshold)
+
+
+def _site_geometry_status(system, threshold_nm: float) -> tuple[Optional[str], Optional[str]]:
+    """Return ("IC", message) when NERDSS could not define the model's binding angles.
+
+    Only a degenerate site layout -- a multi-interface molecule type whose sites
+    coincide or all sit within the threshold of its centre of mass -- earns the
+    status: those are the models NERDSS aborts on at the first
+    association. A single site near the centre of mass is reported in the message but
+    is still simulated, since NERDSS tolerates it.
+    """
+    message = get_interface_com_proximity_message(
+        system,
+        prefix="Validation preflight warning",
+        threshold_nm=threshold_nm,
+    )
+    if message is None:
+        return None, None
+    if get_degenerate_site_layouts(system, threshold_nm=threshold_nm):
+        return "IC", message
+    return None, message
+
+
+def _closest_site_com_distance(system) -> Optional[float]:
+    """Return the smallest distance from a reacting interface site to its molecule's COM."""
+    # A threshold of infinity lists every reacting site, sorted by distance.
+    sites = get_near_com_interface_sites(system, threshold_nm=float("inf"))
+    if not sites:
+        return None
+    return sites[0].distance_nm
+
+
 def _partial_chain_counts(builder) -> tuple[int, int]:
     """Return best-effort chain and chain-type counts from partial builder state."""
     coarse_summary = getattr(builder, "coarse_summary", None) or {}
@@ -126,6 +171,12 @@ def _status_from_partial_builder(builder) -> Optional[str]:
         )
         if disconnected_design_message is not None:
             return "DC"
+
+        site_geometry_status, _message = _site_geometry_status(
+            system, _interface_com_proximity_threshold(builder)
+        )
+        if site_geometry_status is not None:
+            return site_geometry_status
 
     return None
 
@@ -208,6 +259,16 @@ def main():
     parser.add_argument("--copies", default=1, type=int,
                         help="Copies of the deposited stoichiometry to supply. >1 makes "
                              "over-assembly (OA) observable; the target composition is unchanged")
+    parser.add_argument("--interface_com_proximity_threshold", default=None, type=float,
+                        help="Distance in nm below which a reacting interface site counts as "
+                             "sitting on its molecule's centre of mass (the IC preflight). "
+                             f"Defaults to the hyperparameter value "
+                             f"({DEFAULT_INTERFACE_COM_PROXIMITY_THRESHOLD_NM} nm)")
+    parser.add_argument("--interface_site_placement", default="centroid", type=str,
+                        choices=["centroid", "auto"],
+                        help="Where interface sites are placed: 'centroid' of the contacting "
+                             "residues, or 'auto' to move sites the IC preflight flags onto the "
+                             "chain surface facing the partner so NERDSS can define the angles")
     
     args = parser.parse_args()
     
@@ -239,7 +300,7 @@ def main():
     if not output_path.exists():
         with open(output_path, 'w', newline='') as f:
             writer = csv.writer(f)
-            writer.writerow(["PDB ID", "Number of chains in PDB", "Number of chain types in PDB", "Status", "RMSD", "Free interface slots", "Symmetry"])
+            writer.writerow(["PDB ID", "Number of chains in PDB", "Number of chain types in PDB", "Status", "RMSD", "Free interface slots", "Symmetry", "Closest site-COM distance (nm)"])
     
     for count, pdb_id in enumerate(all_pdb_ids, 1):
         print(f"\n[{count}/{len(all_pdb_ids)}] Testing PDB: {pdb_id}")
@@ -250,11 +311,15 @@ def main():
         rmsd = None
         free_interface_slots = ""
         symmetry = ""
+        closest_site_com_distance = ""
         
         builder = None
 
         try:
             # 1. Full coarse graining
+            builder_kwargs = {}
+            if args.interface_com_proximity_threshold is not None:
+                builder_kwargs["interface_com_proximity_threshold"] = args.interface_com_proximity_threshold
             builder = PDBModelBuilder(source=pdb_id)
             system = builder.build_system(
                 workspace_path=f"benchmark/trials/{pdb_id}",
@@ -262,8 +327,10 @@ def main():
                 generate_nerdss_files=False,
                 logger_level=logging.WARNING,
                 geometric_regularization=args.geometric_regularization,
+                interface_site_placement=args.interface_site_placement,
                 #interface_detect_distance_cutoff=1.5,
                 #interface_detect_n_residue_cutoff=6,
+                **builder_kwargs,
             )
             
             # Extract basic metrics
@@ -296,8 +363,30 @@ def main():
             if disconnected_design_message is not None:
                 status = "DC"
                 print(f"  -> {disconnected_design_message}")
+
+            # Interface sites on the centre of mass leave NERDSS unable to define the
+            # binding angles; it aborts at the first association, which would otherwise
+            # be scored as an empty run (under-assembly). Record how close the closest
+            # site is so the threshold can be re-examined from the CSV.
+            distance = _closest_site_com_distance(system)
+            closest_site_com_distance = f"{distance:.4f}" if distance is not None else ""
+            site_geometry_status, site_geometry_message = _site_geometry_status(
+                system, _interface_com_proximity_threshold(builder)
+            )
+            if site_geometry_message is not None:
+                print(f"  -> {site_geometry_message}")
+            if site_geometry_status is not None and status not in {"FP", "DC"}:
+                status = site_geometry_status
+                print("  -> NERDSS cannot define the binding angles for this model; not simulating it.")
+
+            box_edge = args.box_size * (float(args.copies) ** (1.0 / 3.0))
+            box_fit_message = get_box_fit_message(
+                system, (box_edge, box_edge, box_edge), prefix="Validation preflight warning"
+            )
+            if box_fit_message is not None:
+                print(f"  -> {box_fit_message}")
             
-            if status not in {"FP", "DC"}:
+            if status not in {"FP", "DC", "IC"}:
                 # Create a range of titration rates, scaled for each molecular species
                 base_rate = 0.0 # 0.25e-3
                 titration_rates = {}
@@ -390,7 +479,7 @@ def main():
             writer = csv.writer(f)
             rmsd_val = f"{rmsd:.4f} nm" if rmsd is not None else ""
             writer.writerow([pdb_id, chains_count, chain_types_count, status, rmsd_val,
-                             free_interface_slots, symmetry])
+                             free_interface_slots, symmetry, closest_site_com_distance])
             
 if __name__ == "__main__":
     main()

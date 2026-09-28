@@ -95,6 +95,10 @@ from typing import Dict, List, Optional
 import numpy as np
 
 from ionerdss.utils.diffusion_constant import compute_diffusion_constants_nm_us
+from ionerdss.model.components.interface_naming import (
+    make_interface_name,
+    parse_interface_name,
+)
 
 # ---------------------------------------------------- #
 
@@ -107,8 +111,11 @@ class InterfaceType:
     energy information, and maintains references to its binding partner and
     parent molecule types.
     
-    The interface identifier follows the format: "{this_mol}_{partner_mol}_{index}"
-    where index allows multiple interfaces of the same type on one molecule.
+    The interface identifier is built by
+    :func:`ionerdss.model.components.interface_naming.make_interface_name`
+    from ``this_mol_type_name``, ``partner_mol_type_name``, ``interface_index``
+    and ``tag`` (e.g. ``AB1``, ``AA1f``, ``A2AA1``); the index allows multiple
+    interfaces of the same type on one molecule.
     
     Attributes:
         this_mol_type_name: Name of the molecule containing this interface (e.g., "A").
@@ -138,39 +145,61 @@ class InterfaceType:
     required_free: List[str] = field(default_factory=list) # interfaces with steric clash
     signature: Dict = field(default_factory=dict)
     
-    partner_interface_type: Optional['InterfaceType'] = None # e.g. B_A_1
+    partner_interface_type: Optional['InterfaceType'] = None # e.g. BA1
     this_mol_type: Optional['MoleculeType'] = None           # e.g. A
     partner_mol_type: Optional['MoleculeType'] = None        # e.g. B
     energy: Optional[float] = -1.0
     tag: Optional[str] = None   # None | 'f' | 'b'
 
     def get_name(self) -> str:
-        """Return the formatted interface identifier string.
-        
-        Constructs the interface name using the format:
-        "{this_mol_name}{partner_mol_name}{interface_index}"
-        WITHOUT underscores to match the parser regex pattern.
-        
+        """Return the interface identifier string.
+
+        The name is spelled by
+        :func:`ionerdss.model.components.interface_naming.make_interface_name`
+        (alphanumeric only, decodable even when molecule names have different
+        lengths; see that module for the scheme).
+
         Returns:
-            The interface identifier string (e.g., "AB1" or "AA1f").
+            The interface identifier string (e.g., "AB1", "AA1f" or "A2AA1").
+
+        Raises:
+            ValueError: If a molecule type name is not ASCII alphanumeric.
         """
-        core = self.this_mol_type_name + self.partner_mol_type_name + str(self.interface_index)
-        return f"{core}{self.tag}" if self.tag else core
+        return make_interface_name(
+            self.this_mol_type_name,
+            self.partner_mol_type_name,
+            self.interface_index,
+            self.tag,
+        )
 
     def set_name(self, new_name: str) -> None:
         """Parse and set interface identifiers from a formatted name string.
-        
-        Parses a name string in the format "{mol}_{partner}_{index}" and
-        updates the corresponding instance attributes.
-        
+
+        Accepts a name in the current scheme (e.g. "AB1", "AA1f", "2AAA1";
+        see :mod:`ionerdss.model.components.interface_naming`) or the legacy
+        underscore-separated form "{mol}_{partner}_{index}[tag]" (e.g.
+        "A_B_1", "A_A_1f").
+
         Args:
-            new_name: Interface name string to parse (e.g., "A_B_1").
-            
+            new_name: Interface name string to parse.
+
         Raises:
-            IndexError: If the name string doesn't contain exactly 3 
+            IndexError: If a legacy name doesn't contain exactly 3
                 underscore-separated components.
             ValueError: If the interface index cannot be converted to integer.
         """
+        try:
+            parsed = parse_interface_name(new_name)
+        except ValueError:
+            parsed = None
+        if parsed is not None:
+            self.this_mol_type_name = parsed.this_mol
+            self.partner_mol_type_name = parsed.partner_mol
+            self.interface_index = parsed.index
+            self.tag = parsed.tag
+            return
+
+        # Legacy underscore-separated form
         substrings = new_name.split("_")
         self.this_mol_type_name = substrings[0]
         self.partner_mol_type_name = substrings[1]

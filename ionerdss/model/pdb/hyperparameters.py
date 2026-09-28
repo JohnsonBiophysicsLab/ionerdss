@@ -57,6 +57,16 @@ class PDBModelHyperparameters:
         metadata={"description": "Split interfaces into spatial patches for faster template building"}
     )
 
+    # Interface site placement and the site-geometry preflight check
+    interface_com_proximity_threshold: float = field(
+        default=0.15,
+        metadata={"description": "Preflight check: report every reacting interface site closer than this to its molecule's centre of mass. NERDSS defines the binding angles theta and phi from the COM-to-site vector, and a molecule type whose sites all lie within this distance (or coincide) cannot be oriented onto its template, so NERDSS exits at the first association ('Cannot resolve phi angle'). Typical of chains that contact a partner along their whole length: collagen-like helices, peptides in a groove, amyloid segments.", "unit": "nm"}
+    )
+    interface_site_placement: Literal["centroid", "auto"] = field(
+        default="centroid",
+        metadata={"description": "Where an interface site is placed on its chain: 'centroid' (the mean position of the contacting Calpha atoms) or 'auto' (the centroid, except that a site the COM-proximity preflight flags is moved onto the chain surface facing the partner's centre of mass -- for an elongated chain whose partner lies along its axis, such as one strand of a collagen triple helix, the flank facing the partner -- so the COM-to-site vector is as long as the chain is thick and NERDSS can define the binding angles; phi is then undefined for that bond and written as nan)"}
+    )
+
     # Chain grouping parameters
     chain_grouping_rmsd_threshold: float = field(
         default=2.0,
@@ -422,6 +432,12 @@ class PDBModelHyperparameters:
 
         if self.homodimer_angle_threshold < 0:
             errors.append("homodimer_angle_threshold must be non-negative")
+
+        if self.interface_com_proximity_threshold <= 0:
+            errors.append("interface_com_proximity_threshold must be positive")
+
+        if self.interface_site_placement not in ("centroid", "auto"):
+            errors.append("interface_site_placement must be 'centroid' or 'auto'")
 
 
 

@@ -63,6 +63,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Any, Union
 
 from ionerdss.model.components.units import Units
+from ionerdss.model.components.interface_naming import complementary_interface_name
 from ionerdss.model.components.registry import (
     MoleculeTypeRegistry, MoleculeInstanceRegistry,
     InterfaceTypeRegistry, InterfaceInstanceRegistry
@@ -260,9 +261,9 @@ class System:
                     interface_type.partner_mol_type_name
                 )
 
-        # Rebuild partner interface references
+        # Rebuild partner interface references (AB1 <-> BA1, AA1f <-> AA1b, AA1 <-> AA1)
         for interface_type in self.interface_types:
-            partner_name = f"{interface_type.partner_mol_type_name}_{interface_type.this_mol_type_name}_{interface_type.interface_index}"
+            partner_name = complementary_interface_name(interface_type.get_name())
             if partner_name in self.interface_types:
                 interface_type.partner_interface_type = self.interface_types.get(
                     partner_name)

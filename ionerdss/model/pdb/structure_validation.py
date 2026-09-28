@@ -51,6 +51,10 @@ class StructureValidationConfig:
     titration_on_rate: Union[float, Dict[str, float]] = 1.0e-5
     target_filename: str = "structure_validation_target.json"
     titration_parms_filename: str = "parms_titrate.inp"
+    # Distance below which a reacting interface site counts as sitting on its molecule's
+    # centre of mass. None takes the value from the hyperparameters passed through
+    # ``parms_overrides['hyperparams']``, or the module default when there are none.
+    interface_com_proximity_threshold_nm: Optional[float] = None
 
 
 @dataclass(frozen=True)
@@ -64,6 +68,8 @@ class StructureValidationArtifacts:
     nerdss_files: Dict[str, Path]
     preflight_warning_message: Optional[str] = None
     free_interface_warning_message: Optional[str] = None
+    interface_com_proximity_warning_message: Optional[str] = None
+    box_fit_warning_message: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -672,6 +678,344 @@ def get_free_interface_message(system: System, *, prefix: str) -> Optional[str]:
     return _format_free_interface_warning(get_free_interface_capacity(system), prefix=prefix)
 
 
+# ---------------------------------------------------------------------------
+# Interface-site geometry preflight
+# ---------------------------------------------------------------------------
+#
+# NERDSS defines the angles of a bond from the vector between a molecule's centre of
+# mass (COM) and the reacting interface site: theta is the angle between that vector
+# and sigma, and phi is the rotation about it. Before it enforces them it orients the
+# molecule onto its .mol template from the same site vectors, which needs a site that
+# is not at the COM. Sites that all lie on one line through the COM are fine: the
+# orientation code detects that case and keeps the first rotation only, and the
+# amyloid segments of the PDB benchmark whose two sites face opposite neighbours
+# assemble. When a chain contacts its
+# partners along its whole length -- collagen-like triple helices, a peptide lying in
+# a groove, amyloid segments -- every interface centroid falls on the chain's COM, all
+# of the chain's sites coincide, the template cannot be oriented and NERDSS exits at
+# the first association ("Cannot resolve phi angle ... Exiting").
+#
+# Proximity to the COM is the symptom the user sees (in the x5 benchmark the closest
+# reacting site of a crashing entry is a median 0.07 nm from its COM, against 0.72 nm
+# in size-matched controls), and coincident sites are the mechanism: 92% of the
+# crashing entries have a multi-site molecule whose sites coincide, no control does.
+# A single-interface molecule is exempt, because the exporter writes phi = nan for it
+# and NERDSS then skips the phi rotation.
+DEFAULT_INTERFACE_COM_PROXIMITY_THRESHOLD_NM = 0.15
+COINCIDENT_SITE_TOLERANCE_NM = 0.01
+_MIN_ORIENTABLE_SITE_COUNT = 2
+
+
+@dataclass(frozen=True)
+class NearComInterfaceSite:
+    """A reacting interface site that lies within the proximity threshold of its COM."""
+
+    molecule_instance: str
+    molecule_type: str
+    interface_instance: str
+    interface_type: Optional[str]
+    partner_instance: str
+    partner_type: Optional[str]
+    distance_nm: float
+    phi_defined: bool
+
+
+@dataclass(frozen=True)
+class DegenerateSiteLayout:
+    """A molecule instance whose interface sites NERDSS cannot orient a template from."""
+
+    molecule_instance: str
+    molecule_type: str
+    kind: str
+    site_count: int
+    max_site_distance_nm: float
+    interface_instances: Tuple[str, ...]
+
+
+def classify_site_layout(
+    site_vectors: Sequence[Sequence[float]],
+    *,
+    proximity_threshold_nm: float = DEFAULT_INTERFACE_COM_PROXIMITY_THRESHOLD_NM,
+    coincident_tolerance_nm: float = COINCIDENT_SITE_TOLERANCE_NM,
+) -> Optional[str]:
+    """Say why NERDSS cannot orient a molecule from these COM-relative site vectors.
+
+    Returns ``None`` when the layout is fine, otherwise ``"coincident"`` (all sites at
+    one point) or ``"point_like"`` (every site within the proximity threshold of the
+    COM). Fewer than two sites never count: NERDSS skips phi for a one-interface
+    molecule. Sites that all lie on one line through the COM do not count either:
+    NERDSS orients such a template from its first site alone.
+    """
+    vectors = np.asarray(site_vectors, dtype=float).reshape(-1, 3)
+    if len(vectors) < _MIN_ORIENTABLE_SITE_COUNT:
+        return None
+
+    pairwise = np.linalg.norm(vectors[:, None, :] - vectors[None, :, :], axis=2)
+    if float(pairwise.max()) < coincident_tolerance_nm:
+        return "coincident"
+
+    if bool(np.all(np.linalg.norm(vectors, axis=1) < proximity_threshold_nm)):
+        return "point_like"
+
+    return None
+
+
+def _phi_is_defined(molecule_type) -> bool:
+    """Mirror the exporter: phi is written for a molecule type with 2+ interfaces."""
+    declared = getattr(molecule_type, "interfaces_neighbors_map", None) or {}
+    return len(declared) >= _MIN_ORIENTABLE_SITE_COUNT
+
+
+def _bound_site_vectors(molecule_instance: MoleculeInstance) -> list[Tuple[Any, Any, np.ndarray]]:
+    """Return (interface_instance, partner_instance, site - COM) for every bound site."""
+    com = np.asarray(molecule_instance.com, dtype=float)
+    sites = []
+    for interface_instance, partner_instance in molecule_instance.interfaces_neighbors_map.items():
+        if partner_instance is None:
+            continue
+        coord = getattr(interface_instance, "absolute_coord", None)
+        if coord is None:
+            continue
+        sites.append((interface_instance, partner_instance, np.asarray(coord, dtype=float) - com))
+    return sites
+
+
+def get_near_com_interface_sites(
+    system: System,
+    *,
+    threshold_nm: float = DEFAULT_INTERFACE_COM_PROXIMITY_THRESHOLD_NM,
+) -> list[NearComInterfaceSite]:
+    """Return every reacting interface site closer than ``threshold_nm`` to its COM.
+
+    Sorted by distance, then by molecule and interface name.
+    """
+    near: list[NearComInterfaceSite] = []
+    for molecule_instance in system.molecule_instances:
+        molecule_type = molecule_instance.molecule_type
+        if molecule_type is None:
+            continue
+        for interface_instance, partner_instance, vector in _bound_site_vectors(molecule_instance):
+            distance = float(np.linalg.norm(vector))
+            if distance >= threshold_nm:
+                continue
+            interface_type = getattr(interface_instance, "interface_type", None)
+            partner_type = getattr(partner_instance, "molecule_type", None)
+            near.append(
+                NearComInterfaceSite(
+                    molecule_instance=molecule_instance.name,
+                    molecule_type=molecule_type.name,
+                    interface_instance=interface_instance.get_name(),
+                    interface_type=interface_type.get_name() if interface_type is not None else None,
+                    partner_instance=partner_instance.name,
+                    partner_type=partner_type.name if partner_type is not None else None,
+                    distance_nm=distance,
+                    phi_defined=_phi_is_defined(molecule_type),
+                )
+            )
+
+    near.sort(key=lambda site: (site.distance_nm, site.molecule_instance, site.interface_instance))
+    return near
+
+
+def get_degenerate_site_layouts(
+    system: System,
+    *,
+    threshold_nm: float = DEFAULT_INTERFACE_COM_PROXIMITY_THRESHOLD_NM,
+    coincident_tolerance_nm: float = COINCIDENT_SITE_TOLERANCE_NM,
+) -> list[DegenerateSiteLayout]:
+    """Return the molecule instances whose bound sites NERDSS cannot orient a template from.
+
+    Only molecule types with two or more declared interfaces are considered, because
+    the exporter writes phi = nan for a single-interface type and NERDSS then never
+    needs the orientation. Sorted by molecule type, then instance name.
+    """
+    degenerate: list[DegenerateSiteLayout] = []
+    for molecule_instance in system.molecule_instances:
+        molecule_type = molecule_instance.molecule_type
+        if molecule_type is None or not _phi_is_defined(molecule_type):
+            continue
+
+        sites = _bound_site_vectors(molecule_instance)
+        if len(sites) < _MIN_ORIENTABLE_SITE_COUNT:
+            continue
+        vectors = np.asarray([vector for _, _, vector in sites], dtype=float)
+        kind = classify_site_layout(
+            vectors,
+            proximity_threshold_nm=threshold_nm,
+            coincident_tolerance_nm=coincident_tolerance_nm,
+        )
+        if kind is None:
+            continue
+
+        degenerate.append(
+            DegenerateSiteLayout(
+                molecule_instance=molecule_instance.name,
+                molecule_type=molecule_type.name,
+                kind=kind,
+                site_count=len(sites),
+                max_site_distance_nm=float(np.linalg.norm(vectors, axis=1).max()),
+                interface_instances=tuple(sorted(interface.get_name() for interface, _, _ in sites)),
+            )
+        )
+
+    degenerate.sort(key=lambda layout: (layout.molecule_type, layout.molecule_instance))
+    return degenerate
+
+
+def _describe_degenerate_layouts(
+    layouts: Sequence[DegenerateSiteLayout], *, threshold_nm: float
+) -> str:
+    """Summarise degenerate layouts per molecule type, e.g. ``A (2 sites coincide, ...)``."""
+    by_type: Dict[str, list[DegenerateSiteLayout]] = defaultdict(list)
+    for layout in layouts:
+        by_type[layout.molecule_type].append(layout)
+
+    descriptions = []
+    for type_name in sorted(by_type):
+        type_layouts = by_type[type_name]
+        kinds = {layout.kind for layout in type_layouts}
+        site_count = max(layout.site_count for layout in type_layouts)
+        farthest = max(layout.max_site_distance_nm for layout in type_layouts)
+        if "coincident" in kinds:
+            what = f"its {site_count} interface sites coincide, within {farthest:.3f} nm of the COM"
+        else:
+            what = (
+                f"all {site_count} of its interface sites lie within {threshold_nm:g} nm "
+                f"of the COM (farthest {farthest:.3f} nm)"
+            )
+        instances = ", ".join(layout.molecule_instance for layout in type_layouts)
+        descriptions.append(f"{type_name} ({what}; on {instances})")
+    return "; ".join(descriptions)
+
+
+def _describe_near_com_sites(sites: Sequence[NearComInterfaceSite]) -> str:
+    return "; ".join(
+        f"{site.molecule_instance} {site.interface_instance}"
+        f"{f' [{site.interface_type}]' if site.interface_type else ''}"
+        f" at {site.distance_nm:.3f} nm (partner {site.partner_instance})"
+        for site in sites
+    )
+
+
+def get_interface_com_proximity_message(
+    system: System,
+    *,
+    prefix: str,
+    threshold_nm: float = DEFAULT_INTERFACE_COM_PROXIMITY_THRESHOLD_NM,
+    coincident_tolerance_nm: float = COINCIDENT_SITE_TOLERANCE_NM,
+) -> Optional[str]:
+    """Return a formatted message about interface sites NERDSS cannot define angles for.
+
+    Lists every reacting interface site closer than ``threshold_nm`` to its molecule's
+    centre of mass, and names the molecule types whose sites coincide or all sit
+    within the threshold, since NERDSS cannot orient those and exits at the first
+    association. ``None`` when there is nothing to report.
+    """
+    near_sites = get_near_com_interface_sites(system, threshold_nm=threshold_nm)
+    degenerate = get_degenerate_site_layouts(
+        system, threshold_nm=threshold_nm, coincident_tolerance_nm=coincident_tolerance_nm
+    )
+    if not near_sites and not degenerate:
+        return None
+
+    parts = []
+    if degenerate:
+        parts.append(
+            f"{prefix}: NERDSS cannot resolve the binding angles for molecule type"
+            f"{'s' if len({layout.molecule_type for layout in degenerate}) > 1 else ''} "
+            f"{_describe_degenerate_layouts(degenerate, threshold_nm=threshold_nm)}. "
+            "NERDSS orients a molecule onto its .mol template from the vectors between its "
+            "centre of mass and its interface sites and defines theta and phi (the rotation "
+            "about the COM-to-site axis) from the same vectors, so sites that coincide or sit "
+            "on the COM leave the angles undefined and NERDSS exits at the first association "
+            "('Cannot resolve phi angle'). This happens when a chain contacts its partners "
+            "along its whole length (collagen-like triple helices, a peptide lying in a groove, "
+            "amyloid segments): every interface centroid then falls on the chain's centre of "
+            "mass. Set interface_site_placement='auto' to move such sites onto the chain "
+            "surface facing the partner, or restrict the interface to the residues that "
+            "distinguish the partners."
+        )
+    if near_sites:
+        lead = f"{prefix}: " if not degenerate else ""
+        parts.append(
+            f"{lead}{len(near_sites)} reacting interface site{'s' if len(near_sites) != 1 else ''} "
+            f"within {threshold_nm:g} nm of the molecule's centre of mass: "
+            f"{_describe_near_com_sites(near_sites)}. The orientation a bond through such a "
+            "site encodes is dominated by the noise in a vector this short; for a "
+            "single-interface molecule type NERDSS skips phi altogether, so that subunit "
+            "binds with an arbitrary orientation."
+        )
+    return " ".join(parts)
+
+
+def get_designed_assembly_extent(system: System) -> Dict[str, float]:
+    """Return the bounding-sphere diameters of the designed assembly and its largest molecule.
+
+    NERDSS treats each molecule as a sphere whose radius is its farthest interface site
+    and a complex as the sphere enclosing its members, so these diameters are what it
+    compares against the box. Sites are taken from the bound interfaces of each
+    instance; a molecule without any has radius zero.
+    """
+    coms = []
+    radii = []
+    for molecule_instance in system.molecule_instances:
+        if molecule_instance.molecule_type is None:
+            continue
+        coms.append(np.asarray(molecule_instance.com, dtype=float))
+        vectors = [vector for _, _, vector in _bound_site_vectors(molecule_instance)]
+        radii.append(max((float(np.linalg.norm(v)) for v in vectors), default=0.0))
+
+    if not coms:
+        return {"assembly_diameter_nm": 0.0, "largest_molecule_diameter_nm": 0.0}
+
+    com_array = np.asarray(coms, dtype=float)
+    radius_array = np.asarray(radii, dtype=float)
+    centre = com_array.mean(axis=0)
+    assembly_radius = float(np.max(np.linalg.norm(com_array - centre, axis=1) + radius_array))
+    return {
+        "assembly_diameter_nm": 2.0 * assembly_radius,
+        "largest_molecule_diameter_nm": 2.0 * float(radius_array.max()),
+    }
+
+
+def get_box_fit_message(
+    system: System,
+    box_nm: Sequence[float],
+    *,
+    prefix: str,
+) -> Optional[str]:
+    """Return a message when the designed assembly is larger than the simulation box.
+
+    NERDSS keeps every molecule inside the box: it reflects a complex that reaches a
+    wall, cancels an association whose product would span the box, and exits with
+    "Molecule seems outside simulation volume" when a molecule is pushed out anyway.
+    An assembly whose bounding diameter exceeds the shortest box edge therefore cannot
+    form, and a single molecule that large cannot even be placed.
+    """
+    extent = get_designed_assembly_extent(system)
+    shortest_edge = float(min(float(edge) for edge in box_nm))
+    assembly = extent["assembly_diameter_nm"]
+    molecule = extent["largest_molecule_diameter_nm"]
+    if assembly <= shortest_edge:
+        return None
+
+    box_text = " x ".join(f"{float(edge):g}" for edge in box_nm)
+    if molecule > shortest_edge:
+        subject = (
+            f"the largest molecule alone spans {molecule:.1f} nm and the designed assembly "
+            f"{assembly:.1f} nm"
+        )
+    else:
+        subject = f"the designed assembly spans {assembly:.1f} nm"
+    return (
+        f"{prefix}: {subject} (bounding sphere around its centre, measured from the "
+        f"interface sites), but the simulation box is {box_text} nm. NERDSS keeps every "
+        "molecule inside the box, cancels an association whose product would span it, and "
+        "exits with 'Molecule seems outside simulation volume' when a molecule is pushed "
+        f"out, so the full assembly cannot form. Use a box edge of at least {assembly:.0f} nm."
+    )
+
+
 def build_validation_molecule_counts(system: System, initial_molecule_count: int = 1) -> Dict[str, int]:
     """Return validation counts with a configurable initial copy number per molecule type."""
     target_counts = get_structure_validation_counts(system)
@@ -769,6 +1113,20 @@ def write_structure_validation_target(
     return output
 
 
+def _resolve_interface_com_proximity_threshold(
+    config: StructureValidationConfig,
+    parms_overrides: Optional[Mapping[str, object]],
+) -> float:
+    """Take the threshold from the config, else the hyperparameters, else the default."""
+    if config.interface_com_proximity_threshold_nm is not None:
+        return float(config.interface_com_proximity_threshold_nm)
+    hyperparams = parms_overrides.get("hyperparams") if parms_overrides else None
+    threshold = getattr(hyperparams, "interface_com_proximity_threshold", None)
+    if threshold is not None:
+        return float(threshold)
+    return DEFAULT_INTERFACE_COM_PROXIMITY_THRESHOLD_NM
+
+
 def prepare_structure_validation(
     system: System,
     workspace_manager=None,
@@ -788,6 +1146,14 @@ def prepare_structure_validation(
     )
     free_interface_warning_message = get_free_interface_message(
         system, prefix="Validation preflight warning"
+    )
+    interface_com_proximity_warning_message = get_interface_com_proximity_message(
+        system,
+        prefix="Validation preflight warning",
+        threshold_nm=_resolve_interface_com_proximity_threshold(config, parms_overrides),
+    )
+    box_fit_warning_message = get_box_fit_message(
+        system, config.box_nm, prefix="Validation preflight warning"
     )
 
     final_designed_coordinates = {
@@ -832,6 +1198,10 @@ def prepare_structure_validation(
         warnings.warn(preflight_warning_message, RuntimeWarning)
     if free_interface_warning_message:
         warnings.warn(free_interface_warning_message, RuntimeWarning)
+    if interface_com_proximity_warning_message:
+        warnings.warn(interface_com_proximity_warning_message, RuntimeWarning)
+    if box_fit_warning_message:
+        warnings.warn(box_fit_warning_message, RuntimeWarning)
 
     return StructureValidationArtifacts(
         molecule_counts=molecule_counts,
@@ -841,6 +1211,8 @@ def prepare_structure_validation(
         nerdss_files=nerdss_files,
         preflight_warning_message=preflight_warning_message,
         free_interface_warning_message=free_interface_warning_message,
+        interface_com_proximity_warning_message=interface_com_proximity_warning_message,
+        box_fit_warning_message=box_fit_warning_message,
     )
 
 

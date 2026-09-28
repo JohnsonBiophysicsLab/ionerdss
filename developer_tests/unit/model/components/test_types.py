@@ -88,7 +88,7 @@ class TestInterfaceType(unittest.TestCase):
     def test_get_name(self):
         """Test interface name generation."""
         name = self.interface_type.get_name()
-        self.assertEqual(name, "ProteinAProteinB1")
+        self.assertEqual(name, "8ProteinA8ProteinB1")
 
     def test_get_name_different_values(self):
         """Test name generation with different values."""
@@ -164,7 +164,7 @@ class TestInterfaceType(unittest.TestCase):
 
         result = self.interface_type.to_dict()
 
-        self.assertEqual(result["name"], "ProteinAProteinB1")
+        self.assertEqual(result["name"], "8ProteinA8ProteinB1")
         self.assertEqual(result["partner_interface_type"], "BA1")
         self.assertEqual(result["this_mol_type"], "MolTypeA")
         self.assertEqual(result["absolute_coord"], [1.0, 2.0, 3.0])
@@ -432,8 +432,8 @@ class TestIntegration(unittest.TestCase):
         self.assertEqual(interface_B_A.partner_interface_type, interface_A_B)
 
         # Test naming
-        self.assertEqual(interface_A_B.get_name(), "MolAMolB1")
-        self.assertEqual(interface_B_A.get_name(), "MolBMolA1")
+        self.assertEqual(interface_A_B.get_name(), "4MolA4MolB1")
+        self.assertEqual(interface_B_A.get_name(), "4MolB4MolA1")
 
     def test_serialization_roundtrip_molecule(self):
         """Test that molecule serialization and deserialization preserve data."""
