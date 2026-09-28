@@ -488,10 +488,13 @@ from .visualizer import PDBVisualizer
 from .ring_regularizer import RingRegularizer
 from .symmetry_regularizer import SymmetryRegularizer
 from .structure_validation import (
-    StructureValidationArtifacts,
-    StructureValidationConfig,
+    classify_site_layout,
+    COINCIDENT_SITE_TOLERANCE_NM,
+    DEFAULT_INTERFACE_COM_PROXIMITY_THRESHOLD_NM,
     get_structure_validation_counts,
     prepare_structure_validation,
+    StructureValidationArtifacts,
+    StructureValidationConfig,
 )
 
 from .template_builder import _enforce_identical_local_geometry_after_com
@@ -573,6 +576,92 @@ def _paired_ca_coordinates(rep_data: dict, curr_data: dict):
     if len(P) < 3:
         return None, None
     return np.asarray(P, dtype=float), np.asarray(Q, dtype=float)
+
+
+# A chain counts as elongated when its longest RMS extent is this many times its
+# second one, and its partner as lying alongside it when the direction to the
+# partner's centre of mass is within this angle of the long axis.
+_ELONGATED_ASPECT_RATIO = 3.0
+_ALONGSIDE_ANGLE_DEG = 45.0
+
+
+def principal_axis(coords: np.ndarray) -> Tuple[Optional[np.ndarray], float]:
+    """Return the unit vector along a point cloud's longest dimension and its aspect ratio.
+
+    The aspect ratio is the longest RMS extent over the second longest (1 for a
+    sphere, large for a rod). ``(None, 1.0)`` when the cloud has no extent.
+    """
+    points = np.asarray(coords, dtype=float).reshape(-1, 3)
+    if len(points) < 2:
+        return None, 1.0
+    centered = points - points.mean(axis=0)
+    _, singular_values, rows = np.linalg.svd(centered, full_matrices=False)
+    if singular_values[0] < 1e-9:
+        return None, 1.0
+    second = singular_values[1] if len(singular_values) > 1 else 0.0
+    aspect = float(singular_values[0] / second) if second > 1e-9 else float("inf")
+    return rows[0] / np.linalg.norm(rows[0]), aspect
+
+
+def project_site_to_chain_surface(
+    chain_com: np.ndarray,
+    chain_coords: np.ndarray,
+    partner_com: np.ndarray,
+    *,
+    fallback_direction: Optional[np.ndarray] = None,
+) -> np.ndarray:
+    """Return the point on a chain's surface that faces its partner's centre of mass.
+
+    The site is placed on the ray from the chain's centre of mass towards the
+    partner's, where the chain's atoms end along that direction (the support of the
+    atom cloud). The COM-to-site vector is then as long as the chain is thick and
+    points at the partner, which is what NERDSS needs to define theta and, when
+    several such sites point at different partners, to orient the molecule onto its
+    template. The exporter measures sigma and the angles from the placed sites, so the
+    bound geometry still reproduces the deposited centres of mass.
+
+    A site is only moved here when its interface covers the whole chain, so the
+    partner lies alongside the chain rather than beyond one end. For an elongated
+    chain the partner's centre of mass can nevertheless sit almost on the chain's own
+    long axis -- the chains of a collagen triple helix are staggered along it -- and
+    following that direction would put the site at the rod's tip. When the chain is
+    elongated and the partner lies within ``_ALONGSIDE_ANGLE_DEG`` of its axis, the
+    axial component is dropped so the site stays on the flank facing the partner.
+    ``fallback_direction`` is used when that leaves no direction (coincident centres
+    of mass); with none, an arbitrary perpendicular is used. All arguments share one
+    unit (Angstrom or nm).
+    """
+    com = np.asarray(chain_com, dtype=float)
+    coords = np.asarray(chain_coords, dtype=float).reshape(-1, 3)
+    axis, aspect = principal_axis(coords)
+    direction = np.asarray(partner_com, dtype=float) - com
+    length = float(np.linalg.norm(direction))
+
+    alongside = False
+    if axis is not None and aspect >= _ELONGATED_ASPECT_RATIO and length > 1e-9:
+        cosine = abs(float(direction @ axis)) / length
+        alongside = cosine >= np.cos(np.radians(_ALONGSIDE_ANGLE_DEG))
+
+    def _usable(vector: Optional[np.ndarray]) -> Optional[np.ndarray]:
+        if vector is None:
+            return None
+        vector = np.asarray(vector, dtype=float)
+        if alongside:
+            vector = vector - float(vector @ axis) * axis
+        return vector if float(np.linalg.norm(vector)) > 1e-9 else None
+
+    chosen = _usable(direction)
+    if chosen is None:
+        chosen = _usable(fallback_direction)
+    if chosen is None:
+        seed = np.array([1.0, 0.0, 0.0])
+        if axis is not None and abs(float(seed @ axis)) > 0.9:
+            seed = np.array([0.0, 1.0, 0.0])
+        chosen = _usable(seed) if alongside else seed
+    unit = chosen / float(np.linalg.norm(chosen))
+
+    extent = float(np.max((coords - com) @ unit)) if len(coords) else 0.0
+    return com + max(extent, 0.0) * unit
 
 
 class SystemBuilder:
@@ -780,6 +869,33 @@ class SystemBuilder:
 
         return instances
 
+    def _find_degenerate_site_chains(self, interfaces, proximity_threshold_nm: float) -> Dict[str, str]:
+        """Return chain id -> why NERDSS could not orient a template built from its sites.
+
+        Mirrors :func:`ionerdss.model.pdb.structure_validation.classify_site_layout`
+        on the coarse-grained interfaces before instances exist: a chain with two or
+        more interface centroids that coincide or all sit within the proximity
+        threshold of its centre of mass.
+        """
+        site_vectors: Dict[str, List[np.ndarray]] = {}
+        for interface in interfaces:
+            for chain_id, coord in ((interface.chain_i, interface.coord_i), (interface.chain_j, interface.coord_j)):
+                com = self.parser.get_chain_data(chain_id)["com"]
+                site_vectors.setdefault(chain_id, []).append(
+                    self.parser.convert_coords_to_nm(np.asarray(coord, dtype=float) - np.asarray(com, dtype=float))
+                )
+
+        degenerate: Dict[str, str] = {}
+        for chain_id, vectors in site_vectors.items():
+            kind = classify_site_layout(
+                np.asarray(vectors, dtype=float),
+                proximity_threshold_nm=proximity_threshold_nm,
+                coincident_tolerance_nm=COINCIDENT_SITE_TOLERANCE_NM,
+            )
+            if kind is not None:
+                degenerate[chain_id] = kind
+        return degenerate
+
     def _create_interface_instances(self) -> List[InterfaceInstance]:
         """
         Create interface instances with:
@@ -868,6 +984,58 @@ class SystemBuilder:
                 log.info("No partner template for %s; regarding as homodimeric-homotypic and using same template", primary_name)
             return primary_template
 
+        # ---------- interface site placement ----------
+        # 'centroid' keeps the mean position of the contacting Calpha atoms. 'auto'
+        # moves the sites the COM-proximity preflight would flag -- every site of a
+        # chain whose sites coincide or all sit within the threshold of it, and any
+        # single site within the threshold -- onto the chain surface facing the partner,
+        # so that NERDSS can define the binding angles. Sites moved onto opposite faces
+        # of a flat chain end up on one line through its COM, which NERDSS handles.
+        placement = getattr(self.hyperparams, "interface_site_placement", "centroid")
+        proximity_threshold_nm = float(getattr(
+            self.hyperparams,
+            "interface_com_proximity_threshold",
+            DEFAULT_INTERFACE_COM_PROXIMITY_THRESHOLD_NM,
+        ))
+        degenerate_chains: Dict[str, str] = {}
+        if placement == "auto":
+            degenerate_chains = self._find_degenerate_site_chains(interfaces, proximity_threshold_nm)
+            if log and degenerate_chains:
+                log.warning(
+                    "interface_site_placement='auto': moving the interface sites of chains %s "
+                    "onto the chain surface facing each partner (%s)",
+                    ", ".join(sorted(degenerate_chains)),
+                    "; ".join(f"{chain}: {kind}" for chain, kind in sorted(degenerate_chains.items())),
+                )
+
+        def _place_sites(interface) -> Tuple[np.ndarray, np.ndarray]:
+            ci = _nm(interface.coord_i)
+            cj = _nm(interface.coord_j)
+            if placement != "auto":
+                return ci, cj
+
+            data_i = self.parser.get_chain_data(interface.chain_i)
+            data_j = self.parser.get_chain_data(interface.chain_j)
+            com_i = _nm(data_i["com"])
+            com_j = _nm(data_j["com"])
+            move_i = interface.chain_i in degenerate_chains or np.linalg.norm(ci - com_i) < proximity_threshold_nm
+            move_j = interface.chain_j in degenerate_chains or np.linalg.norm(cj - com_j) < proximity_threshold_nm
+            if move_i:
+                ci = project_site_to_chain_surface(
+                    com_i, _nm(data_i["all_coords"]), com_j, fallback_direction=ci - com_i
+                )
+            if move_j:
+                cj = project_site_to_chain_surface(
+                    com_j, _nm(data_j["all_coords"]), com_i, fallback_direction=cj - com_j
+                )
+            if log and (move_i or move_j):
+                log.info(
+                    "Projected interface sites onto the chain surface: %s%s",
+                    f"{interface.chain_i} -> {np.round(ci, 4).tolist()} " if move_i else "",
+                    f"{interface.chain_j} -> {np.round(cj, 4).tolist()}" if move_j else "",
+                )
+            return ci, cj
+
         # de-dup key over undirected edges using rounded nm coords
         seen_edges = set()
 
@@ -906,8 +1074,7 @@ class SystemBuilder:
                 continue
 
             # Prepare de-dup edge key
-            ci_nm = _nm(interface.coord_i)
-            cj_nm = _nm(interface.coord_j)
+            ci_nm, cj_nm = _place_sites(interface)
             ci_sig = _round_sig(ci_nm, 3)
             cj_sig = _round_sig(cj_nm, 3)
             a, b = sorted([interface.chain_i, interface.chain_j])

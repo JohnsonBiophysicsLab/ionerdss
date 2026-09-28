@@ -31,8 +31,14 @@ from .structure_validation import (
     StructureValidationSimulationResult,
     align_structure_to_design,
     build_validation_molecule_counts,
+    classify_site_layout,
     collect_structure_validation_results,
+    get_box_fit_message,
+    get_degenerate_site_layouts,
+    get_designed_assembly_extent,
     get_designed_structure,
+    get_interface_com_proximity_message,
+    get_near_com_interface_sites,
     get_representative_instances,
     get_structure_validation_counts,
     prepare_structure_validation,
@@ -50,12 +56,20 @@ def prepare(
     target_filename: str = "structure_validation_target.json",
     parms_overrides: Optional[Dict[str, Any]] = None,
     designed_coordinates: Optional[Mapping[str, Sequence[float]]] = None,
+    interface_com_proximity_threshold_nm: Optional[float] = None,
 ) -> StructureValidationArtifacts:
-    """Prepare the one-copy-per-type irreversible validation simulation."""
+    """Prepare the one-copy-per-type irreversible validation simulation.
+
+    ``interface_com_proximity_threshold_nm`` sets how close to its molecule's centre
+    of mass a reacting interface site may sit before the preflight check reports it;
+    ``None`` uses the hyperparameters in ``parms_overrides['hyperparams']`` or the
+    module default.
+    """
     config = StructureValidationConfig(
         box_nm=tuple(float(v) for v in box_nm),
         titration_on_rate=titration_on_rate,
         target_filename=target_filename,
+        interface_com_proximity_threshold_nm=interface_com_proximity_threshold_nm,
     )
     return prepare_structure_validation(
         system=system,
@@ -77,14 +91,22 @@ def setup_simulation(
     titration_parms_filename: str = "parms_titrate.inp",
     parms_overrides: Optional[Dict[str, Any]] = None,
     designed_coordinates: Optional[Mapping[str, Sequence[float]]] = None,
+    interface_com_proximity_threshold_nm: Optional[float] = None,
 ) -> StructureValidationArtifacts:
-    """Set up the validation simulation with one of each, titration, and irreversible binding."""
+    """Set up the validation simulation with one of each, titration, and irreversible binding.
+
+    ``interface_com_proximity_threshold_nm`` sets how close to its molecule's centre
+    of mass a reacting interface site may sit before the preflight check reports it;
+    ``None`` uses the hyperparameters in ``parms_overrides['hyperparams']`` or the
+    module default.
+    """
     config = StructureValidationConfig(
         box_nm=tuple(float(v) for v in box_nm),
         initial_molecule_count=int(initial_molecule_count),
         titration_on_rate=titration_on_rate,
         target_filename=target_filename,
         titration_parms_filename=titration_parms_filename,
+        interface_com_proximity_threshold_nm=interface_com_proximity_threshold_nm,
     )
     return prepare_structure_validation(
         system=system,
@@ -184,10 +206,16 @@ __all__ = [
     "align_structure",
     "align_structure_to_design",
     "build_validation_molecule_counts",
+    "classify_site_layout",
     "collect_results",
     "collect_structure_validation_results",
     "compare",
+    "get_box_fit_message",
+    "get_degenerate_site_layouts",
+    "get_designed_assembly_extent",
     "get_designed_structure",
+    "get_interface_com_proximity_message",
+    "get_near_com_interface_sites",
     "get_representative_instances",
     "get_structure_validation_counts",
     "prepare",

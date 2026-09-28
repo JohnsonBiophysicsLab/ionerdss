@@ -61,6 +61,11 @@ Typical return values are packaged in `StructureValidationArtifacts`, including:
 - generated NERDSS input files
 - `preflight_warning_message`: set when the designed assembly graph is disconnected
 - `free_interface_warning_message`: set when the design leaves binding capacity unused
+- `interface_com_proximity_warning_message`: set when a reacting interface site sits on
+  its molecule's centre of mass, or a molecule type's sites coincide, so NERDSS cannot
+  define the binding angles
+- `box_fit_warning_message`: set when the designed assembly is larger than the
+  simulation box
 
 ### Over-assembly preflight warning
 
@@ -89,6 +94,57 @@ Two caveats worth knowing:
 - Over-assembly is **unobservable at one copy** of the deposited stoichiometry, since
   the largest possible assembly is then the target itself. Supply more copies to test
   for it.
+
+### Interface-at-centre-of-mass preflight warning
+
+NERDSS defines the angles of a bond from the vector between a molecule's centre of
+mass (COM) and the reacting interface site: theta is the angle between that vector and
+sigma, and phi is the rotation about it. Before enforcing them it orients the molecule
+onto its `.mol` template from the same site vectors, which needs a site that is
+not on the COM. Coarse-graining places a site at the
+centroid of the contacting residues, so when a chain contacts its partners along its
+whole length — collagen-like triple helices, a peptide lying in a groove, amyloid
+segments — every site falls on the chain's COM, all of the chain's sites coincide, and
+NERDSS exits at the first association with `Cannot resolve phi angle ... Exiting`.
+
+`get_near_com_interface_sites(system, threshold_nm=...)` lists every reacting interface
+site closer than the threshold to its molecule's COM, and
+`get_degenerate_site_layouts(system, threshold_nm=...)` lists the molecule instances
+whose sites coincide or all lie within the threshold.
+`get_interface_com_proximity_message(system, prefix=..., threshold_nm=...)` formats
+both. The threshold is the `interface_com_proximity_threshold` hyperparameter
+(default 0.15 nm); the validation helpers also accept it as
+`interface_com_proximity_threshold_nm`. The message is raised as a `RuntimeWarning`
+by `build_system` and during validation export, and carried on the artifacts.
+
+Two things are worth knowing:
+
+- Proximity alone is a symptom, not the cause. In the x5 benchmark the closest reacting
+  site of a crashing entry lies a median 0.07 nm from its COM against 0.72 nm in
+  size-matched controls, but 8% of healthy multi-site models also have a site within
+  0.15 nm and simulate fine. What NERDSS cannot handle is a multi-site molecule whose
+  sites coincide: 92% of the crashing entries have one, no control does. The benchmark
+  driver therefore skips a model (status `IC`) only for a degenerate layout, and just
+  prints the message for a lone site near the COM.
+- A single-interface molecule type is exempt, because the exporter writes `phi = nan`
+  for it and NERDSS then skips the phi rotation; such a subunit binds, but with an
+  arbitrary orientation.
+
+Setting the `interface_site_placement` hyperparameter to `'auto'` moves the flagged
+sites onto the chain surface facing the partner's COM, which gives NERDSS a usable
+geometry (see the hyperparameter page).
+
+### Box-fit preflight warning
+
+NERDSS keeps every molecule inside the box: it reflects a complex that reaches a wall,
+cancels an association whose product would span the box, and exits with
+`Molecule seems outside simulation volume` when a molecule is pushed out anyway.
+`get_designed_assembly_extent(system)` returns the bounding-sphere diameters of the
+designed assembly and of its largest molecule, measured from the interface sites the
+way NERDSS measures its template radius, and
+`get_box_fit_message(system, box_nm, prefix=...)` warns when the assembly is larger
+than the shortest box edge. The check is static: a filament that keeps growing past
+the deposited stoichiometry (see the over-assembly warning) can still leave the box.
 
 ### `compare_structure_to_design`
 

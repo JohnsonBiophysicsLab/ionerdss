@@ -94,3 +94,85 @@ def test_status_from_partial_builder_returns_dc_when_partial_system_is_disconnec
         assert benchmark._status_from_partial_builder(builder) == "DC"
     finally:
         benchmark.get_disconnected_design_message = original
+
+
+def _site_geometry_system(site_offsets):
+    """One molecule type with two declared interfaces; instances bound through the given site offsets."""
+    import numpy as np
+
+    from ionerdss.model.components.instances import InterfaceInstance, MoleculeInstance
+    from ionerdss.model.components.system import System
+    from ionerdss.model.components.types import MoleculeType
+
+    molecule_type = MoleculeType(name="A", interfaces_neighbors_map={"AA1f": None, "AA1b": None})
+    instances = [
+        MoleculeInstance(
+            name=name,
+            molecule_type=molecule_type,
+            com=np.asarray(com, dtype=float),
+            norm=np.array([0.0, 0.0, 1.0]),
+            ref1=np.array([1.0, 0.0, 0.0]),
+            ref2=np.array([0.0, 1.0, 0.0]),
+        )
+        for name, com in (("A_A", [0.0, 0.0, 0.0]), ("B_A", [1.0, 0.0, 0.0]))
+    ]
+    for instance, offsets in zip(instances, site_offsets):
+        partner = instances[1] if instance is instances[0] else instances[0]
+        for index, offset in enumerate(offsets, start=1):
+            interface = InterfaceInstance(
+                absolute_coord=instance.com + np.asarray(offset, dtype=float),
+                this_mol=instance,
+                this_mol_name=instance.name,
+                partner_mol_name=partner.name,
+                interface_index=index,
+            )
+            instance.interfaces_neighbors_map[interface] = partner
+
+    system = System(workspace_path=".")
+    system.molecule_types.add(molecule_type)
+    for instance in instances:
+        system.molecule_instances.add(instance)
+    return system
+
+
+def test_site_geometry_status_returns_ic_for_coincident_sites():
+    system = _site_geometry_system([[(0.01, 0.0, 0.0), (0.01, 0.0, 0.0)], [(0.0, 0.5, 0.0), (0.5, 0.0, 0.0)]])
+
+    status, message = benchmark._site_geometry_status(system, 0.15)
+
+    assert status == "IC"
+    assert "cannot resolve the binding angles for molecule type A" in message
+
+
+def test_site_geometry_status_only_reports_a_lone_site_near_the_com():
+    system = _site_geometry_system([[(0.05, 0.0, 0.0), (0.0, 0.8, 0.0)], [(0.0, 0.5, 0.0), (0.5, 0.0, 0.0)]])
+
+    status, message = benchmark._site_geometry_status(system, 0.15)
+
+    assert status is None
+    assert message.startswith("Validation preflight warning: 1 reacting interface site within 0.15 nm")
+
+
+def test_site_geometry_status_is_silent_for_a_healthy_design():
+    system = _site_geometry_system([[(0.6, 0.0, 0.0), (0.0, 0.8, 0.0)], [(0.0, 0.5, 0.0), (0.5, 0.0, 0.0)]])
+
+    assert benchmark._site_geometry_status(system, 0.15) == (None, None)
+    assert benchmark._closest_site_com_distance(system) == 0.5
+
+
+def test_status_from_partial_builder_returns_ic_when_the_partial_system_has_coincident_sites():
+    builder = SimpleNamespace(
+        coarse_summary={"num_chains": 2},
+        group_summary={"num_groups": 1},
+        system=_site_geometry_system([[(0.01, 0.0, 0.0), (0.01, 0.0, 0.0)], [(0.0, 0.5, 0.0), (0.5, 0.0, 0.0)]]),
+        hyperparams=None,
+    )
+
+    assert benchmark._status_from_partial_builder(builder) == "IC"
+
+
+def test_interface_com_proximity_threshold_prefers_the_builder_hyperparameters():
+    assert benchmark._interface_com_proximity_threshold(SimpleNamespace(hyperparams=None)) == 0.15
+    assert benchmark._interface_com_proximity_threshold(
+        SimpleNamespace(hyperparams=SimpleNamespace(interface_com_proximity_threshold=0.3))
+    ) == 0.3

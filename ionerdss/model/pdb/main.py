@@ -23,7 +23,11 @@ from .chain_grouping import ChainGrouper
 from .template_builder import TemplateBuilder
 from .system_builder import SystemBuilder
 from .file_manager import WorkspaceManager
-from .structure_validation import StructureValidationArtifacts, get_disconnected_design_message
+from .structure_validation import (
+    StructureValidationArtifacts,
+    get_disconnected_design_message,
+    get_interface_com_proximity_message,
+)
 
 
 class PDBModelBuilder:
@@ -254,6 +258,15 @@ class PDBModelBuilder:
             if disconnected_design_message is not None:
                 self.workspace_manager.logger.warning(disconnected_design_message)
                 warnings.warn(disconnected_design_message, RuntimeWarning)
+
+            interface_com_proximity_message = get_interface_com_proximity_message(
+                system,
+                prefix="Preflight warning",
+                threshold_nm=hyperparams.interface_com_proximity_threshold,
+            )
+            if interface_com_proximity_message is not None:
+                self.workspace_manager.logger.warning(interface_com_proximity_message)
+                warnings.warn(interface_com_proximity_message, RuntimeWarning)
 
             # Calculate default molecule counts if not provided (using stoichiometry)
             if molecule_counts is None:

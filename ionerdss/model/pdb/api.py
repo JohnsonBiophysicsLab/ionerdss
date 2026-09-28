@@ -70,6 +70,10 @@ def _generate_hyperparameters_docstring() -> str:
         "Steric Clash Detection": [
             "steric_clash_mode",
         ],
+        "Interface Site Placement and Preflight": [
+            "interface_com_proximity_threshold",
+            "interface_site_placement",
+        ],
         "Template Building Parameters": [
             "signature_precision",
             "homodimer_distance_threshold",

@@ -77,6 +77,12 @@ from ionerdss.model.titrate.parms_titrator import parse_mol_file
 DEFAULT_TRANSITION_MATRIX_SIZE = 500
 
 
+# |sin(theta)| below this makes the COM-to-site vector parallel to sigma, where phi
+# (the dihedral of sigma about that vector) has no definition; the exporter then
+# writes nan so NERDSS skips the rotation.
+_COLLINEAR_SIN_TOLERANCE = 1e-3
+
+
 class NERDSSExporter:
     """Exporter for converting ionerdss System to NERDSS simulation files.
 
@@ -1911,6 +1917,15 @@ class NERDSSExporter:
             if self.workspace_manager:
                 self.workspace_manager.logger.info(
                     f"Linear molecule detected for {mol1_name}({site1}): only 1 interface, setting phi1=NaN")
+        elif abs(math.sin(theta1)) < _COLLINEAR_SIN_TOLERANCE:
+            # phi is the dihedral of sigma about the COM-to-site axis; with the site on the
+            # line joining the two sites (theta 0 or pi) sigma has no component to measure it
+            # from. The relative orientation is then fixed by the thetas and omega alone, so
+            # nan tells NERDSS to skip the rotation instead of chasing an undefined target.
+            phi1 = float('nan')
+            if self.workspace_manager:
+                self.workspace_manager.logger.info(
+                    f"Site {mol1_name}({site1}) is collinear with sigma (theta={theta1:.4f}); phi1 is undefined, writing NaN")
         else:
             t1_1 = unit(np.cross(v1, sigma1))
             t2_1 = unit(np.cross(v1, n1))
@@ -1923,6 +1938,11 @@ class NERDSSExporter:
             if self.workspace_manager:
                 self.workspace_manager.logger.info(
                     f"Linear molecule detected for {mol2_name}({site2}): only 1 interface, setting phi2=NaN")
+        elif abs(math.sin(theta2)) < _COLLINEAR_SIN_TOLERANCE:
+            phi2 = float('nan')
+            if self.workspace_manager:
+                self.workspace_manager.logger.info(
+                    f"Site {mol2_name}({site2}) is collinear with sigma (theta={theta2:.4f}); phi2 is undefined, writing NaN")
         else:
             t1_2 = unit(np.cross(v2, sigma2))
             t2_2 = unit(np.cross(v2, n2))
