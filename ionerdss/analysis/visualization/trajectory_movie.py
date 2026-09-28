@@ -11,7 +11,9 @@ Every molecule is drawn as a shaded sphere at its center of mass:
 * each molecule type has its own color, whether the molecule is free or in a
   complex;
 * the sphere radius is the one ionerdss used to compute ``D`` and ``Dr``,
-  recovered from the ``.mol`` files by inverting Stokes-Einstein.
+  recovered from the ``.mol`` files by inverting Stokes-Einstein, and drawn
+  ``radius_scale`` times larger (3 by default) so molecules stay visible in a
+  box hundreds of nanometres wide; ``radius_scale=1`` draws them to scale.
 
 Spheres are rasterized with a vectorized z-buffer, so a frame of ~10^5
 molecules takes a fraction of a second on one core, with no OpenGL context,
@@ -56,6 +58,10 @@ _BACKGROUND = (255, 255, 255)
 _INK = (30, 30, 30)
 _BOX_BACK = (175, 175, 175)
 _BOX_FRONT = (90, 90, 90, 150)
+
+# Spheres are drawn this many times their molecular radius unless told otherwise:
+# at true size, molecules in a 500 nm box are one or two pixels across.
+DEFAULT_RADIUS_SCALE = 3.0
 
 # D and Dr set by ionerdss agree to the 6 significant digits written to the
 # .mol file; a hand-written pair is typically off by a large factor.
@@ -508,7 +514,7 @@ class TrajectoryRenderer:
     Parameters:
         box_nm: Simulation box edge lengths (``WaterBox``), in nm.
         type_names: Molecule type names in legend/color order.
-        radii_nm: Sphere radius per type name, in nm.
+        radii_nm: Molecular radius per type name, in nm.
         colors: Color per type name; defaults to the categorical slots in order.
         labels: Map from the label NERDSS writes in a trajectory to a type name.
         size: Frame size in pixels (rounded up to even numbers for video codecs).
@@ -516,9 +522,12 @@ class TrajectoryRenderer:
         time_step_us: ``timeStep`` in us; without it the label shows iterations.
         iterations: Every iteration that will be rendered, so the label can pick
             one unit and one width for the whole movie.
-        show_legend: Also list each type's color (and radius) next to the time.
+        show_legend: Also list each type's color (and molecular radius) next
+            to the time.
         time_font_size: Height of the time label in pixels; about 6.5% of the
             smaller frame side by default.
+        radius_scale: Every sphere is drawn this many times its molecular
+            radius (3 by default); 1 draws molecules to scale.
         supersample: Spheres are rasterized at this multiple of the frame size
             and averaged down, which smooths their edges.
     """
@@ -541,9 +550,13 @@ class TrajectoryRenderer:
         show_legend: bool = False,
         show_radius_in_legend: bool = True,
         time_font_size: Optional[int] = None,
+        radius_scale: float = DEFAULT_RADIUS_SCALE,
         supersample: int = 2,
     ) -> None:
+        if radius_scale <= 0:
+            raise ValueError(f"radius_scale must be positive, got {radius_scale}.")
         self.box = np.asarray(box_nm, dtype=float)
+        self.radius_scale = float(radius_scale)
         self.width, self.height = (int(size[0]) + int(size[0]) % 2, int(size[1]) + int(size[1]) % 2)
         self.type_names = list(type_names)
         self.show_box = show_box
@@ -569,6 +582,8 @@ class TrajectoryRenderer:
         self._type_rgb32 = self.type_rgb.astype(np.float32)
         known_radii = [float(radii_nm[name]) for name in self.type_names]
         self.radii_nm = np.array(known_radii + [float(np.median(known_radii)) if known_radii else 1.0])
+        # Molecular radii go in the legend; spheres are drawn at the scaled ones.
+        self.drawn_radii_nm = self.radii_nm * self.radius_scale
         self.label_to_type = {name: i for i, name in enumerate(self.type_names)}
         for label, name in (labels or {}).items():
             if name in self.label_to_type:
@@ -640,7 +655,7 @@ class TrajectoryRenderer:
         self._corners = corners
         proj = corners @ self.rotation[:2].T
         extent = proj.max(axis=0) - proj.min(axis=0)
-        max_r = float(self.radii_nm.max())
+        max_r = float(self.drawn_radii_nm.max())
         margin = 0.03 * min(W, H)
         for _ in range(3):
             avail_w = W - 2 * margin
@@ -654,7 +669,7 @@ class TrajectoryRenderer:
         self.cx = W / 2.0 - scale * mid[0]
         self.cy = band + (H - band) / 2.0 + scale * mid[1]
 
-        self.radii_px = np.maximum(self.radii_nm * scale, 1.0)
+        self.radii_px = np.maximum(self.drawn_radii_nm * scale, 1.0)
         small = [n for n, r in zip(self.type_names, self.radii_px) if r < 2.0]
         if small:
             logger.warning(
@@ -1101,7 +1116,7 @@ def render_trajectory_movie(
     frame_stride: int = 1,
     view: Tuple[float, float] = (35.0, 25.0),
     radii: Optional[Union[float, Mapping[str, float]]] = None,
-    radius_scale: float = 1.0,
+    radius_scale: float = DEFAULT_RADIUS_SCALE,
     colors: Optional[Mapping[str, Union[str, Sequence[float]]]] = None,
     time_unit: Optional[str] = None,
     show_box: bool = True,
@@ -1128,9 +1143,12 @@ def render_trajectory_movie(
         loop: GIF loop count; 0 loops forever.
         frame_stride: Render every n-th saved frame.
         view: Camera ``(azimuth, elevation)`` in degrees.
-        radii: Sphere radius in nm, for all types or per type name. By default
-            the radius ionerdss used for D and Dr (see `molecule_radius_nm`).
-        radius_scale: Factor applied to every radius.
+        radii: Molecular radius in nm, for all types or per type name. By
+            default the radius ionerdss used for D and Dr (see
+            `molecule_radius_nm`).
+        radius_scale: Every sphere is drawn this many times its molecular
+            radius; 3 by default so molecules stay visible in a large box, 1
+            draws them to scale. The legend always lists molecular radii.
         colors: Color per type name (``"#rrggbb"`` or RGB).
         time_unit: ``"us"``, ``"ms"`` or ``"s"``; chosen from the final time by default.
         show_box, show_time: Toggle the box wireframe and the time label.
@@ -1172,7 +1190,6 @@ def render_trajectory_movie(
                 r, how = molecule_radius_nm(info)
                 radius_by_name[info.name] = r
                 logger.info("%s: radius %.3g nm (%s)", info.name, r, how)
-    radius_by_name = {name: r * radius_scale for name, r in radius_by_name.items()}
 
     pdb_dir = sim_dir / "PDB"
     xyz_path = sim_dir / "DATA" / "trajectory.xyz"
@@ -1214,7 +1231,7 @@ def render_trajectory_movie(
         colors=colors, labels=labels, size=size, view=view,
         time_step_us=inputs.time_step_us, iterations=iterations, time_unit=time_unit,
         show_box=show_box, show_time=show_time, show_legend=show_legend,
-        time_font_size=time_font_size, supersample=supersample,
+        time_font_size=time_font_size, radius_scale=radius_scale, supersample=supersample,
     )
     renderer = TrajectoryRenderer(**renderer_kwargs)
     if n_jobs < 1:

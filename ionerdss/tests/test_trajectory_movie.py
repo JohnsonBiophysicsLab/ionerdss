@@ -226,7 +226,8 @@ def test_box_and_framing_do_not_move_with_the_molecules():
 def test_each_type_has_one_color_free_or_in_a_complex():
     # Camera on the +x axis: screen right is +y, screen up is +z, all at equal depth.
     renderer = TrajectoryRenderer([100.0] * 3, ["A", "B"], {"A": 3.0, "B": 3.0}, size=(300, 300),
-                                  view=(0.0, 0.0), show_time=False, show_legend=False, show_box=False)
+                                  view=(0.0, 0.0), show_time=False, show_legend=False, show_box=False,
+                                  radius_scale=1.0)
     positions = np.array([[0.0, -30.0, 0.0],   # A, free
                           [0.0, 10.0, 0.0],    # A, bound to the B next to it
                           [0.0, 16.0, 0.0]])   # B
@@ -244,13 +245,25 @@ def test_each_type_has_one_color_free_or_in_a_complex():
         assert np.argmin(np.abs(refs - hue).sum(axis=1)) == expected
 
 
-def test_sphere_radius_matches_the_molecule_radius():
+@pytest.mark.parametrize("radius_scale", [1.0, 3.0])
+def test_sphere_radius_is_the_molecule_radius_times_radius_scale(radius_scale):
     renderer = TrajectoryRenderer([100.0] * 3, ["A"], {"A": 5.0}, size=(400, 400), view=(0.0, 0.0),
-                                  show_time=False, show_legend=False, show_box=False)
+                                  show_time=False, show_legend=False, show_box=False,
+                                  radius_scale=radius_scale)
     image = np.asarray(renderer.render(np.zeros((1, 3)), ["A"]))
     covered = (image < 200).any(axis=2)
     width_px = covered.any(axis=0).sum()
-    assert width_px == pytest.approx(2 * 5.0 * renderer.scale, abs=2)
+    assert width_px == pytest.approx(2 * 5.0 * radius_scale * renderer.scale, abs=2)
+
+
+def test_spheres_are_drawn_three_times_their_radius_by_default():
+    renderer = TrajectoryRenderer([100.0] * 3, ["A"], {"A": 2.5}, size=(300, 300), show_legend=True)
+    assert renderer.radius_scale == 3.0
+    np.testing.assert_allclose(renderer.radii_px[0], 3 * 2.5 * renderer.scale)
+    # The legend lists the molecular radius, not the drawn one.
+    assert renderer.legend_entries[0][3] == "A (r = 2.5 nm)"
+    with pytest.raises(ValueError):
+        TrajectoryRenderer([100.0] * 3, ["A"], {"A": 2.5}, radius_scale=0)
 
 
 def test_unknown_types_are_drawn_grey_with_one_warning(caplog):

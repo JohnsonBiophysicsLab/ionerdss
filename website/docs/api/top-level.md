@@ -175,6 +175,7 @@ ion.render_trajectory_movie("nerdss_output/1", "trajectory.mp4", frame_stride=5)
 - The time label is `iteration × timeStep`, in one unit (µs, ms or s) chosen for the whole movie and printed large, in a fixed-width field at a fixed position. `time_font_size=` sets its height in pixels.
 - Each molecule type has its own color, whether the molecule is free or in a complex. Only the time is labeled by default; `show_legend=True` also lists each type's color and radius, in `parms.inp` order.
 - The sphere radius is the one ionerdss used to compute `D` and `Dr`, recovered from the `.mol` files by inverting Stokes-Einstein. When `D` and `Dr` were set by hand (they do not agree on a radius), the NERDSS radius, i.e. the largest COM-to-interface distance, is used instead, with a warning. Pass `radii=` to override.
+- Spheres are drawn `radius_scale` times that radius, 3 by default, because at true size molecules in a box hundreds of nanometres wide are a pixel or two across; `radius_scale=1` draws them to scale.
 - `source="auto"` reads `PDB/<iteration>.pdb` when present and `DATA/trajectory.xyz` otherwise.
 - `n_jobs=` renders frames in worker processes; it helps most on machines with many performance cores.
 
