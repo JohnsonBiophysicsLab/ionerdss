@@ -30,7 +30,7 @@ class TestPlatonicSolidsModel(unittest.TestCase):
         self.assertEqual(len(system.interface_types), 4)
         
         # Check an interface
-        if1 = system.interface_types.get("cubecube1") # name format {this}{partner}{index}
+        if1 = system.interface_types.get("4cube4cube1") # name format {this}{partner}{index}; "cube" is length-prefixed
         self.assertIsNotNone(if1)
         self.assertEqual(if1.interface_index, 1)
         self.assertTrue(isinstance(if1.local_coord, np.ndarray))

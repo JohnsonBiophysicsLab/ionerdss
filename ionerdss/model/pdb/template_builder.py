@@ -161,13 +161,13 @@ def _build_all_interface_templates(self) -> None:
 **Interface Templates**:
 ```python
 # Homodimer homotypic
-"A" + "A" + index → "A_A_1"
+"A" + "A" + index → "AA1"
 
 # Heterotypic (bidirectional)
-"A" + "B" + index → "A_B_1", "B_A_1"
+"A" + "B" + index → "AB1", "BA1"
 
 # Multiple interfaces between same types
-"A" + "B" + different_signature → "A_B_2", "B_A_2"
+"A" + "B" + different_signature → "AB2", "BA2"
 ```
 
 ## Deduplication Strategy
@@ -197,11 +197,11 @@ angle_threshold = 0.5      # ~30 degrees tolerance
 ```python
 # Interface 1: Close to molecule centers
 signature_1 = GeometricSignature(d_i=3.0, d_j=3.0, theta_i=0.2, theta_j=0.2)
-→ Creates: A_B_1, B_A_1
+→ Creates: AB1, BA1
 
 # Interface 2: Far from molecule centers  
 signature_2 = GeometricSignature(d_i=8.0, d_j=8.0, theta_i=1.4, theta_j=1.4)
-→ Creates: A_B_2, B_A_2
+→ Creates: AB2, BA2
 ```
 
 ## Interface Types
@@ -291,6 +291,7 @@ import numpy as np
 from Bio.PDB.Superimposer import Superimposer
 
 from ionerdss.model.components.types import MoleculeType, InterfaceType
+from ionerdss.model.components.interface_naming import make_interface_name
 from ionerdss.model.components.units import Units
 from .hyperparameters import PDBModelHyperparameters
 from .parser import PDBParser
@@ -1283,7 +1284,7 @@ class TemplateBuilder:
            - If we match (ji): flip the interface to canonical (ij), then return 'f'
         2. If no match: create a brand-new canonical pair (…f, …b), store it, return 'f'.
 
-        This prevents the 1VYM case from spawning A_A_1*, A_A_2*, A_A_3* when
+        This prevents the 1VYM case from spawning AA1*, AA2*, AA3* when
         all three copies are basically the same geometry.
         """
         # 1) try to reuse an existing HHT for this template
@@ -1313,9 +1314,9 @@ class TemplateBuilder:
         next_index = self.interface_type_counters.get(tuple(sorted(template_pair)), 0) + 1
         self.interface_type_counters[tuple(sorted(template_pair))] = next_index
 
-        # Construct names (A_A_#f / A_A_#b)
-        name_f = f"{template_name}{template_name}{next_index}f"
-        name_b = f"{template_name}{template_name}{next_index}b"
+        # Construct the canonical pair of names (AA1f / AA1b)
+        name_f = make_interface_name(template_name, template_name, next_index, "f")
+        name_b = make_interface_name(template_name, template_name, next_index, "b")
 
         # Build both sides (reuse nm conversion)
         chain_i_data = self.coarse_grainer.get_coarse_grained_chains()[interface.chain_i]
@@ -2063,8 +2064,8 @@ class TemplateBuilder:
         Returns:
             Name of created interface template.
         """
-        # Generate interface name using index
-        interface_name = f"{template_name}{template_name}{interface_index}"
+        # Generate interface name using index (AA1)
+        interface_name = make_interface_name(template_name, template_name, interface_index, None)
 
         # Convert coordinates to nanometers and calculate local coordinates
         chain_i_data = self.coarse_grainer.get_coarse_grained_chains()[interface.chain_i]
@@ -2135,10 +2136,10 @@ class TemplateBuilder:
         """Create separate interface templates for heterotypic interaction.
         
         For truly heterotypic interactions (different molecule types), creates:
-        - A_B_1 and B_A_1 (bidirectional partners)
+        - AB1 and BA1 (bidirectional partners)
         
         For homodimeric heterotypic interactions (same molecule type but different residue composition), creates:
-        - A_A_1f and A_A_1b (complementary partners for same molecule type)
+        - AA1f and AA1b (complementary partners for same molecule type)
         - forward and backward
 
         Returns:
@@ -2150,18 +2151,18 @@ class TemplateBuilder:
         is_homodimeric_heterotypic = (template_i == template_j)
 
         if is_homodimeric_heterotypic:
-            # For homodimeric heterotypic: create A_A_1 and A_A_2 (complementary interface types)
-            interface_name_i = f"{template_i}{template_j}{interface_index}f"        # AA0AA01f (e.g., barbed end)
-            interface_name_j = f"{template_i}{template_j}{interface_index}b"        # AA0AA01b (e.g., pointed end)
+            # For homodimeric heterotypic: create AA1f and AA1b (complementary interface types)
+            interface_name_i = make_interface_name(template_i, template_j, interface_index, "f")  # AA1f (e.g., barbed end)
+            interface_name_j = make_interface_name(template_i, template_j, interface_index, "b")  # AA1b (e.g., pointed end)
             
             # Update the counter to account for using two indices
             template_pair = tuple(sorted([template_i, template_j]))
             self.interface_type_counters[template_pair] = interface_index
             
         else:
-            # For true heterotypic: create A_B_1 and B_A_1 (bidirectional)
-            interface_name_i = f"{template_i}{template_j}{interface_index}"        # AA0AB01
-            interface_name_j = f"{template_j}{template_i}{interface_index}"        # AB0AA01
+            # For true heterotypic: create AB1 and BA1 (bidirectional)
+            interface_name_i = make_interface_name(template_i, template_j, interface_index, None)  # AB1
+            interface_name_j = make_interface_name(template_j, template_i, interface_index, None)  # BA1
 
         # Create interface template for side i
         chain_i_data = self.coarse_grainer.get_coarse_grained_chains()[interface.chain_i]
@@ -2260,7 +2261,7 @@ class TemplateBuilder:
 
         # Set up cross-references - this is crucial for homodimeric heterotypic cases
         if is_homodimeric_heterotypic:
-            # For homodimeric heterotypic: A_A_1f partners with A_A_1b
+            # For homodimeric heterotypic: AA1f partners with AA1b
             interface_template_i.partner_interface_type = interface_template_j
             interface_template_j.partner_interface_type = interface_template_i
             
@@ -2271,7 +2272,7 @@ class TemplateBuilder:
             interface_template_j.partner_mol_type = self.molecule_templates[template_i]  # Same molecule type
             
         else:
-            # For true heterotypic: A_B_1 partners with B_A_1
+            # For true heterotypic: AB1 partners with BA1
             interface_template_i.partner_interface_type = interface_template_j
             interface_template_j.partner_interface_type = interface_template_i
             

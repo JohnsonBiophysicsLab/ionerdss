@@ -476,6 +476,7 @@ import numpy as np
 from ionerdss.model.components.system import System
 from ionerdss.model.components.instances import MoleculeInstance, InterfaceInstance
 from ionerdss.model.components.units import Units
+from ionerdss.model.components import interface_naming
 from .nerdss_exporter import NERDSSExporter
 from .hyperparameters import PDBModelHyperparameters
 from .parser import PDBParser
@@ -784,8 +785,9 @@ class SystemBuilder:
         Create interface instances with:
         - de-duplication of undirected edges
         - robust partner template resolution
-        - deterministic f/b assignment for homodimeric-heterotypic pairs:
-            representative chain side -> ..._1f, non-representative side -> ..._1b
+        - f/b assignment for homodimeric-heterotypic pairs taken from the
+          template builder, which already canonicalised the chain order so that
+          chain_i carries the ``f`` side and chain_j the ``b`` side
         """
         instances: List[InterfaceInstance] = []
         interfaces = self.coarse_grainer.get_interfaces()
@@ -815,23 +817,17 @@ class SystemBuilder:
             return self.template_builder.interface_templates.get(name) if name else None
 
         def _parse_iface_name(name: str):
-            # A_B_1, A_A_1f, A_A_1b
+            # AB1, AA1f, AA1b, A2AA1 -> (this_mol, partner_mol, index, tag)
             try:
-                p = name.split("_")
-                if len(p) < 3:
-                    return (None, None, None, None)
-                fam_i, fam_j = p[0], p[1]
-                last = p[2]
-                if len(last) >= 2 and last[-1] in ("f", "b") and last[:-1].isdigit():
-                    return (fam_i, fam_j, last[:-1], last[-1])
-                if last.isdigit():
-                    return (fam_i, fam_j, last, None)
-            except Exception:
-                pass
-            return (None, None, None, None)
+                p = interface_naming.parse_interface_name(name)
+            except ValueError:
+                return (None, None, None, None)
+            return (p.this_mol, p.partner_mol, p.index, p.tag)
 
         def _compose_name(f1, f2, idx, suf):
-            return f"{f1}_{f2}_{idx}{suf}" if suf in ("f", "b") else f"{f1}_{f2}_{idx}"
+            return interface_naming.make_interface_name(
+                f1, f2, idx, suf if suf in interface_naming.TAGS else None
+            )
 
         def _infer_partner_name(primary: Optional[str]) -> Optional[str]:
             if not primary:
@@ -871,166 +867,6 @@ class SystemBuilder:
             if log:
                 log.info("No partner template for %s; regarding as homodimeric-homotypic and using same template", primary_name)
             return primary_template
-
-        def _lookup_hht_meta_from_catalog(iface_template):
-            """
-            Try to pull canonical HHT info from template_builder.hht_catalog.
-
-            Key shape in template_builder:
-              (template_name, ordered_signature_tuple) -> {
-                  'canon_order': 'ij' | 'ji',
-                  'f': name_f,
-                  'b': name_b,
-                  'index': int,
-              }
-
-            We assume the interface template exposes:
-              - get_name()
-              - signature (a dict) with some ordered tuple we can use
-            """
-            if not hasattr(self.template_builder, "hht_catalog"):
-                return None
-
-            # get template name
-            tname = None
-            if hasattr(iface_template, "get_name"):
-                tname = iface_template.get_name()
-            else:
-                tname = getattr(iface_template, "name", None)
-
-            if not tname:
-                return None
-
-            sig = getattr(iface_template, "signature", None)
-            if not sig:
-                return None
-
-            # try to find an ordered signature tuple in the signature dict
-            # adjust the key name here to *your* actual signature layout
-            ordered = (
-                sig.get("ordered_signature")
-                or sig.get("ordered_signature_tuple")
-                or sig.get("ordered")
-            )
-
-            # last resort: if signature itself is already a tuple (rare)
-            if ordered is None and isinstance(sig, (tuple, list)):
-                ordered = tuple(sig)
-
-            if ordered is None:
-                return None
-
-            key = (tname, tuple(ordered))
-            return self.template_builder.hht_catalog.get(key)
-
-        def _get_hht_pair(primary_template):
-            """
-            If this is a homodimeric-heterotypic family, return (f_template, b_template, fam, idx).
-            Otherwise return (None, None, None, None).
-            """
-            name = _iface_name(primary_template)
-            fi, fj, idx, suf = _parse_iface_name(name or "")
-            if fi is None or fi != fj:
-                return (None, None, None, None)
-            # Needs f/b suffix on at least one side
-            if suf not in ("f", "b"):
-                return (None, None, None, None)
-
-            fam = fi
-            # Find both f and b templates via names; fall back to partner link if needed
-            f_name = _compose_name(fam, fam, idx, "f")
-            b_name = _compose_name(fam, fam, idx, "b")
-            f_t = _lookup_iface(f_name)
-            b_t = _lookup_iface(b_name)
-            # If one is missing, try from explicit partner connection
-            if f_t is None or b_t is None:
-                partner_t = _resolve_partner_template(primary_template)
-                # ensure both
-                for nm in (f_name, b_name):
-                    if _lookup_iface(nm) is None and _iface_name(partner_t) == nm:
-                        if nm.endswith("f"):
-                            f_t = partner_t
-                        else:
-                            b_t = partner_t
-            if f_t is None or b_t is None:
-                return (None, None, None, None)
-            return (f_t, b_t, fam, idx)
-
-        def _enforce_hht_orientation(primary_template, chain_i: str, chain_j: str):
-            """
-            Deterministically choose which side is 'f' and which is 'b' for
-            homodimeric-heterotypic (HHT) interfaces.
-
-            Priority:
-            1. If template_builder.hht_catalog has an entry for this interface
-               template + ordered signature, obey it.
-               - 'canon_order' == 'ij'  -> chain_i gets 'f', chain_j gets 'b'
-               - 'canon_order' == 'ji'  -> chain_j gets 'f', chain_i gets 'b'
-            2. Else, fall back to your current representative-based logic.
-            """
-            # detect HHT pair the old way
-            f_t, b_t, fam, idx = _get_hht_pair(primary_template)
-            if f_t is None:
-                # not an HHT case -> old path
-                partner = _resolve_partner_template(primary_template)
-                return (primary_template, partner)
-
-            # 1) try catalog
-            hht_meta = _lookup_hht_meta_from_catalog(primary_template)
-            if hht_meta is not None:
-                canon_order = hht_meta.get("canon_order")  # 'ij' or 'ji'
-                name_f = hht_meta.get("f")
-                name_b = hht_meta.get("b")
-
-                # resolve to actual templates, because catalog stores names
-                tmpl_f = _lookup_iface(name_f) or f_t
-                tmpl_b = _lookup_iface(name_b) or b_t
-
-                if canon_order == "ij":
-                    # original order i -> f, j -> b
-                    return (tmpl_f, tmpl_b)
-                elif canon_order == "ji":
-                    # original order j -> f, i -> b
-                    return (tmpl_b, tmpl_f)
-                else:
-                    # unknown string: just fall back
-                    if log:
-                        log.warning(
-                            "HHT catalog entry for %s has unknown canon_order=%s; falling back",
-                            primary_template.get_name() if hasattr(primary_template, "get_name") else str(primary_template),
-                            canon_order,
-                        )
-
-            # 2) catalog not available or incomplete -> use your representative rule
-
-            g_i = self.chain_grouper.get_group_for_chain(chain_i)
-            g_j = self.chain_grouper.get_group_for_chain(chain_j)
-            rep = None
-            if g_i and g_i.representative:
-                rep = g_i.representative
-            elif g_j and g_j.representative:
-                rep = g_j.representative
-
-            if rep is None:
-                partner = _resolve_partner_template(primary_template)
-                if log:
-                    log.warning(
-                        "HHT naming detected but representative not found; using default assignment"
-                    )
-                return (primary_template, partner)
-
-            # rep side -> f, other side -> b
-            if chain_i == rep and chain_j != rep:
-                return (f_t, b_t)
-            if chain_j == rep and chain_i != rep:
-                return (b_t, f_t)
-
-            # tie / pathological -> alphabetical to stay deterministic
-            if chain_i <= chain_j:
-                return (f_t, b_t)
-            else:
-                return (b_t, f_t)
-
 
         # de-dup key over undirected edges using rounded nm coords
         seen_edges = set()
@@ -1084,11 +920,11 @@ class SystemBuilder:
                 continue
             seen_edges.add(edge_key)
 
-            # =========================
-            # Deterministic HHT mapping
-            # =========================
-            # If HHT, orient by representative => (f on rep, b on non-rep)
-            tmpl_i, tmpl_j = _enforce_hht_orientation(iface_template, interface.chain_i, interface.chain_j)
+            # The template builder already canonicalised homodimeric-heterotypic
+            # pairs (chain_i carries the 'f' side, chain_j the 'b' side), so the
+            # assigned template goes on chain_i and its partner on chain_j.
+            tmpl_i = iface_template
+            tmpl_j = _resolve_partner_template(iface_template)
 
             # Build the two instances
             inst_i = InterfaceInstance(
@@ -1154,8 +990,8 @@ class SystemBuilder:
         """Find the complementary partner for a failed homotypic interface.
 
         For failed homotypic interfaces:
-        - A_A_1 partners with A_A_2
-        - A_A_3 partners with A_A_4
+        - AA1f partners with AA1b
+        - AA3f partners with AA3b
 
         Args:
             interface_instance: Interface instance to find partner for.

@@ -65,7 +65,7 @@ from ionerdss.model.components.system import System
 from ionerdss.model.components.types import MoleculeType
 from ionerdss.utils.vectors import convert_to_unit, get_magnitude
 from ionerdss.utils.angles import signed_angle_arccos
-from ionerdss.model.pdb import interface_naming
+from ionerdss.model.components import interface_naming
 from .file_manager import WorkspaceManager
 from ionerdss.model.titrate.parms_titrator import parse_mol_file
 
@@ -407,13 +407,10 @@ class NERDSSExporter:
 
                 for interface_data in interface_group:
                     # Find corresponding site label
-                    for key, site_label in self.interface_to_site_map.items():
-                        if (key.startswith(interface_type_name) or key == interface_type_name):
-                            if site_label not in site_labels:
-                                site_labels.append(site_label)
-                                interface_coords.append(
-                                    interface_data['coord'])
-                                break
+                    site_label = self.interface_to_site_map.get(interface_type_name)
+                    if site_label is not None and site_label not in site_labels:
+                        site_labels.append(site_label)
+                        interface_coords.append(interface_data['coord'])
 
                 if not site_labels:
                     continue
@@ -814,8 +811,8 @@ class NERDSSExporter:
         Returns:
             True if they are complementary interfaces.
         """
-        # For failed homotypic cases, check if they are complementary pairs
-        # A_A_1 is complementary to A_A_2, A_A_3 is complementary to A_A_4, etc.
+        # For failed homotypic cases, check if they are the f/b halves of one
+        # pair: AA1f is complementary to AA1b, AA2f to AA2b, etc.
 
         try:
             return interface_naming.are_complementary_homodimeric_heterotypic(interface_type1.get_name(), interface_type2.get_name())
@@ -1287,29 +1284,25 @@ class NERDSSExporter:
 
 
     def _get_base_site_label(self, mol_name: str, interface_type_name: str) -> str:
-        """Get base site label from molecule name and interface type name.
+        """Get the NERDSS site label for an interface type.
 
-        Format rules:
-        - If both mol names are single character: A_A_1 -> aa1
-        - If any mol name >= 2 characters: AH_Q_1 -> ah_q1, YDF_UU_2 -> ydf_uu_2
-        - No special rule for hmodimeric heterotypic case: A_A_1f -> aa1f
+        The label is the interface type name with lower-case molecule names
+        (see :func:`ionerdss.model.components.interface_naming.make_site_label`):
+        ``AA1`` -> ``aa1``, ``AA1f`` -> ``aa1f``, ``AB1`` -> ``ab1``,
+        ``A2AA1`` -> ``a2aa1`` (on A, binds AA), ``2AAA1`` -> ``2aaa1`` (on AA,
+        binds A).  Multi-letter molecule names keep their length prefix so two
+        interface types on one molecule never share a label.
 
         Args:
             mol_name: Molecule type name.
-            interface_type_name: Interface type name (e.g., "A_A_1", "AH_Q_2").
+            interface_type_name: Interface type name (e.g., "AA1", "A2AA1").
 
         Returns:
             Formatted site label.
         """
-        # Parse interface type name using proper parser
         try:
-            parsed = interface_naming.parse_interface_name(interface_type_name)
-            mol1_name = parsed.this_mol
-            mol2_name = parsed.partner_mol
-            index = str(parsed.index)
-            if parsed.tag:
-                index += parsed.tag
-        except Exception as e:
+            site_label = interface_naming.make_site_label(interface_type_name)
+        except ValueError as e:
             # Fallback for unexpected format
             if self.workspace_manager:
                 self.workspace_manager.logger.warning(
@@ -1319,22 +1312,9 @@ class NERDSSExporter:
             initial = mol_name[0].lower() if mol_name else "x"
             return f"{initial}1"
 
-        # Convert to lowercase
-        mol1_lower = mol1_name.lower()
-        mol2_lower = mol2_name.lower()
-
-        # Apply formatting rules
-        if len(mol1_name) == 1 and len(mol2_name) == 1:
-            # Homodimeric labels (mol1 == mol2): use format like aa0ac11
-            site_label = f"{mol1_lower}{mol2_lower}{index}"
-        else:
-            # Heterodimeric labels (mol1 != mol2): use format like aa0ab01 (no underscore)
-            site_label = f"{mol1_lower}{mol2_lower}{index}"
-
         if self.workspace_manager:
             self.workspace_manager.logger.info(
-                "Generated site label: %s -> %s (mol1=%s, mol2=%s, index=%s)",
-                interface_type_name, site_label, mol1_name, mol2_name, index
+                "Generated site label: %s -> %s", interface_type_name, site_label
             )
 
         return site_label
@@ -2425,11 +2405,7 @@ class NERDSSExporter:
             interface_local_coord = interface_absolute_coord - representative.com
             
             # Find the site label for this interface
-            site_label = "UNKNOWN"
-            for key, label in self.interface_to_site_map.items():
-                if key.startswith(interface_type_name) or key == interface_type_name:
-                    site_label = label
-                    break
+            site_label = self.interface_to_site_map.get(interface_type_name, "UNKNOWN")
             
             self.workspace_manager.logger.debug(f"  Interface {i}:")
             self.workspace_manager.logger.debug(f"    Type: {interface_type_name}")
@@ -2456,11 +2432,7 @@ class NERDSSExporter:
                 partner_local_coord = partner_absolute_coord - partner.com
                 
                 # Find partner site label
-                partner_site_label = "UNKNOWN"
-                for key, label in self.interface_to_site_map.items():
-                    if key.startswith(partner_type_name) or key == partner_type_name:
-                        partner_site_label = label
-                        break
+                partner_site_label = self.interface_to_site_map.get(partner_type_name, "UNKNOWN")
                 
                 self.workspace_manager.logger.debug(f"    Partner interface type: {partner_type_name}")
                 self.workspace_manager.logger.debug(f"    Partner site label: {partner_site_label}")
@@ -2483,7 +2455,7 @@ class NERDSSExporter:
             try:
                 p = interface_naming.parse_interface_name(t)
                 if p.this_mol == p.partner_mol and p.tag == 'f':
-                    partner = f"{p.this_mol}_{p.partner_mol}_{p.index}b"
+                    partner = interface_naming.make_interface_name(p.this_mol, p.partner_mol, p.index, 'b')
                     if partner in interface_types:
                         s1 = self._get_site_label_for_interface_type(t)
                         s2 = self._get_site_label_for_interface_type(partner)

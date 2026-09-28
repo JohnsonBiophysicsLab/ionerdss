@@ -61,3 +61,17 @@ Useful helpers include:
 - `export_hyperparameters(builder, filepath)`: save a builder configuration to JSON.
 - `import_hyperparameters(builder, filepath)`: load a saved configuration into a builder.
 - `print_hyperparameters(builder)`: inspect the current values attached to a builder.
+
+## Interface and site names
+
+Every interface type is named after the molecule type it sits on, the molecule type it binds, an index that separates several interface types between the same pair, and, for the two halves of a homodimeric heterotypic pair, an `f`/`b` tag. NERDSS site names may only contain letters and digits, so the parts are concatenated without a separator:
+
+| interaction | interface types | NERDSS sites |
+|---|---|---|
+| heterodimeric, A binds B | `AB1` on A, `BA1` on B | `ab1`, `ba1` |
+| homodimeric heterotypic (head-to-tail) | `AA1f` and `AA1b` on A | `aa1f`, `aa1b` |
+| homodimeric homotypic (self-binding) | `AA1` on A | `aa1` |
+
+A single-letter molecule name is written as is. Any other molecule name is written with its length in front, so that names of different lengths can still be told apart once concatenated: the A side of an A–AA interface is `A2AA1` (site `a2aa1`) and the AA side is `2AAA1` (site `2aaa1`), a chain renamed `AA0` by the parser gives `3AA0...`, and names of ten or more characters use a `0` followed by a two-digit length (`012Dodecahedron`). The site label is the interface type name with the molecule names in lower case.
+
+The scheme lives in `ionerdss.model.components.interface_naming`, whose `make_interface_name` and `parse_interface_name` are the only places that spell or split these names.
