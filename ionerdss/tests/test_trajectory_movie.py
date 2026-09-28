@@ -170,6 +170,11 @@ def test_time_label_uses_one_unit_and_enough_decimals_for_the_frame_spacing():
     assert time_label_format(times)[:3] == ("ms", 1e3, 0)
     # Still true when frame_stride leaves only two spacings, one of them off-grid.
     assert time_label_format(times[::50])[:3] == ("ms", 1e3, 0)
+    # An automatically chosen timeStep gives irregular spacings (here 0.2837 ms):
+    # one decimal already tells neighbouring frames apart.
+    auto = [i * 500 * 0.5674508470329174 for i in range(201)]
+    assert time_label_format(auto)[:3] == ("ms", 1e3, 1)
+    assert time_label_format([0.0, 2474.173903465271])[:3] == ("ms", 1e3, 0)
     assert time_label_format([0, 500, 1000, 1500])[:3] == ("ms", 1e3, 1)
     assert time_label_format([0.0, 10.0, 20.0])[:3] == ("µs", 1.0, 0)
     assert time_label_format([0, 5e5, 1e6, 1.5e6])[:3] == ("s", 1e6, 1)
