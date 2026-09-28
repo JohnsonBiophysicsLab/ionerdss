@@ -18,7 +18,7 @@ These are the main objects and helpers exposed from `import ionerdss as ion`.
 - `StructureValidationArtifacts`: generated files and metadata from validation export.
 - `StructureAlignmentResult`: output object returned by rigid alignment.
 - `render_trajectory_movie`: render a NERDSS run to a GIF or MP4 quickly, with no extra dependencies.
-- `visualize_trajectory_ovito`: render XYZ trajectories to GIFs with OVITO.
+- `visualize_trajectory_ovito`: deprecated; use `render_trajectory_movie`.
 - `convert_simularium`: export simulation outputs to Simularium.
 
 ## `build_system_from_pdb`
@@ -180,7 +180,7 @@ ion.render_trajectory_movie("nerdss_output/1", "trajectory.mp4", frame_stride=5)
 
 ### `visualize_trajectory_ovito`
 
-Render an XYZ trajectory using OVITO and optionally save it as a GIF. This requires the `ovito_rendering` optional extra.
+Deprecated: use `render_trajectory_movie`. Renders an XYZ trajectory with OVITO and optionally saves it as a GIF; requires the `ovito_rendering` optional extra.
 
 ### `convert_simularium`
 

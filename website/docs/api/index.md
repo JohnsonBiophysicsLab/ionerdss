@@ -10,7 +10,7 @@ The current public API is concentrated around a small set of entry points:
 - `ionerdss.Analyzer` for post-processing simulation outputs
 - `ionerdss.ODEPipelineConfig` and `ionerdss.run_ode_pipeline` for kinetic precomputation
 - `ionerdss.render_trajectory_movie` for fast GIF/MP4 movies of NERDSS runs
-- `ionerdss.visualize_trajectory_ovito` for OVITO-based trajectory rendering
+- `ionerdss.visualize_trajectory_ovito` for OVITO-based trajectory rendering (deprecated)
 - `ionerdss.convert_simularium` for Simularium export
 
 Additional top-level dataclasses exposed for structure validation include:

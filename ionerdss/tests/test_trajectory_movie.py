@@ -336,3 +336,23 @@ def test_truncated_trajectory_labels_map_back_to_full_type_names(caplog):
     np.testing.assert_array_equal(renderer.type_indices(["Cla", "AP2", "Clathrin"]), [0, 1, 0])
     assert [text.split(" (")[0] for _, _, _, text in renderer.legend_entries] == ["Clathrin", "AP2"]
 
+
+# --------------------------------------------------------------------------
+# Deprecated pipelines
+# --------------------------------------------------------------------------
+
+def test_visualize_trajectory_ovito_is_deprecated(tmp_path):
+    from ionerdss.ovito_visualizer import visualize_trajectory_ovito
+
+    with pytest.warns(DeprecationWarning, match="render_trajectory_movie"):
+        with pytest.raises(FileNotFoundError):
+            visualize_trajectory_ovito(str(tmp_path / "missing.xyz"))
+
+
+def test_export_pymol_pdb_movie_is_deprecated(tmp_path):
+    from ionerdss.analysis.visualization import export_pymol_pdb_movie
+
+    with pytest.warns(DeprecationWarning, match="render_trajectory_movie"):
+        # Without PyMOL the import fails; with it, there are no PDB files here.
+        with pytest.raises((ImportError, FileNotFoundError)):
+            export_pymol_pdb_movie(base_dir=tmp_path, pdb_dir=tmp_path)
