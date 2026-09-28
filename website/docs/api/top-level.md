@@ -17,6 +17,7 @@ These are the main objects and helpers exposed from `import ionerdss as ion`.
 - `StructureValidationConfig`: configuration dataclass for the validation workflow.
 - `StructureValidationArtifacts`: generated files and metadata from validation export.
 - `StructureAlignmentResult`: output object returned by rigid alignment.
+- `render_trajectory_movie`: render a NERDSS run to a GIF or MP4 quickly, with no extra dependencies.
 - `visualize_trajectory_ovito`: render XYZ trajectories to GIFs with OVITO.
 - `convert_simularium`: export simulation outputs to Simularium.
 
@@ -158,6 +159,24 @@ This function accepts either:
 It returns a `StructureAlignmentResult` containing labels, RMSD, the rotation and translation, and the aligned coordinates.
 
 ## Rendering and export helpers
+
+### `render_trajectory_movie`
+
+Render a NERDSS run directory to a movie, drawing each molecule as a sphere at its center of mass. It needs only numpy and Pillow; a frame of 10^5 molecules takes about 0.2 s on one core.
+
+```python
+import ionerdss as ion
+
+ion.render_trajectory_movie("nerdss_output/1", "trajectory.gif")
+ion.render_trajectory_movie("nerdss_output/1", "trajectory.mp4", frame_stride=5)  # MP4 needs ffmpeg
+```
+
+- The camera and the simulation box (`WaterBox` in `parms.inp`) are fixed for the whole movie; molecules moving never shift the frame.
+- The time label is `iteration × timeStep`, in one unit (µs, ms or s) chosen for the whole movie and printed large, in a fixed-width field at a fixed position. `time_font_size=` sets its height in pixels.
+- Each molecule type has its own color, whether the molecule is free or in a complex. Only the time is labeled by default; `show_legend=True` also lists each type's color and radius, in `parms.inp` order.
+- The sphere radius is the one ionerdss used to compute `D` and `Dr`, recovered from the `.mol` files by inverting Stokes-Einstein. When `D` and `Dr` were set by hand (they do not agree on a radius), the NERDSS radius, i.e. the largest COM-to-interface distance, is used instead, with a warning. Pass `radii=` to override.
+- `source="auto"` reads `PDB/<iteration>.pdb` when present and `DATA/trajectory.xyz` otherwise.
+- `n_jobs=` renders frames in worker processes; it helps most on machines with many performance cores.
 
 ### `visualize_trajectory_ovito`
 
