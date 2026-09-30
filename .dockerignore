@@ -1,0 +1,20 @@
+# `docker build .` sends this directory to the Docker daemon, and the
+# Dockerfile's COPY . . puts it in the image. Docker does not read .gitignore.
+
+# Git metadata, and .claude/worktrees, where Claude Code keeps a full checkout
+# per worktree (gigabytes in a busy checkout)
+.git
+.claude
+
+# Output of local builds and editable installs
+build
+dist
+**/*.egg-info
+
+# Caches and local virtual environments
+**/__pycache__
+**/.ipynb_checkpoints
+**/.pytest_cache
+.venv
+venv
+**/.DS_Store

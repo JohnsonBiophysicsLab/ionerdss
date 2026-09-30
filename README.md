@@ -222,12 +222,14 @@ pytest
 
 ## Docker development environment
 
+Run these from the repository root. The image holds the `ionerdss-dev` conda environment from `environment.yml`, with ioNERDSS installed in editable mode from `/app`. The `-v` mount puts your checkout there, so the container runs the code you are editing and needs rebuilding only when dependencies change.
+
 ```bash
 docker build --no-cache -t ionerdss_dev .
-docker run -it --rm -v $(pwd):/app -p 8888:8888 ionerdss_dev
+docker run -it --rm -v "$(pwd)":/app -p 8888:8888 ionerdss_dev
 ```
 
-This creates a containerized environment with Jupyter Lab accessible at `http://localhost:8888`.
+This creates a containerized environment with Jupyter Notebook accessible at `http://localhost:8888`.
 
 ## License
 
