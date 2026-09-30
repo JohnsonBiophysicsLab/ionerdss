@@ -4,6 +4,9 @@ ionerdss.ovito_visualizer
 Module for visualizing NERDSS xyz trajectories using OVITO.
 This module requires the optional `ovito_rendering` dependencies.
 
+Deprecated: use `ionerdss.render_trajectory_movie`, which needs no OVITO and
+draws the simulation box, the time, and one color per molecule type.
+
 Rendering runs in a child process (see `_ovito_render_worker.py`). OVITO aborts
 the interpreter rather than raising when it cannot render -- typically on a
 headless machine, where the OpenGL path has no offscreen context -- and a native
@@ -20,6 +23,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import warnings
 
 logger = logging.getLogger(__name__)
 
@@ -232,6 +236,9 @@ def visualize_trajectory_ovito(
     Visualizes a trajectory from an XYZ file and optionally saves it as a GIF.
     This functionality requires the `ovito_rendering` optional extra.
 
+    Deprecated: use ``ionerdss.render_trajectory_movie(<run directory>,
+    "trajectory.gif")`` instead.
+
     Parameters:
         trajectory_path (str): Path to the XYZ trajectory file.
         save_gif (bool): If True, saves the trajectory animation as a GIF.
@@ -239,6 +246,14 @@ def visualize_trajectory_ovito(
         fps (int): Frames per second for the GIF animation.
         show_simulation_box (bool): If True, shows the simulation cell bounding box.
     """
+    warnings.warn(
+        "visualize_trajectory_ovito is deprecated and will be removed in a future release. "
+        "Use ionerdss.render_trajectory_movie(<NERDSS run directory>, 'trajectory.gif'), "
+        "which needs no OVITO and draws the simulation box, the time and one color per "
+        "molecule type.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
     if not os.path.exists(trajectory_path):
         raise FileNotFoundError(f"Trajectory file '{trajectory_path}' not found.")
 
