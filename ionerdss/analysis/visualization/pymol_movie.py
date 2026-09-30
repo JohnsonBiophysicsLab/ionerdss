@@ -1,5 +1,8 @@
 """
 PyMOL movie export helpers for numeric-frame NERDSS PDB trajectories.
+
+Deprecated: use `ionerdss.render_trajectory_movie`, which needs no PyMOL and
+draws the simulation box, the time, and one color per molecule type.
 """
 
 from __future__ import annotations
@@ -7,6 +10,7 @@ from __future__ import annotations
 import ast
 import json
 import re
+import warnings
 from collections import defaultdict
 from pathlib import Path
 from typing import Dict, Iterable, Optional, Sequence, Tuple
@@ -314,7 +318,18 @@ def export_pymol_pdb_movie(
     Export a one-frame-per-PDB movie from numeric NERDSS PDB snapshots.
 
     This function is intended to run inside a PyMOL Python session.
+
+    Deprecated: use ``ionerdss.render_trajectory_movie(base_dir, "movie.mp4")``
+    instead.
     """
+    warnings.warn(
+        "export_pymol_pdb_movie is deprecated and will be removed in a future release. "
+        "Use ionerdss.render_trajectory_movie(<NERDSS run directory>, 'movie.mp4'), which "
+        "needs no PyMOL and draws the simulation box, the time and one color per "
+        "molecule type.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
     from pymol import cmd
 
     base_dir = Path(base_dir)

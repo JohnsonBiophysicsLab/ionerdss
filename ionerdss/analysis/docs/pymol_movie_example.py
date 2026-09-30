@@ -1,6 +1,9 @@
 """
 Example: export a PyMOL movie from a NERDSS PDB trajectory.
 
+Deprecated: `export_pymol_pdb_movie` is superseded by
+`ionerdss.render_trajectory_movie(SIM_DIR, "movie.mp4")`, which runs without PyMOL.
+
 Run from a simulation directory, or update `SIM_DIR` below:
 
     pymol -cq /absolute/path/to/pymol_movie_example.py

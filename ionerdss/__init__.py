@@ -52,7 +52,8 @@ submodules = {
     'StructureValidationConfig': ['.model.pdb.structure_validation', 'StructureValidationConfig'],
     'StructureValidationArtifacts': ['.model.pdb.structure_validation', 'StructureValidationArtifacts'],
     'StructureAlignmentResult': ['.model.pdb.structure_validation', 'StructureAlignmentResult'],
-    'visualize_trajectory_ovito': ['.ovito_visualizer', 'visualize_trajectory_ovito']
+    'visualize_trajectory_ovito': ['.ovito_visualizer', 'visualize_trajectory_ovito'],
+    'render_trajectory_movie': ['.analysis.visualization.trajectory_movie', 'render_trajectory_movie'],
 }
 
 __all__ = list(submodules.keys()) + [

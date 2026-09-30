@@ -44,8 +44,9 @@ To include optional features:
 
 ```bash
 pip install "ioNERDSS[jupyter]"
-pip install "ioNERDSS[ovito_rendering]"
 ```
+
+Movies of NERDSS runs (`ionerdss.render_trajectory_movie`) need no extra. The `ovito_rendering` extra only serves the deprecated `visualize_trajectory_ovito`.
 
 On an HPC cluster, read step 4 before installing: the OVITO extras resolve differently there, and the environment belongs on scratch rather than in your home directory.
 
@@ -131,7 +132,7 @@ pip install -U "ioNERDSS[all]"
 
 If you have to stay on an older ioNERDSS, install the rendering extras by hand instead: `pip install "ovito<3.16" imageio Pillow`.
 
-**Rendering needs no display, but does want cores.** `visualize_trajectory_ovito` renders in a child process with no X11 connection, so it works on a compute node as it stands. Where OVITO 3.15 is what resolved, the frames come from a CPU ray tracer, so give the job a few cores and expect it to be slower than a desktop OpenGL render:
+**Rendering needs no display.** `render_trajectory_movie` draws frames with numpy and Pillow, so it runs on a compute node as it stands. The deprecated `visualize_trajectory_ovito` also renders without X11, in a child process; where OVITO 3.15 is what resolved, its frames come from a CPU ray tracer, so give such a job a few cores and expect it to be slower than a desktop OpenGL render:
 
 ```bash
 srun -n 1 -c 8 --pty bash        # or the equivalent in your sbatch script
