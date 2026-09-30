@@ -7,18 +7,18 @@ This folder contains configuration files for setting up the Python environment r
 
 ##  Using Conda (`environment.yml`)
 
-This is the recommended method if you have Conda (via [Anaconda](https://www.anaconda.com/) or [Miniconda](https://docs.conda.io/en/latest/miniconda.html)) installed.
+This is the recommended method if you have Conda (via [Anaconda](https://www.anaconda.com/) or [Miniconda](https://docs.conda.io/en/latest/miniconda.html)) installed. The environment file lives in the project root rather than in this folder: conda runs its pip step, `-e .[test,jupyter]`, from the directory that holds the file, and that has to be the one with `pyproject.toml`.
 
 ```bash
 # From the project root
 conda env create -f environment.yml
-conda activate ionerdss_env
-````
+conda activate ionerdss-dev
+```
 
 To update the environment later if the file changes:
 
 ```bash
-conda env update -f env/environment.yml --prune
+conda env update -f environment.yml --prune
 ```
 
 
