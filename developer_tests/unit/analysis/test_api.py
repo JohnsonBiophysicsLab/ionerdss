@@ -48,13 +48,13 @@ class TestAnalyzerAPI(unittest.TestCase):
             f.write("Time,Complex,A\n")
             f.write("0.0,10,10\n")
         
-        # Create transition matrix file
+        # Create transition matrix file (running totals, all zero at time 0 as NERDSS writes them)
         transition_file = data_dir / "transition_matrix_time.dat"
         with open(transition_file, 'w') as f:
             f.write("time: 0.0\n")
             f.write("transition matrix for each mol type:\n")
-            f.write("5 0\n")
-            f.write("0 5\n")
+            f.write("0 0\n")
+            f.write("0 0\n")
             f.write("\n")
             f.write("time: 0.1\n")
             f.write("transition matrix for each mol type:\n")

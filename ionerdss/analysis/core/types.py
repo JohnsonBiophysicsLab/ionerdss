@@ -38,6 +38,7 @@ class TransitionData(TypedDict):
     Attributes:
         matrix (ArrayLike): Square matrix (NxN) where M[i, j] is the count
             of transitions from size j+1 to size i+1 (or however the data is structured).
+            Counts are running totals since the start of the run, not per snapshot.
         time (float): The timestamp for this snapshot.
     """
     matrix: ArrayLike
@@ -50,6 +51,7 @@ class LifetimeData(TypedDict):
     
     Attributes:
         lifetimes (Dict[int, List[float]]): Mapping from cluster size to list of observed lifetimes.
+            Each list holds every lifetime recorded since the start of the run, not per snapshot.
         time (float): The timestamp for this snapshot.
     """
     lifetimes: Dict[int, List[float]]
