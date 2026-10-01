@@ -1050,8 +1050,10 @@ def _render_frames(
     yielded = 0
 
     def next_result() -> Optional[Image.Image]:
-        future, _, _ = pending.popleft()
-        data = future.result()
+        # Read before dequeuing: if the pool broke, this frame's task must stay
+        # queued for the serial fallback below.
+        data = pending[0][0].result()
+        pending.popleft()
         return Image.frombytes("RGB", size, data) if data is not None else None
 
     try:

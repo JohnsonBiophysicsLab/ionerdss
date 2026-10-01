@@ -331,6 +331,35 @@ def test_render_trajectory_movie_writes_an_mp4(tmp_path):
     assert out.stat().st_size > 0
 
 
+def test_all_frames_render_when_worker_processes_cannot_start(tmp_path, monkeypatch, caplog):
+    import concurrent.futures
+    from concurrent.futures.process import BrokenProcessPool
+
+    class BrokenPool:
+        """Stands in for a pool whose workers die on start-up."""
+
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def submit(self, fn, *args, **kwargs):
+            future = concurrent.futures.Future()
+            future.set_exception(BrokenProcessPool("workers died"))
+            return future
+
+        def shutdown(self, *args, **kwargs):
+            pass
+
+    monkeypatch.setattr(concurrent.futures, "ProcessPoolExecutor", BrokenPool)
+    run = _write_run(tmp_path / "run", FRAMES)
+    with caplog.at_level(logging.WARNING):
+        render_trajectory_movie(run, None, frames_dir=tmp_path / "frames", size=(160, 160),
+                                n_jobs=2, progress=False)
+    assert "rendering in this process instead" in caplog.text
+    # Every frame is rendered, including the one whose failure was seen first.
+    assert sorted(p.name for p in (tmp_path / "frames").iterdir()) == [
+        "frame_00000.png", "frame_00001.png", "frame_00002.png"]
+
+
 def test_parallel_rendering_matches_serial(tmp_path):
     run = _write_run(tmp_path / "run", FRAMES)
     for jobs in (1, 2):
