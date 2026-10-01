@@ -145,8 +145,8 @@ class PDBModelBuilder:
                 hyperparams = PDBModelHyperparameters()
             if kwargs:
                 # replace() rather than a to_dict()/from_dict() round trip, which
-                # resets the units and rebuilds the aligner from a few of its
-                # scores (failing outright on a substitution matrix).
+                # resets the units and rebuilds the aligner (and fails for one
+                # that scores gaps with a function).
                 hyperparams = dataclasses.replace(hyperparams, **kwargs)
             self.hyperparams = hyperparams
 
