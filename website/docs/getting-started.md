@@ -6,10 +6,13 @@
 pip install ioNERDSS
 ```
 
+Requires Python 3.10 or later; on an older Python, pip quietly installs an old 1.x release with a different API instead.
+
 Optional extras:
 
 ```bash
 pip install "ioNERDSS[jupyter]"
+pip install "ioNERDSS[simularium]"
 ```
 
 Movies of NERDSS runs (`ionerdss.render_trajectory_movie`) need no extra. The `ovito_rendering` extra only serves the deprecated `visualize_trajectory_ovito`.
@@ -29,7 +32,7 @@ pytest
 
 ## Binding affinity prediction (ProAffinity-GNN)
 
-ProAffinity-GNN pins numpy 1.x and torch 2.2. Those cannot share an environment with the numpy 2 that OVITO rendering requires, and installing them together leaves one of the two quietly broken. So ProAffinity gets an environment of its own, and ioNERDSS calls into it when it needs a binding energy: only a PDB path, the chain pairs, and the resulting energies cross between the two.
+ProAffinity-GNN pins numpy 1.x and torch 2.2. Those cannot share an environment with the numpy 2 that OVITO 3.16 and later require: installed together, either OVITO is held back to 3.15 and its slower software ray tracer, or -- depending on install order -- one of the two is left quietly broken. So ProAffinity gets an environment of its own, and ioNERDSS calls into it when it needs a binding energy: only a PDB path, the chain pairs, and the resulting energies cross between the two.
 
 Set it up once:
 

@@ -35,7 +35,7 @@ PDB/mmCIF File → Parser → CoarseGrainer → ChainGrouper → TemplateBuilder
 
 **Flexible Configuration**: Extensive hyperparameter system allows fine-tuning for different types of molecular systems.
 
-**Workspace Management**: Organized file structure with automatic cleanup and comprehensive logging.
+**Workspace Management**: Organized file structure with comprehensive logging.
 
 ## Pipeline Components
 
@@ -43,11 +43,12 @@ PDB/mmCIF File → Parser → CoarseGrainer → ChainGrouper → TemplateBuilder
 **Purpose**: Download, parse, and extract structural data from PDB/mmCIF files.
 
 **Key Functions**:
-- Automatic PDB download from RCSB database
+- Automatic PDB download from RCSB database (`PDBModelBuilder` fetches biological assembly 1 by default; see `pdb_file_format`)
 - mmCIF and PDB format support
 - Chain extraction and validation
 - Coordinate system management
 - Missing atom handling
+- Modified residues of polymer chains kept by default (`include_modified_residues`)
 
 **Output**: Structured chain data with atomic coordinates, sequences, and metadata.
 
@@ -56,10 +57,10 @@ PDB/mmCIF File → Parser → CoarseGrainer → ChainGrouper → TemplateBuilder
 
 **Key Functions**:
 - Center-of-mass calculation for protein chains
-- Radius estimation using convex hull or Cα-based methods
-- Interface detection via distance-based criteria
+- Radius estimation as the RMS distance of the chain's atoms from its center of mass
+- Interface detection from Cα–Cα contacts within `interface_detect_distance_cutoff` (default 0.9 nm), requiring at least `interface_detect_n_residue_cutoff` (default 2) contacting residues on each chain
 - Binding site identification
-- Energy estimation for interactions
+- Optional binding-energy prediction with ProAffinity-GNN (`predict_affinity=True`, see [docs/Proaffinity.md](../../../docs/Proaffinity.md)); otherwise each interface gets the default ΔG = −16 RT
 
 **Output**: Coarse-grained chains with centers of mass, radii, and detected interfaces.
 
@@ -67,9 +68,10 @@ PDB/mmCIF File → Parser → CoarseGrainer → ChainGrouper → TemplateBuilder
 **Purpose**: Group similar protein chains to reduce system complexity and identify symmetries.
 
 **Key Functions**:
-- Sequence similarity analysis
-- Structural similarity comparison
-- Symmetry detection
+- mmCIF entity (header) grouping with a sequence fallback (`chain_grouping_matching_mode="default"`)
+- Sequence similarity analysis (`"sequence"`; `chain_grouping_seq_threshold`, default 0.5)
+- Structural similarity comparison (`"structure"`; Cα RMSD `chain_grouping_rmsd_threshold`, default 2.0 Å)
+- Combined sequence and structure matching (`"sequence_structure"`), which keeps quasi-equivalent conformers of one sequence in separate groups
 - Template reduction strategies
 - Group validation and optimization
 
@@ -95,7 +97,7 @@ PDB/mmCIF File → Parser → CoarseGrainer → ChainGrouper → TemplateBuilder
 - Interface instance generation
 - Cross-reference network establishment
 - System validation
-- Ring regularization (optional)
+- Geometric regularization (optional): cyclic (Cn) rings snapped to exact n-fold symmetry (`geometric_regularization="auto"`) and sphere projection (`is_on_sphere=True`)
 
 **Output**: Complete molecular system with all components and relationships.
 
@@ -107,17 +109,23 @@ PDB/mmCIF File → Parser → CoarseGrainer → ChainGrouper → TemplateBuilder
 - Interface connectivity diagrams
 - Template property analysis
 - PyMOL script generation
-- Quality assessment plots
+- Coarse-grained structure export (mmCIF) and a text summary report
 
 **Output**: Publication-ready plots, interactive visualizations, and analysis reports.
 
 ### Supporting Components
 
+**Model Builder (`main.py`)**: `PDBModelBuilder` runs the whole pipeline, writes the system JSON and reports, and exports NERDSS files; `ionerdss.build_system_from_pdb` wraps it.
+
+**NERDSS Exporter (`nerdss_exporter.py`)**: Writes one `.mol` file per molecule type and `parms.inp` into `nerdss_files/`.
+
+**Structure Validation (`structure_validation.py`)**: Preflight warnings for the built system (disconnected designs, interface sites too close to a molecule's center of mass) and the one-copy-per-type structure validation setup.
+
 **Hyperparameters (`hyperparameters.py`)**: Centralized configuration management for all pipeline parameters.
 
 **File Manager (`file_manager.py`)**: Workspace organization, logging, and file lifecycle management.
 
-**Units (`units.py`)**: Unit system management and coordinate conversions.
+**Units (`ionerdss/model/components/units.py`)**: Unit system management and coordinate conversions.
 
 ## Key Features
 
@@ -135,13 +143,13 @@ with WorkspaceManager("/workspace", "1ABC") as workspace:
 ### Intelligent Chain Grouping
 ```python
 # Automatic detection of symmetric chains
-chain_grouper = ChainGrouper(coarse_grainer, hyperparams)
+chain_grouper = ChainGrouper(parser, coarse_grainer, hyperparams)
 groups = chain_grouper.get_groups()
 
 for group in groups:
     print(f"Group {group.representative}: {group.members}")
     print(f"  Similarity method: {group.grouping_method}")
-    print(f"  Average similarity: {group.average_similarity:.3f}")
+    print(f"  Size: {len(group)}")
 ```
 
 ### Multi-Interface Support
@@ -194,8 +202,8 @@ from ionerdss.model.pdb.hyperparameters import PDBModelHyperparameters
 
 # Configure parameters
 hyperparams = PDBModelHyperparameters()
-hyperparams.distance_cutoff = 0.6  # nm
-hyperparams.residue_cutoff = 3
+hyperparams.interface_detect_distance_cutoff = 0.9  # nm (default)
+hyperparams.interface_detect_n_residue_cutoff = 2   # residues per chain (default)
 
 # Process structure
 with WorkspaceManager("/workspace", "1ABC") as workspace:
@@ -206,7 +214,7 @@ with WorkspaceManager("/workspace", "1ABC") as workspace:
     coarse_grainer = CoarseGrainer(parser, hyperparams)
     
     # Group chains
-    chain_grouper = ChainGrouper(coarse_grainer, hyperparams)
+    chain_grouper = ChainGrouper(parser, coarse_grainer, hyperparams)
     
     # Build templates
     template_builder = TemplateBuilder(parser, coarse_grainer, chain_grouper, 
@@ -215,16 +223,17 @@ with WorkspaceManager("/workspace", "1ABC") as workspace:
     # Assemble system
     system_builder = SystemBuilder(parser, coarse_grainer, chain_grouper, 
                                  template_builder, hyperparams, 
-                                 str(workspace.workspace_path), "1ABC", workspace)
+                                 str(workspace.workspace_path), "1ABC",
+                                 workspace_manager=workspace)
     
     # Generate visualizations
     visualizer = PDBVisualizer(workspace)
     viz_outputs = visualizer.visualize_all(parser, coarse_grainer, 
                                           chain_grouper, template_builder)
     
-    # Export NERDSS files
+    # Export NERDSS files (keys are molecule type names, i.e. representative chain IDs such as "A")
     nerdss_outputs = system_builder.export_nerdss_files(
-        molecule_counts={"ProteinA": 50, "ProteinB": 25},
+        molecule_counts={"A": 50, "B": 25},
         box_nm=(200.0, 200.0, 200.0)
     )
     
@@ -247,12 +256,13 @@ def process_pdb_batch(pdb_ids, workspace_base):
                 # Run complete pipeline
                 parser = PDBParser(pdb_id, fetch_from_pdb=True, workspace_manager=workspace)
                 coarse_grainer = CoarseGrainer(parser, hyperparams)
-                chain_grouper = ChainGrouper(coarse_grainer, hyperparams)
+                chain_grouper = ChainGrouper(parser, coarse_grainer, hyperparams)
                 template_builder = TemplateBuilder(parser, coarse_grainer, chain_grouper, 
                                                  hyperparams, workspace_manager=workspace)
                 system_builder = SystemBuilder(parser, coarse_grainer, chain_grouper, 
                                              template_builder, hyperparams, 
-                                             str(workspace_path), pdb_id, workspace)
+                                             str(workspace_path), pdb_id,
+                                             workspace_manager=workspace)
                 
                 # Collect results
                 results[pdb_id] = {
@@ -278,29 +288,28 @@ results = process_pdb_batch(pdb_list, Path("/batch_workspace"))
 
 ```python
 # Custom grouping parameters
-hyperparams = PDBModelHyperparameters()
-# Configure sequence similarity threshold
-# Configure structure similarity threshold
-# Configure minimum group size
+hyperparams = PDBModelHyperparameters(
+    chain_grouping_matching_mode="sequence_structure",  # "default", "sequence", "structure", "sequence_structure"
+    chain_grouping_seq_threshold=0.9,   # sequence identity threshold
+    chain_grouping_rmsd_threshold=2.0,  # Å, Cα RMSD threshold after superposition
+)
 
-chain_grouper = ChainGrouper(coarse_grainer, hyperparams)
+chain_grouper = ChainGrouper(parser, coarse_grainer, hyperparams)
 
 # Analyze grouping results
 groups = chain_grouper.get_groups()
 summary = chain_grouper.get_summary()
 
 print(f"Grouping Summary:")
-print(f"  Original chains: {summary['num_chains']}")
+print(f"  Original chains: {coarse_grainer.get_summary()['num_chains']}")
 print(f"  Final groups: {summary['num_groups']}")
-print(f"  Reduction ratio: {summary['reduction_ratio']:.2f}")
+print(f"  Matching mode: {summary['grouping_method']}")
 
 # Detailed group analysis
 for group in groups:
     print(f"Group {group.representative}:")
     print(f"  Members: {group.members}")
     print(f"  Method: {group.grouping_method}")
-    if hasattr(group, 'similarity_matrix'):
-        print(f"  Avg similarity: {group.similarity_matrix.mean():.3f}")
 ```
 
 ### Interface Analysis
@@ -321,8 +330,8 @@ for i, interface in enumerate(interfaces):
 summary = coarse_grainer.get_summary()
 print(f"Interface Statistics:")
 print(f"  Total interfaces: {summary['num_interfaces']}")
-print(f"  Average energy: {summary['avg_interface_energy']:.2f}")
-print(f"  Energy range: {summary['energy_range']}")
+print(f"  Average interface size: {summary['average_interface_size']:.1f} residues per side")
+print(f"  Total interface residues: {summary['total_interface_residues']}")
 ```
 
 ### Template Customization
@@ -386,20 +395,21 @@ if validation['warnings']:
 hyperparams = PDBModelHyperparameters()
 
 # Coarse-graining parameters
-hyperparams.distance_cutoff = 0.6  # nm - interface detection distance
-hyperparams.residue_cutoff = 3     # minimum residues for interface
+hyperparams.interface_detect_distance_cutoff = 0.9  # nm - interface detection distance (default)
+hyperparams.interface_detect_n_residue_cutoff = 2   # minimum contacting residues per chain (default)
 
-# Chain grouping parameters (if available)
-# hyperparams.sequence_similarity_threshold = 0.9
-# hyperparams.structure_similarity_threshold = 2.0  # Å RMSD
+# Chain grouping parameters
+hyperparams.chain_grouping_matching_mode = "default"  # "default", "sequence", "structure", "sequence_structure"
+hyperparams.chain_grouping_seq_threshold = 0.5        # sequence identity
+hyperparams.chain_grouping_rmsd_threshold = 2.0       # Å RMSD
 
 # Template building parameters
 hyperparams.signature_precision = 6  # decimal places for geometric signatures
-hyperparams.homodimer_distance_threshold = 1.0  # Å
+hyperparams.homodimer_distance_threshold = 0.5  # nm
 hyperparams.homodimer_angle_threshold = 0.2     # radians
 
 # Advanced features
-hyperparams.ring_regularization_mode = "off"  # "off", "separate", "uniform"
+hyperparams.geometric_regularization = "off"  # "off", "auto"
 hyperparams.steric_clash_mode = "off"         # "off", "auto"
 
 # Export configuration
@@ -411,18 +421,11 @@ with open("hyperparams.json", "w") as f:
 ### Workspace Configuration
 
 ```python
-# Custom workspace setup
-workspace_config = {
-    "base_path": "/custom/workspace",
-    "pdb_id": "1ABC",
-    "create_subdirs": True,
-    "cleanup_temp": True,
-    "log_level": "INFO"
-}
-
-with WorkspaceManager(**workspace_config) as workspace:
+# Custom workspace setup: logs/, structures/, outputs/ and temp/ are created automatically
+with WorkspaceManager("/custom/workspace", pdb_id="1ABC") as workspace:
     # Pipeline execution
     pass
+# On exit, outputs/reports/1ABC_summary.txt lists the workspace contents
 ```
 
 ## Output Files
@@ -434,8 +437,9 @@ workspace/
 ├── logs/
 │   └── pipeline.log                    # Comprehensive processing log
 ├── structures/
-│   └── downloaded/
-│       └── 1ABC.cif                   # Original structure file
+│   ├── downloaded/
+│   │   └── 1abc-assembly1.cif         # Original structure file (1abc.cif with file_format="mmcif")
+│   └── processed/
 ├── visualizations/
 │   ├── basic_coarse_grained_structure.png
 │   ├── interface_connections.png
@@ -443,15 +447,20 @@ workspace/
 │   ├── template_overview.png
 │   ├── 1ABC_coarse_grained.cif       # Coarse-grained structure
 │   ├── 1ABC_visualization.pml        # PyMOL script
-│   └── visualization_summary.txt      # Analysis report
+│   └── visualization_summary.txt      # Analysis report (from PDBVisualizer.generate_summary_report)
 ├── nerdss_files/
-│   ├── ProteinA.mol                   # Molecule definition
-│   ├── ProteinB.mol
-│   ├── parms.inp                      # Simulation parameters
-│   └── system.inp                     # System configuration
-└── outputs/
-    └── reports/
-        └── 1ABC_summary.txt           # Pipeline summary
+│   ├── A.mol                          # Molecule definition, one per molecule type
+│   ├── B.mol
+│   └── parms.inp                      # Simulation parameters, box size, molecule counts and reactions
+├── outputs/
+│   ├── systems/
+│   │   └── 1ABC_system.json           # Serialized System (PDBModelBuilder)
+│   └── reports/
+│       ├── 1ABC_validation.txt        # System validation report (PDBModelBuilder)
+│       ├── 1ABC_detailed_summary.txt  # Per-step pipeline summary (PDBModelBuilder)
+│       └── 1ABC_summary.txt           # Workspace summary (written when a WorkspaceManager context exits)
+├── ode_results/                       # ODE pipeline output (only with ode_enabled=True)
+└── temp/
 ```
 
 ### Key Output Files
@@ -464,14 +473,17 @@ workspace/
 - `1ABC_visualization.pml`: PyMOL script for interactive visualization
 
 **NERDSS Simulation Files**:
-- `*.mol`: Molecular template definitions with binding sites
-- `parms.inp`: Simulation parameters (timestep, iterations, etc.)
-- `system.inp`: System configuration (box size, molecule counts)
+- `*.mol`: Molecular template definitions with binding sites, named after the molecule type
+- `parms.inp`: Simulation parameters (timestep, iterations, etc.), water box size, molecule counts and reactions
 
 **Analysis Reports**:
 - `visualization_summary.txt`: Comprehensive analysis report
-- `1ABC_summary.txt`: Pipeline execution summary
+- `1ABC_validation.txt` and `1ABC_detailed_summary.txt`: System validation and per-step summary written by `PDBModelBuilder`
+- `1ABC_summary.txt`: Listing of the workspace contents
 - `pipeline.log`: Detailed processing log with timestamps
+
+**System File**:
+- `1ABC_system.json`: The built System (molecule/interface types and instances) serialized to JSON
 
 ## Advanced Features
 
@@ -480,8 +492,9 @@ workspace/
 ```python
 # Enable ring regularization for cyclic structures
 hyperparams = PDBModelHyperparameters()
-hyperparams.ring_regularization_mode = "uniform"  # or "separate"
-hyperparams.ring_geometry = "cylinder"            # or "sphere"
+hyperparams.geometric_regularization = "auto"  # detect Cn rings and snap them to exact n-fold symmetry
+hyperparams.symmetry_fold_tolerance = 0.15     # accept n-fold within this fraction of the assembly radius
+# hyperparams.is_on_sphere = True              # separately: project molecules onto concentric spheres
 
 # Ring regularization automatically applied during system building
 system_builder = SystemBuilder(...)
@@ -514,8 +527,9 @@ basic_plot = visualizer.plot_basic_coarse_grained_structure(coarse_grainer, figs
 interface_plot = visualizer.plot_interface_connections(coarse_grainer)
 groups_plot = visualizer.plot_chain_groups(coarse_grainer, chain_grouper)
 
-# Custom analysis plots
-quality_metrics = visualizer.plot_quality_metrics(coarse_grainer, chain_grouper)
+# Template analysis and text report
+template_plot = visualizer.plot_template_overview(template_builder)
+summary_report = visualizer.generate_summary_report(coarse_grainer, chain_grouper, template_builder)
 ```
 
 ### Batch Analysis
@@ -531,12 +545,13 @@ def analyze_pdb_set(pdb_ids, output_dir):
             # Run pipeline
             parser = PDBParser(pdb_id, fetch_from_pdb=True, workspace_manager=workspace)
             coarse_grainer = CoarseGrainer(parser, hyperparams)
-            chain_grouper = ChainGrouper(coarse_grainer, hyperparams)
+            chain_grouper = ChainGrouper(parser, coarse_grainer, hyperparams)
             template_builder = TemplateBuilder(parser, coarse_grainer, chain_grouper, 
                                              hyperparams, workspace_manager=workspace)
             system_builder = SystemBuilder(parser, coarse_grainer, chain_grouper, 
                                          template_builder, hyperparams, 
-                                         str(workspace.workspace_path), pdb_id, workspace)
+                                         str(workspace.workspace_path), pdb_id,
+                                         workspace_manager=workspace)
             
             # Collect metrics
             results[pdb_id] = {
@@ -547,7 +562,7 @@ def analyze_pdb_set(pdb_ids, output_dir):
                 "validation": system_builder.validate_system()
             }
     
-    # Generate comparative report
+    # Generate comparative report (your own helper; not part of ionerdss)
     generate_comparative_report(results, output_dir / "analysis_report.txt")
     return results
 ```
@@ -601,7 +616,7 @@ print("NERDSS files written to:", save_folder / "nerdss_files")
 
 # Run NERDSS with the generated parms.inp file.
 nerdss_dir = save_folder / "nerdss_files"
-nerdss_cmd = "~/Workspace/Reaction_ode/nerdss_development/bin/nerdss -f parms.inp"
+nerdss_cmd = "/path/to/NERDSS/bin/nerdss -f parms.inp"  # placeholder: point this at your NERDSS build
 
 subprocess.run(
     nerdss_cmd,
@@ -614,16 +629,16 @@ subprocess.run(
 
 What this configuration changes:
 
-- `interface_detect_distance_cutoff=1.0`: considers atom pairs within 1.0 nm as potential contacts when identifying interfaces. This merges all of the long-pitch contacts into a single `aa2f`/`aa2b` pair, giving the correct four binding sites; the 0.9 nm default splits the C–E and F–H contacts off into a spurious self-binding site.
-- `interface_detect_n_residue_cutoff=2`: keeps interfaces that have at least two contacting residues on each side.
+- `interface_detect_distance_cutoff=1.0`: considers Cα–Cα pairs within 1.0 nm as potential contacts when identifying interfaces. This merges all of the long-pitch contacts into a single `aa2f`/`aa2b` pair, giving the correct four binding sites; the 0.9 nm default splits the C–E and F–H contacts off into a spurious self-binding site.
+- `interface_detect_n_residue_cutoff=2`: keeps interfaces that have at least two contacting residues on each side (also the default).
 - `nerdss_overlap_sep_limit=3.0`: keeps subunit centres at least 3.0 nm apart during the NERDSS run. Without it, the filament mis-assembles and subunits collapse on top of one another. Values from 2.5 to 3.75 nm work for 6BNO; the pipeline caps this at 0.9 × the minimum chain COM distance (about 3.79 nm here).
-- `chain_grouping_seq_threshold=0.5`: groups repeated chains when their sequence identity is at least 50%.
+- `chain_grouping_seq_threshold=0.5`: groups repeated chains when their sequence identity is at least 50% (also the default).
 
 Where to look after the build finishes:
 
 - `6bno_tutorial/logs/pipeline.log`: step-by-step pipeline log
 - `6bno_tutorial/nerdss_files/parms.inp`: NERDSS simulation parameters
-- `6bno_tutorial/nerdss_files/system.inp`: initial system composition
+- `6bno_tutorial/nerdss_files/A.mol`: the actin molecule template with its four binding sites
 - `6bno_tutorial/outputs/reports/`: validation and summary reports
 - `6bno_tutorial/visualizations/`: coarse-grained plots and PyMOL helper files
 
@@ -654,33 +669,35 @@ def pdb_to_nerdss_simulation(pdb_id, workspace_path, simulation_params):
         # Process structure
         parser = PDBParser(pdb_id, fetch_from_pdb=True, workspace_manager=workspace)
         coarse_grainer = CoarseGrainer(parser, hyperparams)
-        chain_grouper = ChainGrouper(coarse_grainer, hyperparams)
+        chain_grouper = ChainGrouper(parser, coarse_grainer, hyperparams)
         template_builder = TemplateBuilder(parser, coarse_grainer, chain_grouper, 
                                          hyperparams, workspace_manager=workspace)
         system_builder = SystemBuilder(parser, coarse_grainer, chain_grouper, 
                                      template_builder, hyperparams, 
-                                     str(workspace_path), pdb_id, workspace)
+                                     str(workspace_path), pdb_id,
+                                     workspace_manager=workspace)
         
-        # Export NERDSS files
+        # Export NERDSS files; passing hyperparams applies nerdss_time_step,
+        # default_on_rate_3d_ka, nerdss_overlap_sep_limit, etc.
         nerdss_files = system_builder.export_nerdss_files(
             molecule_counts=simulation_params["molecule_counts"],
             box_nm=simulation_params["box_size"],
-            parms_overrides=simulation_params["parameters"]
+            parms_overrides={**simulation_params["parameters"], "hyperparams": hyperparams}
         )
         
-        # Generate run script
-        generate_nerdss_run_script(nerdss_files, workspace_path / "run_simulation.sh")
+        # Generate run script (your own helper; not part of ionerdss)
+        generate_nerdss_run_script(nerdss_files, Path(workspace_path) / "run_simulation.sh")
         
         return nerdss_files
 
 # Usage
+hyperparams.nerdss_time_step = 0.1          # μs; None (default) calculates a stable time step
+hyperparams.default_on_rate_3d_ka = 1000.0  # nm³/μs, written as onRate3Dka for every reaction
 simulation_config = {
-    "molecule_counts": {"ProteinA": 100, "ProteinB": 50},
+    "molecule_counts": {"A": 100, "B": 50},  # keys are molecule type names
     "box_size": (500.0, 500.0, 500.0),  # nm
-    "parameters": {
+    "parameters": {  # written to the parameters block of parms.inp
         "nItr": 1e6,
-        "timestep": 0.1,
-        "onRate3Dka": 1000.0
     }
 }
 
@@ -690,8 +707,7 @@ nerdss_files = pdb_to_nerdss_simulation("1ABC", "/simulation_workspace", simulat
 ### Tutorial: Build a Synthetic Dodecahedron and Run NERDSS
 
 The platonic-solid generator is useful when you want a designed reference assembly
-instead of a structure inferred from a deposited PDB file. The example below matches
-the workflow in your snippet.
+instead of a structure inferred from a deposited PDB file.
 
 ```python
 from pathlib import Path
@@ -715,7 +731,7 @@ print(f"Built {len(rxn)} reaction rule(s)")
 print("\nNow running NERDSS simulation...\n")
 
 nerdss_dir = save_folder / "nerdss_files"
-nerdss_cmd = "~/Workspace/Reaction_ode/nerdss_development/bin/nerdss -f parms.inp"
+nerdss_cmd = "/path/to/NERDSS/bin/nerdss -f parms.inp"  # placeholder: point this at your NERDSS build
 
 subprocess.run(
     nerdss_cmd,
@@ -741,7 +757,7 @@ def create_visualization_package(pdb_id, workspace_path):
         # Process structure
         parser = PDBParser(pdb_id, fetch_from_pdb=True, workspace_manager=workspace)
         coarse_grainer = CoarseGrainer(parser, hyperparams)
-        chain_grouper = ChainGrouper(coarse_grainer, hyperparams)
+        chain_grouper = ChainGrouper(parser, coarse_grainer, hyperparams)
         template_builder = TemplateBuilder(parser, coarse_grainer, chain_grouper, 
                                          hyperparams, workspace_manager=workspace)
         
@@ -750,7 +766,7 @@ def create_visualization_package(pdb_id, workspace_path):
         viz_outputs = visualizer.visualize_all(parser, coarse_grainer, 
                                               chain_grouper, template_builder)
         
-        # Create viewer-specific files
+        # Create viewer-specific files (the Chimera/VMD helpers are your own; not part of ionerdss)
         viewer_files = {
             "pymol": viz_outputs.get("pymol"),
             "chimera": create_chimera_script(coarse_grainer, workspace_path),
