@@ -186,6 +186,7 @@ workspace/
 │   └── system/             # Final system data
 ├── visualizations/         # Generated plots and images
 ├── nerdss_files/          # NERDSS simulation files
+├── structure_validation/  # Structure validation deck, when requested
 └── logs/
     └── pipeline.log        # Complete processing log
 ```
@@ -491,7 +492,6 @@ from .structure_validation import (
     classify_site_layout,
     COINCIDENT_SITE_TOLERANCE_NM,
     DEFAULT_INTERFACE_COM_PROXIMITY_THRESHOLD_NM,
-    get_structure_validation_counts,
     prepare_structure_validation,
     StructureValidationArtifacts,
     StructureValidationConfig,
@@ -1455,13 +1455,16 @@ class SystemBuilder:
         target_filename: str = "structure_validation_target.json",
         parms_overrides: Optional[Dict[str, Any]] = None,
     ) -> StructureValidationArtifacts:
-        """Export the special one-copy-per-type structure validation setup."""
-        designed_coordinates = {}
-        for mol_name in get_structure_validation_counts(self.system):
-            chain_data = self.parser.get_chain_data(mol_name)
-            designed_coordinates[mol_name] = tuple(
-                self.parser.convert_coords_to_nm(chain_data["com"]).tolist()
-            )
+        """Export the structure validation setup for one copy of the designed assembly.
+
+        The deck goes to ``structure_validation/`` in the workspace, so the regular
+        export in ``nerdss_files/`` is left alone. It is exported with the builder's
+        hyperparameters unless ``parms_overrides`` carries its own under
+        ``'hyperparams'``, and its target holds the designed coordinates of every
+        molecule instance.
+        """
+        validation_overrides = dict(parms_overrides or {})
+        validation_overrides.setdefault("hyperparams", self.hyperparams)
 
         config = StructureValidationConfig(
             box_nm=box_nm,
@@ -1472,6 +1475,5 @@ class SystemBuilder:
             system=self.system,
             workspace_manager=self.workspace_manager,
             config=config,
-            parms_overrides=parms_overrides,
-            designed_coordinates=designed_coordinates,
+            parms_overrides=validation_overrides,
         )
