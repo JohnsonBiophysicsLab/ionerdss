@@ -374,8 +374,8 @@ for viz_type, viz_path in viz_outputs.items():
 # interfaces: /workspace/visualizations/interface_connections.png
 # groups: /workspace/visualizations/chain_groups.png
 # templates: /workspace/visualizations/template_overview.png
-# pymol: /workspace/visualizations/1ABC_visualization.pml
 # cg_structure: /workspace/visualizations/1ABC_coarse_grained.cif
+# pymol: /workspace/visualizations/1ABC_visualization.pml
 ```
 
 ### NERDSS Export Integration
