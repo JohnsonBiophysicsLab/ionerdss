@@ -3,10 +3,13 @@ import sys
 import subprocess
 import shutil
 import json
-from typing import Dict, Any, List
+import warnings
+from pathlib import Path
+from typing import Dict, Any, List, Optional
 import time
 import glob
 from ..util import strip_comment
+from .executable import _merge_deprecated_nerdss_dir, resolve_nerdss_executable
 
 class Simulation:
     """Class for handling NERDSS simulation configurations and running simulations.
@@ -245,24 +248,38 @@ class Simulation:
         with open(inp_file, "r") as f:
             print(f.read())
 
-    def install_nerdss(self, nerdss_path: str = None) -> None:
-        """Installs the NERDSS package.
+    def install_nerdss(self, install_dir: str = None, *, nerdss_path: str = None) -> Optional[Path]:
+        """Clones and compiles NERDSS into `<install_dir>/NERDSS`.
 
         Args:
-            nerdss_path (str): The path to install NERDSS. If None, uses the current directory.
-        """
-        if nerdss_path is None:
-            nerdss_path = os.getcwd()
+            install_dir (str): The directory to clone NERDSS into. If None, uses the current directory.
+            nerdss_path (str): Deprecated alias for `install_dir`. Everywhere else `nerdss_path`
+                names the NERDSS executable to run, which is what this method returns.
 
-        if nerdss_path.startswith("~"):
-            nerdss_path = os.path.expanduser(nerdss_path)
-        nerdss_path = os.path.abspath(nerdss_path)
-        
-        nerdss_repo_path = os.path.join(nerdss_path, "NERDSS")
-        
+        Returns:
+            Optional[Path]: The compiled NERDSS executable, ready to pass as `nerdss_path` to
+            `run_new_simulations()`, or None if the installation failed.
+        """
+        if nerdss_path is not None:
+            if install_dir is not None:
+                raise TypeError("install_nerdss() got both install_dir and nerdss_path; pass only install_dir.")
+            warnings.warn(
+                "install_nerdss(nerdss_path=...) is deprecated; use install_dir=...",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            install_dir = nerdss_path
+
+        if install_dir is None:
+            install_dir = os.getcwd()
+
+        install_dir = os.path.abspath(os.path.expanduser(install_dir))
+
+        nerdss_repo_path = os.path.join(install_dir, "NERDSS")
+
         # Ensure target directory exists
-        os.makedirs(nerdss_path, exist_ok=True)
-        print(f"Installing NERDSS to {nerdss_path}...")
+        os.makedirs(install_dir, exist_ok=True)
+        print(f"Installing NERDSS to {install_dir}...")
 
         # Check if git and make are installed
         for cmd in ["git", "make"]:
@@ -332,24 +349,30 @@ class Simulation:
         make_result = subprocess.run(["make", "serial"], cwd=nerdss_repo_path, check=False)
         if make_result.returncode == 0:
             print("NERDSS installation complete.")
+            return resolve_nerdss_executable(nerdss_repo_path)
         else:
             print("Error: Compilation failed. Please check the logs and dependencies.")
 
     def run_new_simulations(
-            self, sim_indices: List[int] = None, sim_dir: str = None, nerdss_dir: str = None, parallel: bool = False,
+            self, sim_indices: List[int] = None, sim_dir: str = None, nerdss_path: str = None, parallel: bool = False,
             coordinate: bool = False, progress: bool = True, verbose=True, env: Dict[str, str] = None,
+            nerdss_dir: str = None,
         ) -> None:
         """Runs NERDSS simulations based on the given parameters.
         
         Args:
             sim_indices (List[int], optional): List of simulation indices to run. If None, runs one simulation with index = 1.
             sim_dir (str, optional): Directory where simulation results should be stored. Defaults to `self.work_dir/nerdss_output`.
-            nerdss_dir (str, optional): Directory where NERDSS is installed. Defaults to `self.work_dir/NERDSS`.
+            nerdss_path (str, optional): The NERDSS executable, or a directory containing `nerdss` or
+                `nerdss_mpi` directly or in its `bin/` (for example a NERDSS checkout), or a command name
+                on PATH. The executable is run in place. Defaults to None, which searches
+                `self.work_dir/NERDSS` and then PATH.
             parallel (bool, optional): Whether to run simulations in parallel. Defaults to False.
             env (Dict[str, str], optional): Environment variables required by the NERDSS executable,
                 for example `{"LD_LIBRARY_PATH": "/path/to/gsl/lib"}`. The entries are merged on top of
                 the current `os.environ`, so only the overrides need to be passed. Defaults to None,
                 which inherits the current environment unchanged.
+            nerdss_dir (str, optional): Deprecated alias for `nerdss_path`.
 
         Notes:
             FIXME: Doesn't work on Fedora OS using Jupyter notebook. Doesn't test on other OS. Doesn't test using Python script.
@@ -361,16 +384,9 @@ class Simulation:
         sim_dir = os.path.abspath(sim_dir)
         os.makedirs(sim_dir, exist_ok=True)
 
-        if nerdss_dir is None:
-            nerdss_dir = os.path.join(self.work_dir, "NERDSS")
-        elif nerdss_dir.startswith("~"):
-            nerdss_dir = os.path.expanduser(nerdss_dir)
-        nerdss_dir = os.path.abspath(nerdss_dir)
-        # check whether nerdss executable exists
-        nerdss_exec = os.path.join(nerdss_dir, "bin", "nerdss")
-        if not os.path.exists(nerdss_exec):
-            raise FileNotFoundError(f"NERDSS executable not found at {nerdss_exec}. Make sure it is installed and compiled.")
-        
+        nerdss_path = _merge_deprecated_nerdss_dir(nerdss_path, nerdss_dir, "run_new_simulations")
+        nerdss_exec = str(resolve_nerdss_executable(nerdss_path, default_root=os.path.join(self.work_dir, "NERDSS")))
+
         parms_file = os.path.join(self.work_dir, self.parmfile)
         
         if not os.path.exists(parms_file):
@@ -394,11 +410,10 @@ class Simulation:
             for file in os.listdir(self.work_dir):
                 if file.endswith('.inp') or file.endswith('.mol') or file.endswith('.pdb'):
                     shutil.copy(os.path.join(self.work_dir, file), sim_subdir)
-            shutil.copy(nerdss_exec, sim_subdir)
             
             output_log = os.path.join(sim_subdir, "output.log")
             with open(output_log, "w") as log_file:
-                cmd = ["./nerdss", "-f", self.parmfile]
+                cmd = [nerdss_exec, "-f", self.parmfile]
                 if coordinate:
                     cmd.append("-c")
                     cmd.append(self.coordinatefile)
@@ -516,27 +531,25 @@ class Simulation:
         else:
             return int(current_time / total_time * 100)
 
-    def run_restart_simulations(self, sim_indices: List[int] = None, sim_dir: str = None, nerdss_dir: str = None, restart_from: str = "", restart_sim_name: str = "restart_sim", parallel: bool = False) -> None:
+    def run_restart_simulations(self, sim_indices: List[int] = None, sim_dir: str = None, nerdss_path: str = None, restart_from: str = "", restart_sim_name: str = "restart_sim", parallel: bool = False, nerdss_dir: str = None) -> None:
         """Runs NERDSS simulations from a restart file.
         
         Args:
             sim_indices (List[int], optional): List of simulation indices to restart. If None, restarts one simulation with index = 1.
             sim_dir (str, optional): Directory where restarted simulation results should be stored. Defaults to `self.work_dir/nerdss_output`.
-            nerdss_dir (str, optional): Directory where NERDSS is installed. Defaults to `self.work_dir/NERDSS`.
+            nerdss_path (str, optional): The NERDSS executable, or a directory containing it; see
+                `run_new_simulations()`. Defaults to None, which searches `self.work_dir/NERDSS` and then PATH.
             restart_from (str): Path to the directory containing the restart file.
             restart_sim_name (str): Name of the folder where restarted simulations will be stored.
             parallel (bool, optional): Whether to run simulations in parallel. Defaults to False.
+            nerdss_dir (str, optional): Deprecated alias for `nerdss_path`.
         """
         if sim_dir is None:
             sim_dir = os.path.join(self.work_dir, "nerdss_output")
         os.makedirs(sim_dir, exist_ok=True)
 
-        if nerdss_dir is None:
-            nerdss_dir = os.path.join(self.work_dir, "NERDSS")
-        
-        nerdss_exec = os.path.join(nerdss_dir, "bin", "nerdss")
-        if not os.path.exists(nerdss_exec):
-            raise FileNotFoundError(f"NERDSS executable not found at {nerdss_exec}. Make sure it is installed and compiled.")
+        nerdss_path = _merge_deprecated_nerdss_dir(nerdss_path, nerdss_dir, "run_restart_simulations")
+        nerdss_exec = str(resolve_nerdss_executable(nerdss_path, default_root=os.path.join(self.work_dir, "NERDSS")))
         
         if sim_indices is None:
             sim_indices = [1]
@@ -553,11 +566,10 @@ class Simulation:
                 raise FileNotFoundError(f"Restart file not found at {restart_file}.")
             
             shutil.copy(restart_file, restart_subdir)
-            shutil.copy(nerdss_exec, restart_subdir)
             
             output_log = os.path.join(restart_subdir, "output.log")
             with open(output_log, "w") as log_file:
-                cmd = ["./nerdss", "-r", "restart.dat"]
+                cmd = [nerdss_exec, "-r", "restart.dat"]
                 
                 if parallel:
                     subprocess.Popen(cmd, cwd=restart_subdir, stdout=log_file, stderr=log_file)

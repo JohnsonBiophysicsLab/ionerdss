@@ -23,6 +23,7 @@ from pathlib import Path
 from typing import Any, Dict, Mapping, Optional, Sequence, Union
 
 from ionerdss.model.components.system import System
+from ionerdss.nerdss_simulation.executable import _merge_deprecated_nerdss_dir
 from .structure_validation import (
     CoordinateInput,
     StructureAlignmentResult,
@@ -160,21 +161,28 @@ def align_structure(
 
 def run_simulation(
     artifacts: StructureValidationArtifacts,
-    nerdss_dir: Union[str, Sequence[str]],
+    nerdss_path: Optional[Union[str, Path]] = None,
     *,
     sim_index: int = 1,
     sim_dir_name: str = "validation_output",
     env: Optional[Mapping[str, str]] = None,
+    nerdss_dir: Optional[Union[str, Path]] = None,
 ) -> StructureValidationSimulationResult:
     """Run the validation NERDSS job and extract one full assembly if it forms.
+
+    ``nerdss_path`` is the NERDSS executable, or a directory containing ``nerdss`` or
+    ``nerdss_mpi`` directly or in its ``bin/`` (for example a NERDSS checkout); ``None``
+    looks the executable up on ``PATH``. The executable is run in place. ``nerdss_dir``
+    is a deprecated alias for it.
 
     ``env`` holds environment variables the NERDSS executable needs, for example
     ``{"LD_LIBRARY_PATH": "/path/to/gsl/lib"}``. The entries are merged on top of the
     current ``os.environ``, so only the overrides need to be passed.
     """
+    nerdss_path = _merge_deprecated_nerdss_dir(nerdss_path, nerdss_dir, "run_simulation")
     return run_structure_validation_simulation(
         artifacts=artifacts,
-        nerdss_dir=nerdss_dir,
+        nerdss_path=nerdss_path,
         sim_index=sim_index,
         sim_dir_name=sim_dir_name,
         env=env,

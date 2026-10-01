@@ -8,7 +8,7 @@ bonds formed. One CSV row per run.
 
     python benchmark/assembly_quality/sweep.py \
         --source 6bno --configs benchmark/assembly_quality/configs_6bno.json \
-        --nerdss_dir ~/Workspace/NERDSS --workspace_root /tmp/6bno_sweep \
+        --nerdss_path ~/Workspace/NERDSS --workspace_root /tmp/6bno_sweep \
         --seeds 1 2 3 --iterations 100000 --output results_6bno.csv
 
 The config file maps a name to hyperparameter overrides, everything else staying at the
@@ -31,6 +31,7 @@ from pathlib import Path
 
 from ionerdss.model.pdb.hyperparameters import PDBModelHyperparameters
 from ionerdss.model.pdb.main import PDBModelBuilder
+from ionerdss.nerdss_simulation import resolve_nerdss_executable
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from assembly_metrics import Model, analyse_run, closure_report  # noqa: E402
@@ -65,7 +66,7 @@ def build_model(source, name, overrides, workspace_root):
     }
 
 
-def simulate(nerdss_bin, workspace, sim_dir, seed, iterations, snapshots, timeout):
+def simulate(nerdss_path, workspace, sim_dir, seed, iterations, snapshots, timeout):
     """Run NERDSS on a built model and return (returncode, wall seconds)."""
     sim_dir = Path(sim_dir)
     if sim_dir.exists():
@@ -85,7 +86,7 @@ def simulate(nerdss_bin, workspace, sim_dir, seed, iterations, snapshots, timeou
     started = time.time()
     with open(sim_dir / "output.log", "w") as log:
         completed = subprocess.run(
-            [str(nerdss_bin), "-f", "parms.inp", "-s", str(seed)],
+            [str(nerdss_path), "-f", "parms.inp", "-s", str(seed)],
             cwd=sim_dir, stdout=log, stderr=subprocess.STDOUT, timeout=timeout,
         )
     return completed.returncode, round(time.time() - started, 1)
@@ -97,7 +98,7 @@ def run_one(args, name, overrides, workspace, topology, seed):
     sim_dir = Path(args.workspace_root) / "sims" / f"{name}_n{args.iterations}_s{seed}"
     try:
         returncode, wall = simulate(
-            Path(args.nerdss_dir) / "bin" / "nerdss", workspace, sim_dir,
+            args.nerdss_path, workspace, sim_dir,
             seed, args.iterations, args.snapshots, args.timeout,
         )
         system_json = next((Path(workspace) / "outputs" / "systems").glob("*_system.json"))
@@ -119,7 +120,9 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--source", required=True, help="PDB ID or path to a structure file")
     parser.add_argument("--configs", required=True, help="JSON file mapping a name to hyperparameter overrides")
-    parser.add_argument("--nerdss_dir", required=True, help="NERDSS repository directory (expects bin/nerdss)")
+    parser.add_argument("--nerdss_path", "--nerdss_dir", dest="nerdss_path", default=None,
+                        help="NERDSS executable, or a directory containing nerdss or nerdss_mpi directly or in "
+                             "bin/ (e.g. a NERDSS checkout); defaults to nerdss on PATH. --nerdss_dir is the old name")
     parser.add_argument("--workspace_root", required=True, help="Directory for builds and simulations")
     parser.add_argument("--output", required=True, help="Output CSV path")
     parser.add_argument("--seeds", type=int, nargs="+", default=[1, 2, 3], help="NERDSS random seeds, one run each")
@@ -130,6 +133,7 @@ def main():
     parser.add_argument("--timeout", type=float, default=3600.0, help="Per-run wall-clock limit in seconds")
     parser.add_argument("--jobs", type=int, default=4, help="Simulations to run at once")
     args = parser.parse_args()
+    args.nerdss_path = resolve_nerdss_executable(args.nerdss_path)
 
     configs = json.loads(Path(args.configs).read_text())
     jobs, failures = [], []

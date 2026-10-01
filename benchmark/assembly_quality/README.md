@@ -44,7 +44,7 @@ one and gives the leftover site gap against that window.
 python benchmark/assembly_quality/sweep.py \
     --source 6bno \
     --configs benchmark/assembly_quality/configs_6bno.json \
-    --nerdss_dir ~/Workspace/NERDSS \
+    --nerdss_path ~/Workspace/NERDSS \
     --workspace_root /tmp/6bno_sweep \
     --output results_6bno.csv \
     --seeds 1 2 3 --iterations 100000
