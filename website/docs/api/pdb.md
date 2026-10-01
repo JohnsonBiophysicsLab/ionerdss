@@ -44,12 +44,12 @@ builder = PDBModelBuilder("1ABC", hyperparams=hyperparams)
 system = builder.build_system(workspace_path="workspace")
 ```
 
-The top-level wrapper `ionerdss.build_system_from_pdb(...)` also supports:
+The top-level wrapper `ionerdss.build_system_from_pdb(...)` and `PDBModelBuilder.build_system(...)` also support:
 
 - `structure_validation=True`
 - `structure_validation_options={...}`
 
-to export the validation-ready NERDSS files alongside the main workspace.
+to also export the [validation deck](top-level.md#validation-deck) into `structure_validation/` in the workspace, beside the regular NERDSS files in `nerdss_files/`. The deck is exported with the build's hyperparameters, and `PDBModelBuilder` keeps the result on `builder.structure_validation_artifacts`.
 
 ## Hyperparameter helpers
 

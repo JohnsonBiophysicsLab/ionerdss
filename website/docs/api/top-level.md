@@ -40,8 +40,8 @@ system = ion.build_system_from_pdb(
 - `workspace_path`: output directory for generated files. Defaults to `<source>_dir`.
 - `fetch_format`: optional remote structure format.
 - `molecule_counts`: optional explicit counts for NERDSS export.
-- `structure_validation`: if `True`, export a one-copy-per-type validation setup during the build.
-- `structure_validation_options`: optional settings forwarded to the validation export workflow.
+- `structure_validation`: if `True`, also export the [validation deck](#validation-deck) during the build. It goes to `structure_validation/` in the workspace, beside the regular export in `nerdss_files/`, and is exported with the same hyperparameters, so `nerdss_n_itr`, `nerdss_time_step`, `nerdss_overlap_sep_limit` and `default_on_rate_3d_ka` apply to it as they do to the regular export. `nerdss_total_molecule_count` and `nerdss_water_box` do not: the deck holds one copy of the designed assembly, in a box of its own.
+- `structure_validation_options`: optional settings for the validation export: `box_nm` (default `(100.0, 100.0, 100.0)`), `titration_on_rate` (default `1e-5`), `target_filename` and `parms_overrides`. Entries in `parms_overrides` are written over the values the hyperparameters give, for example `{"nItr": 2000000}`.
 - `**hyperparams_kwargs`: any field accepted by `PDBModelHyperparameters`.
 
 ### Returns
@@ -50,11 +50,32 @@ A populated `System` object ready for export, simulation setup, or analysis.
 
 ## Structure validation helpers
 
+### Validation deck
+
+Every validation export — `build_system(structure_validation=True)`,
+`prepare_structure_validation_for_system`, and `setup_simulation` and `prepare` in
+`ionerdss.model.pdb.validation` — writes the same kind of deck:
+
+- It holds one copy of the designed assembly, every molecule type at its designed copy
+  number (eight `A` for an eight-subunit homomer; `setup_simulation(initial_molecule_count=n)`
+  supplies n copies), with every off-rate zero and titration reactions that add further
+  copies. The target JSON holds the designed centre of mass of every molecule instance.
+- It is written to its own directory, `structure_validation/` in the workspace, or under
+  the current working directory when there is no workspace: `parms.inp`, its titration
+  copy `parms_titrate.inp`, one `.mol` file per molecule type and the target JSON. A
+  regular export in `nerdss_files/` is left alone. `setup_simulation` and `prepare` take
+  `deck_dir=` to write it somewhere else, for example one directory per set of options.
+- Unless `parms_overrides` sets `bondedComplexWrite`, it asks NERDSS for a
+  `DATA/COMPLEXES` snapshot every `nItr / 100` steps. NERDSS writes none otherwise, and
+  the result readers then see only the final restart snapshot, which misses an assembly
+  that formed and later grew.
+- Transition counting stays off, even when the hyperparameters turn on
+  `count_transition`: the titration reactions keep adding copies, so a complex can
+  outgrow any `transitionMatrixSize`.
+
 ### `prepare_structure_validation_for_system`
 
-Prepare the special validation deck that exports one representative copy per molecule type, forces off-rates to zero, adds titration behavior, and writes the designed target coordinates for later comparison.
-
-Unless `parms_overrides` sets `bondedComplexWrite`, the deck asks NERDSS for a `DATA/COMPLEXES` snapshot every `nItr / 100` steps, as do `setup_simulation` and `prepare` in `ionerdss.model.pdb.validation` and `build_system(structure_validation=True)`. NERDSS writes none otherwise, and the result readers then see only the final restart snapshot, which misses an assembly that formed and later grew.
+Prepare the [validation deck](#validation-deck): export one copy of the designed assembly with off-rates forced to zero and titration reactions added, and write the designed target coordinates for later comparison. The files go to `structure_validation/` under the current working directory.
 
 Typical return values are packaged in `StructureValidationArtifacts`, including:
 

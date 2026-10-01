@@ -54,7 +54,7 @@ See Also:
 """
 
 import re
-from typing import Dict, Any, Iterable, Optional, List, Tuple
+from typing import Dict, Any, Iterable, Optional, List, Tuple, Union
 from dataclasses import dataclass
 from pathlib import Path
 import math
@@ -106,8 +106,13 @@ class NERDSSExporter:
 
     # --------------- constructor ------------
 
-    def __init__(self, system: System, workspace_manager: Optional[WorkspaceManager] = None):
-        """Initialize NERDSS exporter."""
+    def __init__(self, system: System, workspace_manager: Optional[WorkspaceManager] = None,
+                 output_dir: Optional[Union[str, Path]] = None):
+        """Initialize NERDSS exporter.
+
+        ``output_dir`` is the directory the files are written to. By default it is
+        ``nerdss_files/`` in the workspace, or in the current directory without one.
+        """
         self.system = system
         self.workspace_manager = workspace_manager
 
@@ -140,14 +145,16 @@ class NERDSSExporter:
         self.precalculated_rates: Dict[Tuple[str, str, str, str], Tuple[float, float]] = {}
 
         # Create NERDSS output directory in workspace
-        if workspace_manager:
+        if output_dir is not None:
+            self.output_dir = Path(output_dir)
+        elif workspace_manager:
             self.output_dir = workspace_manager.workspace_path / 'nerdss_files'
-            self.output_dir.mkdir(exist_ok=True)
-            self.workspace_manager.logger.info(
-                "Created NERDSS export directory: %s", self.output_dir)
         else:
             self.output_dir = Path("nerdss_files")
-            self.output_dir.mkdir(exist_ok=True)
+        self.output_dir.mkdir(parents=True, exist_ok=True)
+        if workspace_manager:
+            self.workspace_manager.logger.info(
+                "Created NERDSS export directory: %s", self.output_dir)
             
     # ------------- helpers -----------------
 
