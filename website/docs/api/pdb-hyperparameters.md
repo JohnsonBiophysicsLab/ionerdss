@@ -144,7 +144,7 @@ When `False`, all contacts between two chains form a single interface.
 - default: `None`
 - purpose: provide a custom Biopython aligner instead of using the built-in default global aligner
 
-If omitted, the class creates a default `PairwiseAligner` in `__post_init__`.
+If omitted, the class creates a default `PairwiseAligner` in `__post_init__`. An exported configuration keeps every setting of the aligner, including a substitution matrix and gap scores that differ between the ends and the interior; see [`to_dict()`](#to_dict).
 
 #### `chain_grouping_matching_mode`
 
@@ -501,11 +501,39 @@ This field is intentionally skipped in JSON serialization.
 
 ### `to_dict()`
 
-Serialize the hyperparameters into a regular dictionary. The custom aligner is converted into a simple parameter dictionary, and `units` is omitted.
+Serialize the hyperparameters into a regular dictionary that `json.dump` can write; `units` is omitted. The custom aligner becomes a dictionary of everything needed to rebuild it. For a BLOSUM62 aligner with free end gaps:
+
+```json
+"chain_grouping_custom_aligner": {
+  "mode": "global",
+  "substitution_matrix": "BLOSUM62",
+  "target_internal_open_gap_score": -10.0,
+  "target_internal_extend_gap_score": -0.5,
+  "target_left_open_gap_score": 0.0,
+  "target_left_extend_gap_score": 0.0,
+  "target_right_open_gap_score": 0.0,
+  "target_right_extend_gap_score": 0.0,
+  "query_internal_open_gap_score": -10.0,
+  "query_internal_extend_gap_score": -0.5,
+  "query_left_open_gap_score": 0.0,
+  "query_left_extend_gap_score": 0.0,
+  "query_right_open_gap_score": 0.0,
+  "query_right_extend_gap_score": 0.0,
+  "wildcard": null,
+  "epsilon": 1e-06
+}
+```
+
+- An aligner without a substitution matrix has `match_score` and `mismatch_score` in place of `substitution_matrix`. A matrix that `Bio.Align.substitution_matrices.load` provides, unmodified, is saved by name; any other is saved as `{"alphabet": ..., "values": [[...], ...]}`.
+- The twelve gap scores are saved one by one, named by the sequence the gap is in (`target` or `query`), where it is (`internal`, `left` end or `right` end), and whether it opens or extends the gap. These are the attribute names up to Biopython 1.85, which every Biopython version can set; Biopython 1.86 calls a gap in the target an insertion and one in the query a deletion (`open_internal_insertion_score`). Saving every score keeps aligners whose end and internal gap scores differ, for which Biopython's combined `open_gap_score` raises an error, and makes the file independent of Biopython's default gap score, which 1.86 changed from 0 to -1.
+
+An aligner that scores gaps with a function cannot be saved: `to_dict` raises `ValueError` for it, and so does everything that calls it, such as `export_hyperparameters`, `print_hyperparameters` and `SystemBuilder.get_summary`. An aligner that is not a `PairwiseAligner` raises `TypeError`.
 
 ### `from_dict(data)`
 
-Reconstruct a `PDBModelHyperparameters` instance from serialized data. This also restores tuple handling for `ode_time_span` and rebuilds a `PairwiseAligner` when aligner settings are provided. Keys that are not fields are ignored, which is also why a misspelled keyword passed to `PDBModelBuilder.build_system(**kwargs)` has no effect.
+Reconstruct a `PDBModelHyperparameters` instance from serialized data. Keys that are not fields are ignored, which is also why a misspelled keyword passed to `PDBModelBuilder.build_system(**kwargs)` has no effect. This also restores tuple handling for `ode_time_span` and rebuilds the `PairwiseAligner` from its settings, as written by `to_dict` or as the five that ionerdss 2.2.5 and earlier wrote: `mode`, `match_score`, `mismatch_score`, `open_gap_score` and `extend_gap_score`. Any other `PairwiseAligner` attribute in the aligner settings is set as well, and the gap scores may also carry their Biopython 1.86 names; a key that is not an attribute is skipped with a `UserWarning`. The twelve individual gap scores are applied last, so one added to a saved file overrides `open_gap_score` or `extend_gap_score` wherever it stands. A `PairwiseAligner` given in place of its settings is kept as it is.
+
+ionerdss 2.2.5 and earlier saved an aligner with a substitution matrix as `"match_score": null, "mismatch_score": null`, leaving the matrix out. Loading such a file raises `ValueError`; name the matrix in the aligner settings, as in `"substitution_matrix": "BLOSUM62"`, or delete the `chain_grouping_custom_aligner` entry to use the default aligner.
 
 ### `validate()`
 
