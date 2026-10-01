@@ -2,13 +2,9 @@
 
 ## 1. Environment Setup
 
-1.  **Install Dependencies**:
+1.  **Install Dependencies** (an editable install with the test extra, as CI does):
     ```bash
-    pip install numpy pandas matplotlib seaborn scipy pytest
-    ```
-2.  **Install Pre-commit Hooks** (Optional but recommended):
-    ```bash
-    pre-commit install
+    pip install -e ".[test]"
     ```
 
 ## 2. Project Structure
@@ -16,7 +12,8 @@
 *   `core/`: Defines data types (`types.py`) and the `Simulation` class. **Do not import high-level modules (like `api`) here** to avoid circular imports.
 *   `io/`: Handles file reading and parsing. **No plotting code here.**
 *   `processing/`: Pure math and scientific calculations. **No file I/O or plotting here.**
-*   `visualization/`: Plotting code. **Input is always DataFrames/Arrays, never file paths.**
+*   `visualization/`: Plotting code. **Input is always DataFrames/Arrays, never file paths** — except the movie renderers `trajectory_movie.py` and the deprecated `pymol_movie.py`, which read a run's frames from disk.
+*   `legacy/`: `LegacyPlotInterface`, the bridge from the old `plot_figure` calls to `Analyzer.plot`.
 
 ## 3. Extending Data Support (How to Add a New Parser)
 
@@ -56,13 +53,15 @@ Update `core/simulation.py` to identify the file and call your parser.
 
 ```python
 # core/simulation.py
+from ..io.parser import parse_energy_data  # next to the existing parser imports
+
 class Simulation:
     def load(self):
         # ... existing file definitions ...
         energy_file = self.path / "DATA" / "energy_time.dat"
 
         # ... Call your parser ...
-        energy_df = parser.parse_energy_data(energy_file)
+        energy_df = parse_energy_data(energy_file)
 
         # ... Store in SimulationData ...
         self._data = SimulationData(
@@ -87,19 +86,19 @@ class Simulation:
         ...
     ```
 3.  **Expose in `api.py`**:
-    Add a wrapper method in `Analyzer.plot` or `Analyzer`.
+    Add a wrapper method to the `Plotter` class (reached as `analyzer.plot`) or to `Analyzer`.
 
 ## 5. Testing
 
 Run tests using `pytest`:
 
 ```bash
-pytest tests/analysis/
+python -m pytest developer_tests/unit/analysis/
 ```
 
 ### Writing Tests
 *   **Unit Tests**: Test individual functions in `processing/` using mock NumPy arrays.
-*   **Integration Tests**: Test `io/` using a small sample data file (stored in `tests/data/`).
+*   **Integration Tests**: Test `io/` using a small sample data file (stored in `developer_tests/data/`).
 
 ## 6. Code Style
 
