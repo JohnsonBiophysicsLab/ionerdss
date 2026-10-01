@@ -115,16 +115,6 @@ def test_interfaces_follow_their_molecule():
         assert np.allclose(sorted(after), sorted(offsets_before[inst.name]), atol=1e-9)
 
 
-def test_refuses_when_a_subunit_would_move_too_far():
-    # A ring so distorted that snapping it would relocate subunits wholesale.
-    system = _ring_system(4, z_jitter=np.array([0.0, 40.0, 0.0, -40.0]))
-    regularizer = SymmetryRegularizer(system, com_shift_cap=1.0)
-    coms_before = [np.array(inst.com, float) for inst in _ordered(system)]
-    regularizer.apply("auto")
-    for before, inst in zip(coms_before, _ordered(system)):
-        assert np.allclose(before, np.asarray(inst.com, float))
-
-
 def test_leaves_non_cyclic_assemblies_alone():
     system = _ring_system(4)
     # Break the cycle: one subunit loses a partner, leaving an open chain.
@@ -265,6 +255,69 @@ def test_distorted_contact_cycle_is_still_none():
     detection = SymmetryRegularizer(system).detect()
     assert detection.group == "none"
     assert "cycle of 4 is not 4-fold symmetric" in detection.reason
+
+
+# --------------------------------------------------------------------------
+# COM shift cap: com_shift_cap_ang is in Å and system coordinates are in nm.
+# Comparing the two directly made the cap ten times looser than documented. A
+# cap at half the shift a ring needs must refuse it and one at twice must not,
+# which catches a factor-of-ten slip in either direction.
+# --------------------------------------------------------------------------
+
+from ionerdss.model.pdb.hyperparameters import PDBModelHyperparameters
+from ionerdss.model.pdb.system_builder import SystemBuilder
+
+# One subunit 0.01 rad off its ideal angle on a 5 nm ring: snapping it moves that
+# subunit by about 0.3 Å, which is 0.03 in the system's nm.
+_ONE_SUBUNIT_OFF = dict(radius=5.0, angle_jitter=np.array([0.0, 0.01, 0.0, 0.0, 0.0]))
+
+
+def _coms(system):
+    return np.array([inst.com for inst in _ordered(system)], float)
+
+
+def _snap_shift_ang():
+    """How far regularization moves the worst subunit of that ring, in Å."""
+    system = _ring_system(5, **_ONE_SUBUNIT_OFF)
+    before = _coms(system)
+    assert SymmetryRegularizer(system, com_shift_cap_ang=np.inf).apply("auto") is True
+    return 10.0 * float(np.linalg.norm(_coms(system) - before, axis=1).max())
+
+
+@pytest.mark.parametrize("cap_over_shift, applied", [(0.5, False), (2.0, True)])
+def test_com_shift_cap_is_in_angstrom(cap_over_shift, applied):
+    shift = _snap_shift_ang()
+    system = _ring_system(5, **_ONE_SUBUNIT_OFF)
+    before = _coms(system)
+
+    regularizer = SymmetryRegularizer(system, com_shift_cap_ang=cap_over_shift * shift)
+
+    assert regularizer.apply("auto") is applied
+    moved = not np.allclose(_coms(system), before)
+    assert moved is applied
+
+
+@pytest.mark.parametrize("cap_over_shift, applied", [(0.5, False), (2.0, True)])
+def test_builder_applies_the_hyperparameter_cap_in_angstrom(cap_over_shift, applied):
+    # The route the bug took: the builder handed com_shift_cap_ang over as a bare
+    # number, and the regularizer compared it against shifts in nm.
+    shift = _snap_shift_ang()
+    system = _ring_system(5, **_ONE_SUBUNIT_OFF)
+    before = _coms(system)
+
+    builder = SystemBuilder.__new__(SystemBuilder)
+    builder.hyperparams = PDBModelHyperparameters(
+        geometric_regularization="auto", com_shift_cap_ang=cap_over_shift * shift)
+    builder.workspace_manager = None
+    # Steps 1-4 build the system from a parsed structure; hand over the ring instead.
+    builder._create_molecule_instances = lambda: []
+    builder._create_interface_instances = lambda: []
+    builder._establish_cross_references = lambda: None
+    builder._create_system = lambda: setattr(builder, "system", system)
+    builder._build_system()
+
+    moved = not np.allclose(_coms(system), before)
+    assert moved is applied
 
 
 # --------------------------------------------------------------------------
