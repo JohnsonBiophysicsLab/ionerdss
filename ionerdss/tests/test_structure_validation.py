@@ -1005,7 +1005,7 @@ def test_run_structure_validation_simulation_prefers_complex_json(monkeypatch, t
         lambda path: (np.asarray([]), [], None),
     )
 
-    result = run_structure_validation_simulation(artifacts, nerdss_dir=tmp_path / "bin")
+    result = run_structure_validation_simulation(artifacts, nerdss_path=tmp_path / "bin")
 
     assert result.full_assembly_found is True
     assert result.warning_message is None
@@ -1065,7 +1065,7 @@ def test_run_structure_validation_simulation_falls_back_to_restart_with_warning(
         ),
     )
 
-    result = run_structure_validation_simulation(artifacts, nerdss_dir=tmp_path / "bin")
+    result = run_structure_validation_simulation(artifacts, nerdss_path=tmp_path / "bin")
 
     assert result.full_assembly_found is True
     assert "no COMPLEXES JSON snapshots were found" in (result.warning_message or "")
@@ -1120,7 +1120,7 @@ def test_run_structure_validation_simulation_passes_env_to_nerdss(monkeypatch, t
 
     run_structure_validation_simulation(
         artifacts,
-        nerdss_dir=tmp_path / "bin",
+        nerdss_path=tmp_path / "bin",
         env={"LD_LIBRARY_PATH": "/opt/gsl/lib"},
     )
 
@@ -1137,6 +1137,7 @@ def test_run_new_simulations_merges_env_onto_os_environ(monkeypatch, tmp_path):
     nerdss_bin_dir = tmp_path / "NERDSS" / "bin"
     nerdss_bin_dir.mkdir(parents=True)
     (nerdss_bin_dir / "nerdss").write_text("#!/bin/sh\n", encoding="utf-8")
+    (nerdss_bin_dir / "nerdss").chmod(0o755)
 
     captured = {}
 
@@ -1157,7 +1158,7 @@ def test_run_new_simulations_merges_env_onto_os_environ(monkeypatch, tmp_path):
     simulation = Simulation(str(work_dir))
     simulation.run_new_simulations(
         sim_dir=str(tmp_path / "out"),
-        nerdss_dir=str(tmp_path / "NERDSS"),
+        nerdss_path=str(tmp_path / "NERDSS"),
         progress=False,
         verbose=False,
         env={"LD_LIBRARY_PATH": "/opt/gsl/lib"},
@@ -1168,7 +1169,7 @@ def test_run_new_simulations_merges_env_onto_os_environ(monkeypatch, tmp_path):
 
     simulation.run_new_simulations(
         sim_dir=str(tmp_path / "out"),
-        nerdss_dir=str(tmp_path / "NERDSS"),
+        nerdss_path=str(tmp_path / "NERDSS"),
         progress=False,
         verbose=False,
     )
@@ -1274,6 +1275,7 @@ def _prepare_run_new_simulations_dirs(tmp_path):
     nerdss_bin_dir = tmp_path / "NERDSS" / "bin"
     nerdss_bin_dir.mkdir(parents=True)
     (nerdss_bin_dir / "nerdss").write_text("#!/bin/sh\n", encoding="utf-8")
+    (nerdss_bin_dir / "nerdss").chmod(0o755)
     return work_dir
 
 
@@ -1294,7 +1296,7 @@ def test_run_new_simulations_raises_when_nerdss_exits_nonzero(monkeypatch, tmp_p
     with pytest.raises(RuntimeError) as excinfo:
         simulation.run_new_simulations(
             sim_dir=str(tmp_path / "out"),
-            nerdss_dir=str(tmp_path / "NERDSS"),
+            nerdss_path=str(tmp_path / "NERDSS"),
             progress=False,
             verbose=False,
         )
@@ -1320,7 +1322,7 @@ def test_run_new_simulations_waits_when_verbose_without_progress(monkeypatch, tm
     simulation = Simulation(str(work_dir))
     simulation.run_new_simulations(
         sim_dir=str(tmp_path / "out"),
-        nerdss_dir=str(tmp_path / "NERDSS"),
+        nerdss_path=str(tmp_path / "NERDSS"),
         progress=False,
         verbose=True,
     )
@@ -1345,7 +1347,7 @@ def test_run_new_simulations_waits_for_parallel_runs_when_quiet(monkeypatch, tmp
     simulation.run_new_simulations(
         sim_indices=[1, 2],
         sim_dir=str(tmp_path / "out"),
-        nerdss_dir=str(tmp_path / "NERDSS"),
+        nerdss_path=str(tmp_path / "NERDSS"),
         parallel=True,
         progress=False,
         verbose=False,

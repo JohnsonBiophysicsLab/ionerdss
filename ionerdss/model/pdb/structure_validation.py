@@ -1832,27 +1832,36 @@ def _get_largest_restart_component_size_in_snapshots(primary_restart_file: Union
 
 def run_structure_validation_simulation(
     artifacts: StructureValidationArtifacts,
-    nerdss_dir: Union[str, Path],
+    nerdss_path: Optional[Union[str, Path]] = None,
     *,
     sim_index: int = 1,
     sim_dir_name: str = "validation_output",
     env: Optional[Mapping[str, str]] = None,
+    nerdss_dir: Optional[Union[str, Path]] = None,
 ) -> StructureValidationSimulationResult:
     """Run a real NERDSS validation simulation and extract one full assembly if present.
+
+    ``nerdss_path`` is the NERDSS executable, or a directory containing ``nerdss`` or
+    ``nerdss_mpi`` directly or in its ``bin/`` (for example a NERDSS checkout); ``None``
+    looks the executable up on ``PATH``. See
+    :func:`ionerdss.nerdss_simulation.resolve_nerdss_executable`. ``nerdss_dir`` is a
+    deprecated alias for it.
 
     ``env`` holds environment variables the NERDSS executable needs, for example
     ``{"LD_LIBRARY_PATH": "/path/to/gsl/lib"}``. The entries are merged on top of the
     current ``os.environ``, so only the overrides need to be passed.
     """
     from ionerdss.nerdss_simulation import Simulation
+    from ionerdss.nerdss_simulation.executable import _merge_deprecated_nerdss_dir
 
+    nerdss_path = _merge_deprecated_nerdss_dir(nerdss_path, nerdss_dir, "run_structure_validation_simulation")
     work_dir = Path(artifacts.nerdss_files["parms"]).parent
     simulation = Simulation(str(work_dir))
     simulation.parmfile = artifacts.nerdss_files.get("parms_titrate", artifacts.nerdss_files["parms"]).name
     simulation.run_new_simulations(
         sim_indices=[sim_index],
         sim_dir=str(work_dir / sim_dir_name),
-        nerdss_dir=str(Path(nerdss_dir).expanduser()),
+        nerdss_path=None if nerdss_path is None else str(nerdss_path),
         parallel=False,
         progress=False,
         verbose=False,
