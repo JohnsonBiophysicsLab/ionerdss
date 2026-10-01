@@ -120,14 +120,16 @@ class Simulation:
                 all_lifetimes.extend(record["lifetimes"][cluster_size])
         return all_lifetimes
 
-    def get_time_series(self, complex_name: Union[str, list[str], dict, list[dict]]) -> tuple[npt.NDArray[np.float64], dict[Union[str,dict], npt.NDArray[np.float64]]]:
+    def get_time_series(self, complex_name: Union[str, list[str], dict, list[dict]]) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]:
         """
         Time series for counts of given complexes (compositions) as found in the histogram complexes file.
-        Accepts a single compisition or a list of compositions for complex_name.
+        Accepts a single composition or a list of compositions for complex_name.
         Complex can be specified by string (e.g. "A: 84. c1: 75. L: 84.") or by dictionary (e.g. {"A": 84, "c1": 75, "L": 84}).
 
         Returns:
-            time (1D numpy array length N), counts (1D array if single species, or MxN numpy array where M=len(species_name) )
+            time (1D numpy array length N), counts (1D array of length N for a single composition,
+            or an MxN numpy array where M=len(complex_name); a composition absent from the
+            histogram gets a row of zeros)
         """
         if not isinstance(complex_name, list):
             complex_name = [complex_name]

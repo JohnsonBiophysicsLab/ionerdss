@@ -18,7 +18,8 @@ Modules:
 
 Key Features:
     - Automatic interface detection via KD-tree spatial queries
-    - Multiple chain grouping strategies (header, sequence, structure)
+    - Multiple chain grouping strategies (header, sequence, structure,
+      sequence + structure)
     - Template-based regularization across symmetry mates
     - Steric clash detection for mutually exclusive interfaces
     - Complete system serialization support
@@ -31,8 +32,8 @@ Example Usage:
     builder = PDBModelBuilder("1ABC.pdb")
     system = builder.build_system(
         workspace_path="/path/to/workspace",
-        distance_cutoff=0.6,  # nm
-        matching_mode="default"
+        interface_detect_distance_cutoff=0.6,  # nm
+        chain_grouping_matching_mode="default"
     )
     
     # Save complete system

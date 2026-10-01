@@ -23,7 +23,7 @@ and a `parms.inp` file with reaction parameters and simulation settings.
     - **Reference vectors**: Unit vectors defining molecule orientation in global frame
 
 **Key Methods:**
-    - ``export()``: Main export method - generates all NERDSS files
+    - ``export_all()``: Main export method - generates all NERDSS files
     - ``_write_mol_file()``: Creates .mol file for each molecule type
     - ``_write_parms_file()``: Creates parms.inp with all reactions
     - ``_generate_reaction_angles()``: Calculates binding angles (θ, φ, ω)

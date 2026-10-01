@@ -6,17 +6,19 @@ ionerdss.model.pdb.chain_grouping
 Repeated chain detection and classification.
 
 This module implements multiple strategies for detecting repeated (symmetry-related
-or highly similar) protein chains, including header-based, sequence-based, and
-structure-based grouping methods. This is essential for identifying biological
-assemblies, symmetry relationships, and reducing computational complexity by
-treating similar chains as equivalent entities.
+or highly similar) protein chains, including header-based, sequence-based,
+structure-based, and combined sequence-and-structure grouping methods. This is
+essential for identifying biological assemblies, symmetry relationships, and
+reducing computational complexity by treating similar chains as equivalent
+entities.
 
 ## Key Concepts
 
 ### Chain Groups
 A **chain group** represents a collection of protein chains that are considered
 equivalent based on structural, sequence, or metadata similarity. Each group has:
-- A **representative chain**: The first chain encountered in the group
+- A **representative chain**: The member with the most interfaces (ties go to
+the alphabetically first chain ID)
 - **Member chains**: All chains belonging to the group
 - **Grouping method**: The strategy used to create the group
 
@@ -25,6 +27,8 @@ The module supports multiple strategies with automatic fallback:
 1. **Header-based**: Uses mmCIF entity information (fastest, most reliable)
 2. **Sequence-based**: Compares amino acid sequences using alignment scores
 3. **Structure-based**: Performs 3D structural superposition and RMSD calculation
+4. **Sequence + structure**: Requires both the sequence and the structure test
+to pass, which separates quasi-equivalent conformers of one sequence
 
 ## Classes
 
@@ -41,7 +45,7 @@ class ChainGroup:
 - `representative`: Chain ID of the group representative
 - `members`: Sorted list of all chain IDs in the group
 - `grouping_method`: Method used to create this group ("header", "sequence",
-"structure", "singleton")
+"structure", "sequence_structure", "singleton")
 
 **Methods:**
 - `__len__()`: Returns number of chains in group
@@ -85,7 +89,7 @@ Compares amino acid sequences using pairwise alignment scores.
 1. Extract sequences for all chains
 2. Perform pairwise sequence alignments
 3. Calculate identity score: `alignment_score / max(len(seq1), len(seq2))`
-4. Group chains with identity ≥ threshold (default: 0.8)
+4. Group chains with identity ≥ threshold (default: 0.5)
 
 **Example:**
 ```python
@@ -101,7 +105,8 @@ Performs 3D structural superposition using Cα atoms.
 
 **Algorithm:**
 1. Extract Cα coordinates for all chains
-2. Perform pairwise structural superposition
+2. Perform pairwise structural superposition (only chains with the same number
+of Cα atoms can match)
 3. Calculate RMSD after optimal alignment
 4. Group chains with RMSD ≤ threshold (default: 2.0 Å)
 
@@ -110,6 +115,19 @@ Performs 3D structural superposition using Cα atoms.
 # Chain A: RMSD = 0.5 Å vs Chain B → Similar
 # Chain A: RMSD = 5.2 Å vs Chain C → Different
 # Result: Group 1 = [A, B], Group 2 = [C]
+```
+
+### 4. Sequence + Structure Grouping (Explicit Mode)
+
+Groups two chains only if they pass the sequence test *and* superimpose within
+the RMSD threshold. The Cα atoms are paired by matching the two chains' residue
+sequences, so copies that model different loops can still be compared.
+
+**Example:**
+```python
+# Chains A, B, C share one sequence; A and B adopt one conformation, C another
+# "sequence" mode:           Group 1 = [A, B, C]
+# "sequence_structure" mode: Group 1 = [A, B], Group 2 = [C]
 ```
 
 ## Usage Examples
@@ -121,7 +139,7 @@ from ionerdss.model.pdb.chain_grouping import ChainGrouper
 from ionerdss.model.pdb.hyperparameters import PDBModelHyperparameters
 
 # Initialize with default settings
-hyperparams = PDBModelHyperparameters(matching_mode="default")
+hyperparams = PDBModelHyperparameters(chain_grouping_matching_mode="default")
 grouper = ChainGrouper(parser, coarse_grainer, hyperparams)
 
 # Get all groups
@@ -136,8 +154,8 @@ for group in groups:
 ```python
 # Force sequence-based grouping with custom threshold
 hyperparams = PDBModelHyperparameters(
-    matching_mode="sequence",
-    seq_threshold=0.9  # 90% sequence identity required
+    chain_grouping_matching_mode="sequence",
+    chain_grouping_seq_threshold=0.9  # 90% sequence identity required
 )
 grouper = ChainGrouper(parser, coarse_grainer, hyperparams)
 ```
@@ -147,8 +165,19 @@ grouper = ChainGrouper(parser, coarse_grainer, hyperparams)
 ```python
 # Use structural similarity with tight RMSD threshold
 hyperparams = PDBModelHyperparameters(
-    matching_mode="structure",
-    rmsd_threshold=1.5  # 1.5 Å RMSD threshold
+    chain_grouping_matching_mode="structure",
+    chain_grouping_rmsd_threshold=1.5  # 1.5 Å RMSD threshold
+)
+grouper = ChainGrouper(parser, coarse_grainer, hyperparams)
+```
+
+### Sequence + Structure Grouping
+
+```python
+# Separate conformers of one sequence that differ by more than 1 Å RMSD
+hyperparams = PDBModelHyperparameters(
+    chain_grouping_matching_mode="sequence_structure",
+    chain_grouping_rmsd_threshold=1.0
 )
 grouper = ChainGrouper(parser, coarse_grainer, hyperparams)
 ```
@@ -186,10 +215,10 @@ Configure grouping behavior through `PDBModelHyperparameters`:
 
 ```python
 hyperparams = PDBModelHyperparameters(
-    matching_mode="default",      # "default", "sequence", "structure"
-    seq_threshold=0.8,           # Sequence identity threshold (0.0-1.0)
-    rmsd_threshold=2.0,          # RMSD threshold in Angstroms
-    custom_aligner=None          # Custom sequence aligner (optional)
+    chain_grouping_matching_mode="default",  # "default", "sequence", "structure", "sequence_structure"
+    chain_grouping_seq_threshold=0.5,        # Sequence identity threshold (0.0-1.0)
+    chain_grouping_rmsd_threshold=2.0,       # RMSD threshold in Angstroms
+    chain_grouping_custom_aligner=None       # Custom PairwiseAligner (None: default global aligner)
 )
 ```
 
@@ -200,16 +229,17 @@ hyperparams = PDBModelHyperparameters(
 | `"default"` | Header-based with sequence fallback | General use, recommended |
 | `"sequence"` | Force sequence-based grouping | When header info unreliable |
 | `"structure"` | Force structure-based grouping | Structural similarity focus |
+| `"sequence_structure"` | Sequence and structure tests must both pass | Quasi-equivalent conformers of one sequence |
 
 ### Thresholds
 
-**Sequence Threshold (`seq_threshold`):**
+**Sequence Threshold (`chain_grouping_seq_threshold`):**
 - Range: 0.0 - 1.0
-- Default: 0.8 (80% identity)
+- Default: 0.5 (50% identity)
 - Higher values = stricter grouping
 - Lower values = more permissive grouping
 
-**RMSD Threshold (`rmsd_threshold`):**
+**RMSD Threshold (`chain_grouping_rmsd_threshold`):**
 - Range: > 0.0 Angstroms
 - Default: 2.0 Å
 - Lower values = stricter structural similarity
@@ -224,7 +254,7 @@ hyperparams = PDBModelHyperparameters(
 identity = alignment_score / max(len(sequence1), len(sequence2))
 
 # Grouping decision
-if identity >= seq_threshold:
+if identity >= chain_grouping_seq_threshold:
     # Add to same group
 ```
 
@@ -236,13 +266,14 @@ if identity >= seq_threshold:
 rmsd = grouper._kabsch_rmsd(coords1, coords2)
 
 # Grouping decision
-if rmsd <= rmsd_threshold:
+if rmsd <= chain_grouping_rmsd_threshold:
     # Add to same group
 ```
 
 ### Short Chain Handling
 
-For chains with < 3 Cα atoms, structure-based grouping uses distance-based comparison:
+For chains with < 3 Cα atoms, structure-based grouping uses distance-based
+comparison (sequence + structure grouping never groups them):
 
 ```python
 # Calculate mean distance between corresponding atoms
@@ -250,13 +281,13 @@ distances = np.linalg.norm(coords1 - coords2, axis=1)
 mean_distance = np.mean(distances)
 
 # Use mean distance as similarity measure
-similar = mean_distance <= rmsd_threshold
+similar = mean_distance <= chain_grouping_rmsd_threshold
 ```
 
 ### Fallback Strategy
 
 ```python
-if matching_mode == "default":
+if chain_grouping_matching_mode == "default":
     success = group_by_header()
     if not success:
         group_by_sequence()  # Automatic fallback
@@ -269,8 +300,9 @@ if matching_mode == "default":
 | Method | Time Complexity | Space Complexity | Notes |
 |--------|----------------|------------------|-------|
 | Header-based | O(n) | O(n) | Fastest, linear scan |
-| Sequence-based | O(n² × L) | O(n × L) | L = average sequence length |
+| Sequence-based | O(n² × L²) | O(n × L) | L = average sequence length (global alignment per pair) |
 | Structure-based | O(n² × m) | O(n × m) | m = average structure size |
+| Sequence + structure | O(n² × L²) | O(n × L) | Superposition only for pairs that pass the sequence test |
 
 ## Troubleshooting
 
@@ -289,9 +321,9 @@ print(f"Groups created: {summary['num_groups']}")
 
 #### 2. All Chains in Separate Groups
 ```python
-# Lower thresholds for more permissive grouping
-hyperparams.seq_threshold = 0.5    # Lower sequence threshold
-hyperparams.rmsd_threshold = 5.0   # Higher RMSD threshold
+# Loosen the thresholds before grouping (ChainGrouper groups on construction)
+hyperparams.chain_grouping_seq_threshold = 0.3   # Lower sequence threshold
+hyperparams.chain_grouping_rmsd_threshold = 5.0  # Higher RMSD threshold
 ```
 
 #### 3. Alignment Errors
@@ -313,8 +345,10 @@ for chain_id in chain_ids:
 ```
 
 Chain groups are used downstream for:
-- **Template creation**: One template per group
-- **Interface detection**: Between group representatives
+- **Template creation**: One molecule template per group, built from the
+representative's geometry
+- **Interface templates**: Interfaces are detected between all chain pairs before
+grouping; each is then assigned to the templates of its two chains' groups
 - **System building**: Instances based on groups
 - **Simulation setup**: Reduced complexity through grouping
 
@@ -337,7 +371,9 @@ class ChainGroup:
     """Represents a group of repeated/similar chains.
 
     Attributes:
-        representative: Chain ID of the group representative (first encountered).
+        representative: Chain ID of the group representative (ChainGrouper picks
+            the member with the most interfaces, ties going to the alphabetically
+            first).
         members: List of all chain IDs in the group.
         grouping_method: Method used to create this group.
     """
@@ -361,6 +397,7 @@ class ChainGrouper:
     - Header-based: Uses mmCIF entity information
     - Sequence-based: Uses sequence alignment similarity
     - Structure-based: Uses structural superposition RMSD
+    - Sequence + structure: Requires both the sequence and the RMSD test
 
     Attributes:
         parser: PDB parser with structure data.

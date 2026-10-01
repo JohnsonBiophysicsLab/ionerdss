@@ -116,7 +116,7 @@ def _build_molecule_template(self, group: ChainGroup) -> None:
 **Template Properties**:
 ```python
 molecule_template = MoleculeType(
-    name="ProteinA",                    # Unique template name
+    name="A",                           # Unique template name (representative chain)
     radius_nm=1.5,                      # Radius in nanometers
     diffusion_constants_calculated=True  # Auto-calculated from radius
 )
@@ -125,7 +125,7 @@ molecule_template = MoleculeType(
 molecule_template.signature = {
     'group_representative': 'A',
     'group_members': ['A', 'C', 'E'],
-    'grouping_method': 'sequence_similarity',
+    'grouping_method': 'header',
     'original_chain_names': ['A', 'C', 'E']
 }
 ```
@@ -151,12 +151,14 @@ def _build_all_interface_templates(self) -> None:
 # Preferred: Use representative chain name
 "A" → "A"
 
-# Conflict resolution: Add descriptive suffix
-"A" (taken) → "A_group"
+# Conflict resolution for a group with several members: suffix 0
+"A" (taken) → "A0"
 
-# Final fallback: Numeric suffix
-"A_group" (taken) → "A_1"
+# Final fallback: Numeric suffix counting up from 1
+"A0" (taken), or a single-member group → "A1", "A2", ...
 ```
+
+No underscore is used: NERDSS names may only contain letters and digits.
 
 **Interface Templates**:
 ```python

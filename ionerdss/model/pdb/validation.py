@@ -6,8 +6,8 @@ stable `ionerdss.model.pdb.validation` entry point.
 
 Current logic:
 
-1. Define the target composition from the designed one-copy validation system.
-In structure_validation.py, get_structure_validation_counts() builds the expected full assembly as one representative copy of each molecule type, for example {"A": 1, "H": 1, "L": 1}.
+1. Define the target composition from the designed assembly.
+In structure_validation.py, get_structure_validation_counts() counts every molecule instance of the designed system, so the expected full assembly carries the deposited stoichiometry, for example {"A": 2, "B": 2} for an A2B2 heterotetramer. The deck starts with these counts (times initial_molecule_count), and titration adds further subunits.
 
 2. Run the actual NERDSS validation simulation with that target in mind.
 run_structure_validation_simulation(...) uses parms_titrate.inp, runs NERDSS, then looks for a matching full assembly in `DATA/COMPLEXES/*.json`. These JSON snapshots are the primary source for both existence checks and observed COM extraction.
@@ -58,7 +58,7 @@ def prepare(
     designed_coordinates: Optional[Mapping[str, Sequence[float]]] = None,
     interface_com_proximity_threshold_nm: Optional[float] = None,
 ) -> StructureValidationArtifacts:
-    """Prepare the one-copy-per-type irreversible validation simulation.
+    """Prepare the irreversible, titrated validation simulation for one copy of the designed assembly.
 
     ``interface_com_proximity_threshold_nm`` sets how close to its molecule's centre
     of mass a reacting interface site may sit before the preflight check reports it;
@@ -93,7 +93,10 @@ def setup_simulation(
     designed_coordinates: Optional[Mapping[str, Sequence[float]]] = None,
     interface_com_proximity_threshold_nm: Optional[float] = None,
 ) -> StructureValidationArtifacts:
-    """Set up the validation simulation with one of each, titration, and irreversible binding.
+    """Set up the validation simulation: the designed assembly's subunits, titration, and irreversible binding.
+
+    The deck starts with every molecule type as often as it occurs in the designed
+    assembly, multiplied by ``initial_molecule_count``.
 
     ``interface_com_proximity_threshold_nm`` sets how close to its molecule's centre
     of mass a reacting interface site may sit before the preflight check reports it;

@@ -35,8 +35,7 @@ workspace/
     ├── template_overview.png
     ├── {PDB_ID}_coarse_grained.cif
     ├── {PDB_ID}_visualization.pml
-    ├── {PDB_ID}_comparison.png
-    └── visualization_summary.txt
+    └── visualization_summary.txt   # only from generate_summary_report()
 ```
 
 **Consistent Naming**: All outputs use PDB ID and descriptive names
@@ -220,7 +219,7 @@ color blue, name INT
 **Interactive Elements**:
 ```python
 # Create pseudoatoms for better control
-pseudoatom com_A, pos=[0.000, 0.000, 0.000], color=red, label=ProteinA
+pseudoatom com_A, pos=[0.000, 0.000, 0.000], color=red, label=A
 
 # Create distance measurements
 distance interface1, int_A_1, int_B_1
@@ -228,11 +227,10 @@ set dash_width, 4, interface1
 color green, interface1
 ```
 
-**Multiple Views**:
-- **Comparison view**: Original + coarse-grained overlay
-- **Side view**: Profile perspective
-- **Top view**: Plan perspective
-- **High-resolution images**: 1200x1200 at 300 DPI
+**View**:
+- **Overlay**: Original cartoon and coarse-grained model together, on a white
+background, zoomed to fit
+- No images are saved; render them from PyMOL after loading the script
 
 
 ## Usage Examples

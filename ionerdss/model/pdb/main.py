@@ -79,21 +79,35 @@ class PDBModelBuilder:
 
         Args:
             workspace_path: Path for workspace directory.
-            distance_cutoff: Contact search radius in nm. Default 0.9.
-            residue_cutoff: Minimum contacting residues per chain. Default 2.
-            rmsd_threshold: RMSD threshold for structure grouping in Å. Default 2.0.
-            seq_threshold: Sequence similarity threshold. Default 0.5.
-            matching_mode: Chain grouping mode. Default "default".
-            steric_clash_mode: Steric clash detection mode. Default "off".
-            units: Unit system. Defaults to standard units.
-            generate_visualizations: Whether to generate visualization outputs. Default True.
-            generate_nerdss_files: Whether to generate NERDSS simulation files. Default False.
-            molecule_counts: Number of molecules per type for NERDSS. Default 10 each.
-            box_nm: Simulation box size in nm for NERDSS. Default (100, 100, 100).
-            structure_validation: Export the one-copy-per-type validation setup.
-            structure_validation_options: Options for validation export.
-            nerdss_params: Additional NERDSS parameters. Default None.
-            **kwargs: Additional hyperparameters.
+            hyperparams: Hyperparameters to use. Defaults to the builder's own
+                (passed to the constructor or set with set_hyperparameters()),
+                else PDBModelHyperparameters().
+            molecule_counts: Copies of each molecule type in the NERDSS deck, keyed
+                by molecule type name. Default: nerdss_total_molecule_count (75)
+                split across the types in proportion to their copy number in the
+                structure, each rounded up.
+            box_nm: Fallback NERDSS box size in nm, used only when the
+                nerdss_water_box hyperparameter (default [500, 500, 500]) is empty.
+                Also the box of the structure-validation deck unless
+                structure_validation_options['box_nm'] is given. Default
+                (100, 100, 100).
+            structure_validation: Export the structure-validation deck: the
+                subunits of one copy of the designed assembly, with irreversible
+                binding and titration.
+            structure_validation_options: Overrides for that export: 'box_nm',
+                'titration_on_rate', 'target_filename' and 'parms_overrides'.
+                Other keys are ignored.
+            nerdss_params: Entries for the parameters block of parms.inp, e.g.
+                {'timeWrite': 500}, overriding its defaults. The exception is
+                'timestep': set the nerdss_time_step hyperparameter instead, since
+                the automatically calculated time step otherwise replaces it.
+                Default None.
+            **kwargs: Any PDBModelHyperparameters field, overriding its value in
+                hyperparams -- e.g. interface_detect_distance_cutoff (default
+                0.9 nm), chain_grouping_matching_mode ("default"),
+                steric_clash_mode ("off"), generate_visualizations (True) or
+                generate_nerdss_files (True). Names must match the field names
+                exactly.
 
         Returns:
             Complete System object ready for simulation.
@@ -550,7 +564,7 @@ class PDBModelBuilder:
         target_filename: str = "structure_validation_target.json",
         parms_overrides: Optional[Dict[str, Any]] = None,
     ) -> StructureValidationArtifacts:
-        """Export the one-copy-per-type, irreversible validation simulation."""
+        """Export the irreversible, titrated validation deck for one copy of the designed assembly."""
         if self.system_builder is None:
             raise ValueError("No system has been built yet. Call build_system() first.")
 
