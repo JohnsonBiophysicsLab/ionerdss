@@ -10,10 +10,13 @@ distance cutoffs, thresholds, and algorithmic choices.
 """
 
 import difflib
+import functools
 import warnings
 from dataclasses import dataclass, field, fields
 from typing import Iterable, List, Optional, Literal
-from Bio.Align import PairwiseAligner
+
+import numpy as np
+from Bio.Align import PairwiseAligner, substitution_matrices
 
 from ionerdss.model.components.units import Units
 
@@ -321,9 +324,18 @@ class PDBModelHyperparameters:
     def to_dict(self) -> dict:
         """Convert hyperparameters to dictionary representation.
 
+        The custom aligner becomes a dictionary of everything needed to rebuild
+        it: the mode; the match and mismatch scores, or the substitution matrix
+        in their place (by name if it is a matrix that
+        ``Bio.Align.substitution_matrices.load`` provides, else as its alphabet
+        and values); the twelve gap scores one by one; the wildcard; and epsilon.
+
         Returns:
-            Dictionary containing all hyperparameter values.
-            Custom aligner is serialized as its parameter dictionary.
+            Dictionary containing all hyperparameter values except units.
+
+        Raises:
+            TypeError: If the custom aligner is not a PairwiseAligner.
+            ValueError: If the custom aligner scores gaps with a function.
         """
         result = {}
 
@@ -334,17 +346,7 @@ class PDBModelHyperparameters:
 
             # Handle special cases
             if field_name == 'chain_grouping_custom_aligner':
-                if field_value is not None:
-                    # Serialize aligner parameters
-                    result[field_name] = {
-                        'mode': getattr(field_value, 'mode', 'global'),
-                        'match_score': getattr(field_value, 'match_score', 1.0),
-                        'mismatch_score': getattr(field_value, 'mismatch_score', 0.0),
-                        'open_gap_score': getattr(field_value, 'open_gap_score', -0.5),
-                        'extend_gap_score': getattr(field_value, 'extend_gap_score', -0.5),
-                    }
-                else:
-                    result[field_name] = None
+                result[field_name] = _aligner_to_dict(field_value)
             elif field_name == 'units':
                 # Skip units field for JSON serialization
                 continue
@@ -364,7 +366,11 @@ class PDBModelHyperparameters:
         ``check_names``.
 
         Args:
-            data: Dictionary containing hyperparameter values.
+            data: Dictionary containing hyperparameter values. The custom
+                aligner may be the settings to_dict writes, the five that
+                ionerdss 2.2.5 and earlier wrote (mode, match_score,
+                mismatch_score, open_gap_score, extend_gap_score), or a
+                PairwiseAligner, which is kept as it is.
 
         Returns:
             New PDBModelHyperparameters instance.
@@ -390,14 +396,8 @@ class PDBModelHyperparameters:
         filtered_data = {}
         for key, value in data.items():
             if key in valid_fields:
-                if key == 'chain_grouping_custom_aligner' and value is not None:
-                    # Reconstruct aligner from parameters
-                    aligner = PairwiseAligner()
-                    if isinstance(value, dict):
-                        for param, param_value in value.items():
-                            if hasattr(aligner, param):
-                                setattr(aligner, param, param_value)
-                    filtered_data[key] = aligner
+                if key == 'chain_grouping_custom_aligner':
+                    filtered_data[key] = _aligner_from_dict(value)
                 elif key == 'ode_time_span' and isinstance(value, list):
                     # Convert list back to tuple (JSON serialization converts tuples to lists)
                     filtered_data[key] = tuple(value)
@@ -524,3 +524,146 @@ class PDBModelHyperparameters:
     def __repr__(self) -> str:
         """Return detailed representation of hyperparameters."""
         return self.__str__()
+
+
+# The twelve gap scores of a PairwiseAligner, keyed by the name to_dict writes each
+# under: its attribute name up to Biopython 1.85, which every Biopython version can
+# set. Biopython 1.86 renamed them (a gap in the target became an insertion, a gap in
+# the query a deletion), keeping the old names as deprecated aliases. It also changed
+# the default gap score from 0 to -1, so a saved aligner must not rely on defaults.
+_ALIGNER_GAP_SCORES = {
+    "target_internal_open_gap_score": "open_internal_insertion_score",
+    "target_internal_extend_gap_score": "extend_internal_insertion_score",
+    "target_left_open_gap_score": "open_left_insertion_score",
+    "target_left_extend_gap_score": "extend_left_insertion_score",
+    "target_right_open_gap_score": "open_right_insertion_score",
+    "target_right_extend_gap_score": "extend_right_insertion_score",
+    "query_internal_open_gap_score": "open_internal_deletion_score",
+    "query_internal_extend_gap_score": "extend_internal_deletion_score",
+    "query_left_open_gap_score": "open_left_deletion_score",
+    "query_left_extend_gap_score": "extend_left_deletion_score",
+    "query_right_open_gap_score": "open_right_deletion_score",
+    "query_right_extend_gap_score": "extend_right_deletion_score",
+}
+
+# Either name of each gap score, mapped to the one the installed Biopython has.
+_GAP_SCORE_ATTRIBUTE = {
+    name: new if hasattr(PairwiseAligner, new) else old
+    for old, new in _ALIGNER_GAP_SCORES.items()
+    for name in (old, new)
+}
+
+
+def _aligner_to_dict(aligner: Optional[PairwiseAligner]) -> Optional[dict]:
+    """Serialize every setting of a PairwiseAligner into JSON-compatible values.
+
+    The gap scores are read one by one: a combined getter such as open_gap_score
+    raises as soon as the scores it combines differ, as they do for free end gaps.
+    """
+    if aligner is None:
+        return None
+    if not isinstance(aligner, PairwiseAligner):
+        raise TypeError(
+            "chain_grouping_custom_aligner must be a Bio.Align.PairwiseAligner to be "
+            f"serialized, not {type(aligner).__name__}")
+    settings = {"mode": aligner.mode}
+    matrix = aligner.substitution_matrix
+    if matrix is None:
+        settings["match_score"] = aligner.match_score
+        settings["mismatch_score"] = aligner.mismatch_score
+    else:
+        settings["substitution_matrix"] = _substitution_matrix_to_json(matrix)
+    for key in _ALIGNER_GAP_SCORES:
+        try:
+            settings[key] = getattr(aligner, _GAP_SCORE_ATTRIBUTE[key])
+        except ValueError as error:  # Biopython: "using a gap score function"
+            raise ValueError(
+                "chain_grouping_custom_aligner scores gaps with a function, which "
+                "cannot be serialized") from error
+    settings["wildcard"] = aligner.wildcard
+    settings["epsilon"] = aligner.epsilon
+    return settings
+
+
+def _aligner_from_dict(settings) -> Optional[PairwiseAligner]:
+    """Rebuild a PairwiseAligner from the settings _aligner_to_dict writes.
+
+    Any other PairwiseAligner setting is applied as well, in order, such as the
+    combined open_gap_score and extend_gap_score that ionerdss 2.2.5 and earlier
+    wrote in place of the twelve gap scores; the twelve are applied last, so they
+    override a combined score whatever the key order. A key that is not a setting
+    is skipped with a warning. None, which stands for the default aligner, and a
+    PairwiseAligner are returned unchanged.
+    """
+    if settings is None or isinstance(settings, PairwiseAligner):
+        return settings
+    if not isinstance(settings, dict):
+        raise TypeError(
+            "chain_grouping_custom_aligner must be a dictionary of aligner settings, "
+            f"a PairwiseAligner or None, not {type(settings).__name__}")
+    scores_missing = (settings.get("match_score", 0.0) is None
+                      or settings.get("mismatch_score", 0.0) is None)
+    if scores_missing and settings.get("substitution_matrix") is None:
+        raise ValueError(
+            "chain_grouping_custom_aligner has a match_score or mismatch_score of None "
+            "and no substitution_matrix. ionerdss 2.2.5 and earlier saved an aligner "
+            "that scores with a substitution matrix this way, leaving the matrix out: "
+            'add its name, such as "substitution_matrix": "BLOSUM62", or remove the '
+            "entry to use the default aligner.")
+
+    aligner = PairwiseAligner()
+    # sorted is stable: the other settings keep their order, the gap scores go last
+    for key, value in sorted(settings.items(),
+                             key=lambda item: item[0] in _GAP_SCORE_ATTRIBUTE):
+        if value is None and key in ("substitution_matrix", "match_score", "mismatch_score"):
+            continue  # no matrix; or scores that the matrix leaves unused
+        if key == "substitution_matrix":
+            value = _substitution_matrix_from_json(value)
+        try:
+            setattr(aligner, _GAP_SCORE_ATTRIBUTE.get(key, key), value)
+        except AttributeError:
+            warnings.warn(
+                f"chain_grouping_custom_aligner: ignored {key!r}, which is not a "
+                "PairwiseAligner setting", UserWarning, stacklevel=3)
+        except (TypeError, ValueError) as error:
+            raise ValueError(
+                f"chain_grouping_custom_aligner: cannot set {key}: {error}") from error
+    return aligner
+
+
+@functools.lru_cache(maxsize=None)
+def _standard_substitution_matrices() -> tuple:
+    """(name, matrix) for every matrix Bio.Align.substitution_matrices.load provides."""
+    return tuple((name, substitution_matrices.load(name))
+                 for name in substitution_matrices.load())
+
+
+def _substitution_matrix_to_json(matrix):
+    """The name of a standard substitution matrix, else its alphabet and values."""
+    alphabet = getattr(matrix, "alphabet", None)
+    values = np.asarray(matrix)
+    for name, standard in _standard_substitution_matrices():
+        if alphabet == standard.alphabet and np.array_equal(values, standard):
+            return name
+    if alphabet is None:  # a plain array, indexed by character code
+        return {"values": values.tolist()}
+    return {"alphabet": alphabet if isinstance(alphabet, str) else list(alphabet),
+            "values": values.tolist()}
+
+
+def _substitution_matrix_from_json(entry):
+    """Inverse of _substitution_matrix_to_json."""
+    if isinstance(entry, str):
+        names = substitution_matrices.load()
+        if entry not in names:
+            raise ValueError(
+                f"chain_grouping_custom_aligner: unknown substitution matrix {entry!r}; "
+                f"this Biopython provides {', '.join(names)}")
+        return substitution_matrices.load(entry)
+    values = np.array(entry["values"], dtype=float)
+    alphabet = entry.get("alphabet")
+    if alphabet is None:
+        return values
+    # JSON turns a tuple alphabet, such as one of codons, into a list
+    return substitution_matrices.Array(
+        alphabet if isinstance(alphabet, str) else tuple(alphabet), dims=2, data=values)

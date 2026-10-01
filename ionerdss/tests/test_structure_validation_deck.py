@@ -4,7 +4,8 @@ The deck asks NERDSS for DATA/COMPLEXES snapshots, without which the result read
 only the final restart snapshot and miss an assembly that formed and then grew. It is
 written to its own directory, so it cannot replace a regular export in nerdss_files/.
 When build_system exports it, it carries the builder's hyperparameters and targets every
-designed molecule instance, not one per molecule type.
+designed molecule instance, not one per molecule type. The detailed summary build_system
+writes reports the box of the regular export.
 """
 from pathlib import Path
 import json
@@ -372,3 +373,14 @@ def test_build_system_validation_target_holds_every_designed_copy(fake_pipeline,
     observed = {"A_0": moved["B_A"], "A_1": moved["A_A"]}
     alignment = align_structure_to_design(artifacts.designed_coordinates, observed)
     assert alignment.rmsd < 1e-9
+
+
+def test_build_system_summary_reports_the_box_the_nerdss_export_used(fake_pipeline, tmp_path):
+    # It used to print the box_nm argument, 100 nm by default, whatever nerdss_water_box
+    # the regular export was written with.
+    workspace = tmp_path / "workspace"
+    _build(workspace)
+
+    assert _water_box(workspace / "nerdss_files" / "parms.inp") == "[300.0, 300.0, 300.0]"
+    summary = (workspace / "detailed_summary.txt").read_text(encoding="utf-8")
+    assert "Box size (nm): (300.0, 300.0, 300.0)" in summary
