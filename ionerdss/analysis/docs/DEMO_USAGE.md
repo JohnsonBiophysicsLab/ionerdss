@@ -17,14 +17,15 @@ print(f"Found {len(analyzer.simulations)} simulations.")
 ## 2. Computing Free Energy
 
 ```python
-# Compute Free Energy profile for the first simulation
+# Compute Free Energy profile for the first simulation, from its transition matrix
+# (F = -kT ln P(size), temperature=1.0 by default)
 # Returns a Pandas DataFrame
-df_fe = analyzer.simulations[0].compute_free_energy()
+df_fe = analyzer.compute_free_energy(analyzer.simulations[0])
 
 print(df_fe.head())
-#    cluster_size  free_energy  probability
-# 0             1     0.000000     0.450000
-# 1             2     1.204123     0.250000
+#    size     count  probability  free_energy
+# 0     1   5793964     0.157809     1.846368
+# 1     2   7769490     0.211616     1.552980
 ```
 
 ## 3. Plotting
@@ -34,33 +35,41 @@ print(df_fe.head())
 ```python
 import matplotlib.pyplot as plt
 
-# Plot Free Energy
-analyzer.plot.free_energy(
-    simulations=[0, 1],  # Index of simulations to compare
-    time_range=(100.0, 200.0)
-)
+# Plot Free Energy of one simulation (its index in analyzer.simulations, or its ID)
+analyzer.plot.free_energy(simulation_index=0)
 plt.show()
 
-# Plot Cluster Size Distribution
+# Compare simulations by drawing them on one Axes
+fig, ax = plt.subplots()
+for i in [0, 1]:
+    analyzer.plot.free_energy(simulation_index=i, ax=ax)
+
+# Plot Cluster Size Distribution (log-scale y axis unless log_scale=False)
 analyzer.plot.size_distribution(
-    simulations="all",
-    normalize=True
+    simulation_index=0,
+    log_scale=False
 )
+
+# Growth vs shrinkage probabilities, and the transition-matrix heatmap
+analyzer.plot.transitions(simulation_index=0)
+analyzer.plot.heatmap(simulation_index=0)
 ```
 
 ### 3.2. Legacy API (Backward Compatibility)
 
-The old `plot_figure` method still works but issues a DeprecationWarning.
+`Analyzer` has no `plot_figure` method. `LegacyPlotInterface` wraps an analyzer and maps
+old `plot_figure(figure_type, x=..., y=...)` calls onto `analyzer.plot`. It issues no
+DeprecationWarning; for a combination it does not map, it prints a warning and returns `None`.
 
 ```python
-# Old style
-analyzer.plot_figure(
-    figure_type="line",
-    x="size",
-    y="free_energy",
-    legend=["Sim 1", "Sim 2"]
-)
+from ionerdss.analysis import LegacyPlotInterface
+
+legacy = LegacyPlotInterface(analyzer)
+legacy.plot_figure(figure_type="heatmap")  # same as analyzer.plot.heatmap(simulation_index=0)
 ```
+
+It currently also passes `x`, `y` and `simulations` on to Matplotlib, so the `"line"` and
+`"hist"` mappings raise a `TypeError`; call `analyzer.plot` directly instead.
 
 ## 4. Advanced Analysis
 
@@ -71,9 +80,11 @@ You can access the raw NumPy arrays for custom analysis.
 ```python
 import numpy as np
 
-# Get the transition matrix for Simulation 0
+# Get the transition matrix for Simulation 0, summed over every time point
+# (pass time_range=(start, end) to sum only that window;
+#  the per-time-point matrices are in analyzer.simulations[0].data.transitions)
 # Shape: (N_sizes, N_sizes)
-T_matrix = analyzer.simulations[0].data.transition_matrix
+T_matrix = analyzer.simulations[0].get_transition_matrix()
 
 # Calculate custom metric: e.g., Eigenvalues
 eigenvals = np.linalg.eigvals(T_matrix)
@@ -82,7 +93,15 @@ eigenvals = np.linalg.eigvals(T_matrix)
 ### 4.2. Filtering Data
 
 ```python
-# Select data only where 'A' count > 5
-filtered_sims = analyzer.filter_simulations(condition="species_A > 5")
+sim = analyzer.simulations[0]
+
+# Copy numbers are a DataFrame: "Time (s)" plus one column per species NERDSS writes
+copies = sim.data.copy_numbers
+filtered = copies[copies["A(A1)"] > 5]  # time points where species A(A1) count > 5
+
+# Complexes from histogram_complexes_time.dat, selected by composition
+times, counts = sim.get_time_series({"A": 3})  # copies of the A3 complex over time
+times, largest = sim.get_largest_size_time_series(include=["A"], exclude=["B"])
+times, mean_size = sim.get_average_size_time_series(include=["A"])
 ```
 

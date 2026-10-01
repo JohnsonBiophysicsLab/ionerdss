@@ -116,7 +116,7 @@ This is the implemented convention, even if another text might choose the opposi
 - `phi1`, `phi2`, and `omega` are stored in radians.
 - The underlying unsigned angle is in `[0, \pi]`; the sign rule extends this to a signed convention.
 - If a cross product used in the construction vanishes, the torsion is geometrically degenerate.
-- In some linear-molecule cases, `phi` may be undefined and represented as `NaN`.
+- `phi` is undefined, and the exporter writes it as `NaN`, when the molecule has only one interface (a linear molecule) or when `v` is collinear with `sigma` (`|v x sigma| < 1e-3 |v| |sigma|`); NERDSS then skips that rotation.
 
 ## Relation to the Implementation
 
