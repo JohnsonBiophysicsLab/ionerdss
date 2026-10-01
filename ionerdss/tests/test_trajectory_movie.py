@@ -174,7 +174,11 @@ def test_time_label_uses_one_unit_and_enough_decimals_for_the_frame_spacing():
     # one decimal already tells neighbouring frames apart.
     auto = [i * 500 * 0.5674508470329174 for i in range(201)]
     assert time_label_format(auto)[:3] == ("ms", 1e3, 1)
-    assert time_label_format([0.0, 2474.173903465271])[:3] == ("ms", 1e3, 0)
+    assert time_label_format([0.0, 2474.173903465271])[:3] == ("ms", 1e3, 1)
+    # 1.4998 ms apart: one decimal, so the label steps 1.5 ms each frame
+    # instead of alternating between 1 and 2 ms.
+    slow = [i * 6729 * 0.22288708680117642 for i in range(301)]
+    assert time_label_format(slow)[:3] == ("ms", 1e3, 1)
     assert time_label_format([0, 500, 1000, 1500])[:3] == ("ms", 1e3, 1)
     assert time_label_format([0.0, 10.0, 20.0])[:3] == ("µs", 1.0, 0)
     assert time_label_format([0, 5e5, 1e6, 1.5e6])[:3] == ("s", 1e6, 1)
@@ -329,6 +333,66 @@ def test_render_trajectory_movie_writes_an_mp4(tmp_path):
     run = _write_run(tmp_path / "run", FRAMES)
     out = render_trajectory_movie(run, tmp_path / "movie.mp4", size=(161, 161), progress=False)
     assert out.stat().st_size > 0
+
+
+def _break_process_pools(monkeypatch, accepted=None):
+    """Replace process pools with one whose workers die on start-up.
+
+    The first `accepted` frames (all by default) are queued and then fail;
+    later ones are refused, as a real pool refuses them once it knows it is
+    broken.
+    """
+    import concurrent.futures
+    from concurrent.futures.process import BrokenProcessPool
+
+    class BrokenPool:
+        def __init__(self, *args, **kwargs):
+            self.queued = 0
+
+        def submit(self, fn, *args, **kwargs):
+            if self.queued == accepted:
+                raise BrokenProcessPool("the pool is not usable anymore")
+            self.queued += 1
+            future = concurrent.futures.Future()
+            future.set_exception(BrokenProcessPool("workers died"))
+            return future
+
+        def shutdown(self, *args, **kwargs):
+            pass
+
+    monkeypatch.setattr(concurrent.futures, "ProcessPoolExecutor", BrokenPool)
+
+
+@pytest.mark.parametrize("accepted", [None, 1], ids=["queued-frames-fail", "later-frames-refused"])
+def test_all_frames_render_when_worker_processes_cannot_start(tmp_path, monkeypatch, caplog, accepted):
+    _break_process_pools(monkeypatch, accepted)
+    run = _write_run(tmp_path / "run", FRAMES)
+    with caplog.at_level(logging.WARNING):
+        render_trajectory_movie(run, None, frames_dir=tmp_path / "frames", size=(160, 160),
+                                n_jobs=2, progress=False)
+    assert "rendering in this process instead" in caplog.text
+    # Every frame is rendered, including the one whose failure was seen first.
+    assert sorted(p.name for p in (tmp_path / "frames").iterdir()) == [
+        "frame_00000.png", "frame_00001.png", "frame_00002.png"]
+
+
+def test_serial_fallback_reads_frames_only_as_it_renders_them(monkeypatch):
+    _break_process_pools(monkeypatch)
+    kwargs = dict(box_nm=[100.0] * 3, type_names=["A"], radii_nm={"A": 3.0}, size=(80, 80),
+                  show_time=False)
+    read = []
+
+    def tasks():
+        for iteration in range(10):
+            read.append(iteration)
+            yield ("arrays", iteration, (np.zeros((1, 3)), ["A"]))
+
+    frames = tm._render_frames(TrajectoryRenderer(**kwargs), kwargs, tasks(), kwargs["box_nm"],
+                               None, True, n_jobs=2)
+    next(frames)
+    # The first frame did not wait for the whole trajectory to be read.
+    assert len(read) < 10
+    assert sum(1 for _ in frames) == 9
 
 
 def test_parallel_rendering_matches_serial(tmp_path):
