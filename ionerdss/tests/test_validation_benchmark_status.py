@@ -194,11 +194,17 @@ def test_main_passes_build_system_only_hyperparameter_fields(monkeypatch, tmp_pa
             calls.append(kwargs)
             raise RuntimeError("stop after recording the call")
 
+    # main() resolves the NERDSS executable before building anything
+    nerdss = tmp_path / "bin" / "nerdss"
+    nerdss.parent.mkdir()
+    nerdss.write_text("#!/bin/sh\n", encoding="utf-8")
+    nerdss.chmod(0o755)
+
     monkeypatch.setattr(benchmark, "PDBModelBuilder", RecordingBuilder)
     monkeypatch.setattr(sys, "argv", [
         "run_validation_benchmark.py",
         "--pdb_ids", "1abc",
-        "--nerdss_dir", str(tmp_path),
+        "--nerdss_path", str(tmp_path),
         "--output", str(tmp_path / "results.csv"),
         "--interface_com_proximity_threshold", "0.2",
     ])
