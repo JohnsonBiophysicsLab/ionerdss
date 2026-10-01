@@ -1,10 +1,13 @@
 """
 Utilities for structure validation.
 
-This validation mode exports one copy of the designed assembly into its own
-directory, turns binding effectively irreversible by forcing all off-rates to
-zero, injects titration reactions so subunits can appear gradually, and compares
-an assembled structure from the run against the designed coarse-grained target
+This validation mode exports the subunits of one copy of the designed assembly
+into its own directory -- every molecule type as often as it occurs in the
+deposited stoichiometry, e.g. six copies of A for an A6 ring
+(``initial_molecule_count`` multiplies this) -- turns binding effectively
+irreversible by forcing all off-rates to zero, injects titration reactions so
+further subunits can appear gradually, and compares an assembled structure from
+the run against the designed coarse-grained target (the COM of every subunit)
 with rigid alignment + RMSD.
 """
 
@@ -1028,7 +1031,7 @@ def get_box_fit_message(
 
 
 def build_validation_molecule_counts(system: System, initial_molecule_count: int = 1) -> Dict[str, int]:
-    """Return validation counts with a configurable initial copy number per molecule type."""
+    """Return the deck's starting counts: the designed stoichiometry times ``initial_molecule_count``."""
     target_counts = get_structure_validation_counts(system)
     return {
         mol_name: int(initial_molecule_count) * count

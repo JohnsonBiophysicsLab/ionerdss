@@ -6,8 +6,8 @@ stable `ionerdss.model.pdb.validation` entry point.
 
 Current logic:
 
-1. Define the target composition from the designed validation system.
-In structure_validation.py, get_structure_validation_counts() builds the expected full assembly as one copy of the designed assembly, every molecule type at its designed copy number, for example {"A": 1, "H": 1, "L": 1} for 8ERQ or {"A": 8} for 6BNO. The deck is written to its own directory, `structure_validation/` in the workspace by default.
+1. Define the target composition from the designed assembly.
+In structure_validation.py, get_structure_validation_counts() counts every molecule instance of the designed system, so the expected full assembly carries the deposited stoichiometry, for example {"A": 1, "H": 1, "L": 1} for 8ERQ or {"A": 8} for 6BNO. The deck starts with these counts (times initial_molecule_count), titration adds further subunits, and the deck is written to its own directory, `structure_validation/` in the workspace by default.
 
 2. Run the actual NERDSS validation simulation with that target in mind.
 run_structure_validation_simulation(...) uses parms_titrate.inp, runs NERDSS, then looks for a matching full assembly in `DATA/COMPLEXES/*.json`. These JSON snapshots are the primary source for both existence checks and observed COM extraction; the deck sets `bondedComplexWrite` to nItr / 100 so that NERDSS writes them, unless `parms_overrides` sets it.
@@ -59,7 +59,7 @@ def prepare(
     interface_com_proximity_threshold_nm: Optional[float] = None,
     deck_dir: Union[str, Path] = "structure_validation",
 ) -> StructureValidationArtifacts:
-    """Prepare the irreversible validation simulation of one copy of the designed assembly.
+    """Prepare the irreversible, titrated validation simulation for one copy of the designed assembly.
 
     ``interface_com_proximity_threshold_nm`` sets how close to its molecule's centre
     of mass a reacting interface site may sit before the preflight check reports it;
@@ -98,6 +98,9 @@ def setup_simulation(
     deck_dir: Union[str, Path] = "structure_validation",
 ) -> StructureValidationArtifacts:
     """Set up the titrated, irreversible validation simulation of the designed assembly.
+
+    The deck starts with every molecule type as often as it occurs in the designed
+    assembly, multiplied by ``initial_molecule_count``.
 
     ``interface_com_proximity_threshold_nm`` sets how close to its molecule's centre
     of mass a reacting interface site may sit before the preflight check reports it;

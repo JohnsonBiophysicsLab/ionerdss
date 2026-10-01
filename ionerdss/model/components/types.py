@@ -31,7 +31,8 @@ multiple times during simulation to create concrete molecule and interface insta
         - Lists available binding interfaces
         - Stores local reference frame (ref1, ref2)
         
-    - ``InterfaceType``: Template for binding site types (e.g., "ProteinA_ProteinB_1")
+    - ``InterfaceType``: Template for binding site types (e.g., "8ProteinA8ProteinB1",
+      spelled by ``interface_naming.make_interface_name``)
         - Defines binding geometry (position, orientation)
         - Specifies binding partner
         - Links to parent molecule type

@@ -53,10 +53,11 @@ def _create_molecule_instances(self) -> List[MoleculeInstance]:
 
 **Example Chain Processing**:
 ```python
-# For chain "A" with template "ProteinA"
+# For chain "C", a copy in the group whose template is "A"
+# (templates are named after their group's representative chain)
 molecule_instance = MoleculeInstance(
-    name="A_ProteinA",           # Unique identifier
-    molecule_type=protein_a_type, # Reference to template
+    name="C_A",                  # Unique identifier: {chain_id}_{template_name}
+    molecule_type=a_type,        # Reference to template
     com=np.array([1.0, 2.0, 3.0]), # COM in nm
     norm=np.array([0.0, 0.0, 1.0]) # Default normal vector
 )
@@ -73,15 +74,15 @@ def _create_interface_instances(self) -> List[InterfaceInstance]:
 ```python
 # For interface A ↔ B, create two instances:
 instance_i = InterfaceInstance(
-    this_mol_name="A_ProteinA",
-    partner_mol_name="B_ProteinB", 
+    this_mol_name="A_A",
+    partner_mol_name="B_B",
     interface_type=interface_template,
     absolute_coord=coord_i_nm
 )
 
 instance_j = InterfaceInstance(
-    this_mol_name="B_ProteinB",
-    partner_mol_name="A_ProteinA",
+    this_mol_name="B_B",
+    partner_mol_name="A_A",
     interface_type=partner_template,
     absolute_coord=coord_j_nm
 )
@@ -151,44 +152,49 @@ self.system._rebuild_cross_references()
 
 ## Component Integration
 
-### Ring Regularization Integration
+### Geometric Regularization Integration
 
 ```python
-# Optional ring structure regularization
-if hasattr(self.hyperparams, 'ring_regularization_mode'):
-    ring_regularizer = RingRegularizer(
-        system=self.system,
-        workspace_manager=self.workspace_manager,
-        mode=getattr(self.hyperparams, 'ring_regularization_mode', 'off'),
-        geometry=getattr(self.hyperparams, 'ring_geometry', 'cylinder')
-    )
-    ring_regularizer.regularize()
+# Optional snap onto the detected point group, bounded by the
+# com_shift_cap_ang and symmetry_fold_tolerance hyperparameters
+geometric_mode = getattr(self.hyperparams, 'geometric_regularization', 'off')
+if geometric_mode and geometric_mode != 'off':
+    SymmetryRegularizer(system=self.system, workspace_manager=self.workspace_manager,
+                        ...).apply(geometric_mode)
+
+# Optional, independent projection onto concentric spheres
+if self.hyperparams.is_on_sphere:
+    RingRegularizer(system=self.system,
+                    workspace_manager=self.workspace_manager).regularize()
 ```
 
 **Integration Benefits**:
-- **Automatic Detection**: Ring regularization is applied automatically
-if enabled in hyperparameters
+- **Automatic Detection**: With geometric_regularization='auto' the point group is
+detected automatically; cyclic rings (and dihedral assemblies whose subunits form
+a single n-fold orbit) are regularized, anything else is left alone
 - **Coordinate Correction**: Regularized coordinates are updated in place
 within the system
-- **Validation Integration**: Ring regularization results are included
-in system validation
+- **Detection Record**: The detection result is stored on
+system.symmetry_detection whether or not the geometry was changed
 
 ### Workspace Integration
 
 ```python
-# Comprehensive workspace integration
+# Workspace written by PDBModelBuilder.build_system()
 workspace/
+├── logs/
+│   └── pipeline.log              # Complete processing log
 ├── structures/
-│   └── downloaded/          # Original PDB/mmCIF files
-├── processed/
-│   ├── coarse_grained/     # Coarse-graining results
-│   ├── templates/          # Molecular templates
-│   └── system/             # Final system data
-├── visualizations/         # Generated plots and images
-├── nerdss_files/          # NERDSS simulation files
-├── structure_validation/  # Structure validation deck, when requested
-└── logs/
-    └── pipeline.log        # Complete processing log
+│   ├── downloaded/               # Fetched structure, or a copy of the local input
+│   └── processed/                # Created empty; the pipeline writes nothing here
+├── outputs/
+│   ├── systems/                  # {PDB_ID}_system.json
+│   └── reports/                  # {PDB_ID}_validation.txt, {PDB_ID}_detailed_summary.txt
+├── visualizations/               # Plots, coarse-grained .cif, PyMOL script
+├── nerdss_files/                 # {molecule type}.mol, parms.inp
+├── structure_validation/         # Validation deck, target JSON and runs, when requested
+├── ode_results/                  # Only with ode_enabled=True
+└── temp/                         # Emptied only by cleanup_temp_files()
 ```
 
 ## Cross-Reference Management
@@ -287,15 +293,15 @@ summary = builder.get_summary()
 
 print("System Summary:")
 print(f"  PDB ID: {summary.get('pdb_id', 'Unknown')}")
-print(f"  Molecule Types: {summary['molecule_types']}")
-print(f"  Interface Types: {summary['interface_types']}")
-print(f"  Total Instances: {summary['molecule_instances']}")
-print(f"  Total Interfaces: {summary['interface_instances']}")
+print(f"  Molecule Types: {summary['molecule_types_count']}")
+print(f"  Interface Types: {summary['interface_types_count']}")
+print(f"  Total Instances: {summary['molecule_instances_count']}")
+print(f"  Total Interfaces: {summary['interface_instances_count']}")
 
-# Hyperparameter information
+# Hyperparameter information (PDBModelHyperparameters.to_dict())
 hyperparams = summary['hyperparameters']
-print(f"  Distance Cutoff: {hyperparams['distance_cutoff']} nm")
-print(f"  Residue Cutoff: {hyperparams['residue_cutoff']}")
+print(f"  Distance Cutoff: {hyperparams['interface_detect_distance_cutoff']} nm")
+print(f"  Residue Cutoff: {hyperparams['interface_detect_n_residue_cutoff']}")
 
 # Validation status
 validation = summary['validation']
@@ -318,23 +324,23 @@ from ionerdss.model.pdb.file_manager import WorkspaceManager
 with WorkspaceManager("/workspace", "1ABC") as workspace:
     # Configure parameters
     hyperparams = PDBModelHyperparameters(
-        distance_cutoff=0.6,
-        residue_cutoff=3,
-        ring_regularization_mode="separate",
-        ring_geometry="cylinder"
+        interface_detect_distance_cutoff=0.6,  # nm
+        interface_detect_n_residue_cutoff=3,
+        geometric_regularization="auto"
     )
     
     # Parse structure
     parser = PDBParser("1ABC", fetch_from_pdb=True, workspace_manager=workspace)
     
     # Coarse-grain
-    coarse_grainer = CoarseGrainer(parser, hyperparams, workspace_manager=workspace)
+    coarse_grainer = CoarseGrainer(parser, hyperparams)
     
     # Group chains
-    chain_grouper = ChainGrouper(coarse_grainer, hyperparams, workspace_manager=workspace)
+    chain_grouper = ChainGrouper(parser, coarse_grainer, hyperparams)
     
     # Build templates
-    template_builder = TemplateBuilder(chain_grouper, hyperparams, workspace_manager=workspace)
+    template_builder = TemplateBuilder(parser, coarse_grainer, chain_grouper, hyperparams,
+                                       workspace_manager=workspace)
     
     # Assemble system
     builder = SystemBuilder(
@@ -343,7 +349,7 @@ with WorkspaceManager("/workspace", "1ABC") as workspace:
         chain_grouper=chain_grouper,
         template_builder=template_builder,
         hyperparams=hyperparams,
-        workspace_path=workspace.workspace_path,
+        workspace_path=str(workspace.workspace_path),
         pdb_id="1ABC",
         workspace_manager=workspace
     )
@@ -365,23 +371,25 @@ for viz_type, viz_path in viz_outputs.items():
     print(f"  {viz_type}: {viz_path}")
 
 # Typical outputs:
-# structure_overview: /workspace/visualizations/structure_overview.png
-# chain_grouping: /workspace/visualizations/chain_grouping.png  
-# interfaces: /workspace/visualizations/interfaces.png
-# templates: /workspace/visualizations/templates.png
+# basic_cg: /workspace/visualizations/basic_coarse_grained_structure.png
+# interfaces: /workspace/visualizations/interface_connections.png
+# groups: /workspace/visualizations/chain_groups.png
+# templates: /workspace/visualizations/template_overview.png
+# cg_structure: /workspace/visualizations/1ABC_coarse_grained.cif
+# pymol: /workspace/visualizations/1ABC_visualization.pml
 ```
 
 ### NERDSS Export Integration
 
 ```python
-# Export NERDSS simulation files
+# Export NERDSS simulation files; counts are keyed by molecule type name,
+# which is the representative chain ID of each group
 nerdss_outputs = builder.export_nerdss_files(
-    molecule_counts={"ProteinA": 50, "ProteinB": 25},
+    molecule_counts={"A": 50, "B": 25},
     box_nm=(200.0, 200.0, 200.0),
     parms_overrides={
-        "nItr": 5e5,
-        "timestep": 0.1,
-        "onRate3Dka": 500.0
+        "hyperparams": hyperparams,  # supplies nItr, the time step, overlapSepLimit, ...
+        "timeWrite": 500             # other keys go into the parameters block verbatim
     }
 )
 
@@ -390,27 +398,28 @@ for file_type, file_path in nerdss_outputs.items():
     print(f"  {file_type}: {file_path}")
 
 # Outputs:
-# ProteinA_mol: /workspace/nerdss_files/ProteinA.mol
-# ProteinB_mol: /workspace/nerdss_files/ProteinB.mol
+# A_mol: /workspace/nerdss_files/A.mol
+# B_mol: /workspace/nerdss_files/B.mol
 # parms: /workspace/nerdss_files/parms.inp
 ```
 
-### Ring Regularization Control
+### Geometric Regularization Control
 
 ```python
-# Configure ring regularization in hyperparameters
+# Configure regularization in hyperparameters
 hyperparams = PDBModelHyperparameters(
-    ring_regularization_mode="uniform",  # "off", "separate", "uniform"
-    ring_geometry="sphere",              # "cylinder", "sphere"
-    min_ring_size=4                      # Minimum ring size to consider
+    geometric_regularization="auto",  # "off" or "auto"
+    symmetry_fold_tolerance=0.15,     # n-fold match tolerance, as a fraction of the assembly radius
+    com_shift_cap_ang=6.0,            # refuse if any subunit COM would move further (Å)
+    is_on_sphere=False                # independent projection onto concentric spheres
 )
 
-# Ring regularization is applied automatically during system building
+# Regularization is applied automatically during system building
 builder = SystemBuilder(..., hyperparams=hyperparams, ...)
 
-# Check if ring regularization was applied
+# What the detector found, whether or not the geometry was changed
 system = builder.get_system()
-# Ring regularization results are integrated into the system coordinates
+print(system.symmetry_detection)
 ```
 
 ## Validation and Export
@@ -424,18 +433,14 @@ validation = builder.validate_system()
 # Check different validation categories
 molecular_errors = [e for e in validation["errors"] if "molecule" in e.lower()]
 interface_errors = [e for e in validation["errors"] if "interface" in e.lower()]
-template_errors = [e for e in validation["errors"] if "template" in e.lower()]
 
 print(f"Molecular validation errors: {len(molecular_errors)}")
 print(f"Interface validation errors: {len(interface_errors)}")
-print(f"Template validation errors: {len(template_errors)}")
 
-# Validation includes:
-# - Cross-reference consistency
-# - Template completeness
-# - Coordinate validity
-# - Instance relationships
-# - Registry integrity
+# Validation checks that:
+# - at least one molecule type (error) and one molecule instance (warning) exist
+# - every interface type references existing molecule types
+# - every molecule instance references an existing molecule type
 ```
 
 ### Export Options
@@ -444,7 +449,7 @@ print(f"Template validation errors: {len(template_errors)}")
 ```python
 # Complete NERDSS export
 nerdss_files = builder.export_nerdss_files(
-    molecule_counts={"ProteinA": 100},
+    molecule_counts={"A": 100},
     box_nm=(500.0, 500.0, 500.0)
 )
 ```
