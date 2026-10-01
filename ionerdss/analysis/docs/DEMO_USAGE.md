@@ -23,9 +23,9 @@ print(f"Found {len(analyzer.simulations)} simulations.")
 df_fe = analyzer.compute_free_energy(analyzer.simulations[0])
 
 print(df_fe.head())
-#    size     count  probability  free_energy
-# 0     1   5793964     0.157809     1.846368
-# 1     2   7769490     0.211616     1.552980
+#    size    count  probability  free_energy
+# 0     1   646838     0.101442     2.288269
+# 1     2  1132207     0.177561     1.728441
 ```
 
 ## 3. Plotting
@@ -88,9 +88,9 @@ You can access the raw NumPy arrays for custom analysis.
 ```python
 import numpy as np
 
-# Get the transition matrix for Simulation 0, summed over every time point
-# (pass time_range=(start, end) to sum only that window;
-#  the per-time-point matrices are in analyzer.simulations[0].data.transitions)
+# Get the transition counts for Simulation 0 over the whole run
+# (pass time_range=(start, end) for only the transitions within that window;
+#  analyzer.simulations[0].data.transitions holds the running totals at each time point)
 # Shape: (N_sizes, N_sizes)
 T_matrix = analyzer.simulations[0].get_transition_matrix()
 
