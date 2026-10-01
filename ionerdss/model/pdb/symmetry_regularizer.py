@@ -66,8 +66,10 @@ __all__ = ["SymmetryDetection", "SymmetryRegularizer"]
 # A ring is accepted as n-fold only if rotating the centres of mass by 2*pi/n maps the
 # set onto itself to within this fraction of the ring radius.
 _RING_MATCH_RELATIVE_TOLERANCE = 0.15
-# Refuse to move any subunit further than this, in the system's own length units.
-_DEFAULT_COM_SHIFT_CAP = 6.0
+# Refuse to move any subunit further than this, in Å like the com_shift_cap_ang
+# hyperparameter it mirrors. System coordinates are in nm.
+_DEFAULT_COM_SHIFT_CAP_ANG = 6.0
+_ANGSTROM_PER_NM = 10.0
 # Step of the sweep for a C2 axis perpendicular to the principal axis, in degrees.
 _C2_SCAN_STEP_DEG = 1.0
 # How far a subunit frame may be turned from its image and still count as matched.
@@ -100,7 +102,9 @@ class SymmetryRegularizer:
     Attributes:
         system: ionerdss System to process, modified in place.
         workspace_manager: Workspace manager, used only for logging.
-        com_shift_cap: Refuse to regularize if any subunit would move further than this.
+        com_shift_cap_ang: Refuse to regularize if any subunit would move further than
+            this, in Å. The system's coordinates are in nm and are converted before
+            the comparison.
     """
 
     def __init__(
@@ -108,12 +112,12 @@ class SymmetryRegularizer:
         system: System,
         workspace_manager: Optional[WorkspaceManager] = None,
         *,
-        com_shift_cap: float = _DEFAULT_COM_SHIFT_CAP,
+        com_shift_cap_ang: float = _DEFAULT_COM_SHIFT_CAP_ANG,
         fold_tolerance: float = _RING_MATCH_RELATIVE_TOLERANCE,
     ):
         self.system = system
         self.workspace_manager = workspace_manager
-        self.com_shift_cap = float(com_shift_cap)
+        self.com_shift_cap_ang = float(com_shift_cap_ang)
         self.fold_tolerance = float(fold_tolerance)
 
     # ------------------------------------------------------------------ logging
@@ -244,13 +248,14 @@ class SymmetryRegularizer:
             delta = rotation_matrix(axis, (k - seed) * step)
             proposed.append((inst, new_com, delta))
 
-        shifts = [float(np.linalg.norm(new_com - np.asarray(inst.com, float)))
+        # Coordinates are in nm; the cap is in Å.
+        shifts = [_ANGSTROM_PER_NM * float(np.linalg.norm(new_com - np.asarray(inst.com, float)))
                   for inst, new_com, _ in proposed]
         worst = max(shifts) if shifts else 0.0
-        if worst > self.com_shift_cap:
+        if worst > self.com_shift_cap_ang:
             self._log("warning",
-                      "Symmetry regularization refused for %s: subunit would move %.2f "
-                      "(cap %.2f)", detection.group, worst, self.com_shift_cap)
+                      "Symmetry regularization refused for %s: subunit would move %.3f Å "
+                      "(cap %.3f Å)", detection.group, worst, self.com_shift_cap_ang)
             return False
 
         seed_rotation = self._frame(ring[seed]) if seed_frame_ok else None
@@ -269,8 +274,8 @@ class SymmetryRegularizer:
             self._move_interfaces(inst, old_com, new_com, rotation)
 
         self._log("info",
-                  "Regularized %s ring onto exact geometry (radius %.3f, worst COM shift "
-                  "%.3f, orientations synthesised from the group element)",
+                  "Regularized %s ring onto exact geometry (radius %.3f nm, worst COM shift "
+                  "%.3f Å, orientations synthesised from the group element)",
                   detection.group, radius, worst)
         return True
 

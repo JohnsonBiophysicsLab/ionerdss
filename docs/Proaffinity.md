@@ -4,16 +4,17 @@ This document describes how to use the ProAffinity-GNN integration for predictin
 
 ## Overview
 
-The `coarse_grain()` method now supports optional binding affinity prediction using ProAffinity-GNN, a graph neural network model trained on protein-protein complex structures.
+`build_system_from_pdb()` supports optional binding affinity prediction using ProAffinity-GNN, a graph neural network model trained on protein-protein complex structures. The predicted energy of each detected interface replaces the default binding energy.
 
 ## Quick Start
 
 ```python
-from ionerdss.model.pdb_model import PDBModel
+from ionerdss import build_system_from_pdb
 
 # Basic usage with affinity prediction
-model = PDBModel(pdb_id='8erq', save_dir='./output')
-model.coarse_grain(
+system = build_system_from_pdb(
+    source='8erq',
+    workspace_path='./output',
     predict_affinity=True,
     adfr_path='/path/to/ADFRsuite/bin/prepare_receptor'
 )
@@ -21,13 +22,12 @@ model.coarse_grain(
 
 ## Parameters
 
-### `coarse_grain()` method
+### `build_system_from_pdb()` hyperparameters
 
 - **`predict_affinity`** (bool, default=False): Enable ProAffinity-GNN prediction
-- **`adfr_path`** (str, optional): Path to ADFR `prepare_receptor` tool (required if `predict_affinity=True`)
-- **`distance_cutoff`** (float, default=0.35): Max distance (nm) for interface detection
-- **`residue_cutoff`** (int, default=3): Min residue pairs for valid interface
-- **`standard_output`** (bool, default=False): Print detailed output
+- **`adfr_path`** (str, optional): Path to ADFR `prepare_receptor` tool, or to the ADFR install directory or its `bin/`. Defaults to `$ADFR_PATH`; one of the two is required if `predict_affinity=True`
+- **`interface_detect_distance_cutoff`** (float, default=0.9): Max distance (nm) for interface detection
+- **`interface_detect_n_residue_cutoff`** (int, default=2): Min contacting residues on each chain for a valid interface
 
 ## Requirements
 
@@ -44,8 +44,8 @@ cd ADFRsuite_x86_64Linux_1.0
 
 ## If you are on a mac, you can use the following command to install ADFR to bypass macOS marking python2 as "untrusted developer":
 
-chmod +x ./examples/install_ADFR_mac.sh
-./examples/install_ADFR_mac.sh
+chmod +x ./tutorials/install_ADFR_mac.sh
+./tutorials/install_ADFR_mac.sh
 
 # Set ADFR_PATH environment variable
 # A script cannot permanently modify your shell’s PATH just by echoing export PATH=... inside itself
@@ -55,7 +55,7 @@ export ADFR_PATH="/path/to/ADFRsuite/bin/prepare_receptor"
 
 ### Python Dependencies
 
-ProAffinity pins numpy 1.x and torch 2.2. Those cannot share an environment with anything that needs numpy 2 -- the OVITO renderer, in particular -- so it belongs in an environment of its own:
+ProAffinity pins numpy 1.x and torch 2.2. Those cannot share an environment with anything that needs numpy 2 -- OVITO 3.16 and later, in particular -- so it belongs in an environment of its own:
 
 ```bash
 pip install "ionerdss[proaffinity]"
@@ -113,23 +113,23 @@ Two hyperparameters control this:
 - **`proaffinity_backend`** (str, default=`'auto'`): `'auto'` uses the sidecar when one is configured and runs in-process otherwise; `'sidecar'` requires one; `'in_process'` never spawns one.
 - **`proaffinity_python`** (str, optional): the sidecar interpreter. Defaults to `$IONERDSS_PROAFFINITY_PYTHON`.
 
-The sidecar needs ProAffinity's dependencies, not a second ioNERDSS install -- the worker imports ioNERDSS from the source tree it ships with. ADFR still has to be reachable from the sidecar, so set `ADFR_PATH` in that environment or pass `adfr_path`.
+The sidecar needs ProAffinity's dependencies and ioNERDSS's own (`ioNERDSS[proaffinity]` brings both), but not a matching ioNERDSS version -- the worker imports ioNERDSS from the source tree it ships with. ADFR still has to be reachable from the sidecar, which inherits the environment variables of the process that launches it, so set `ADFR_PATH` where you run ioNERDSS or pass `adfr_path`.
 
 ## Energy Values
 
 - **With ProAffinity**: Predicted binding energy in kJ/mol
-- **Without ProAffinity** (default): -39.5 kJ/mol (-16 RT at 298K)
+- **Without ProAffinity** (default): -39.6 kJ/mol (-16 RT at 298K)
 - **Fallback**: Uses default value if prediction fails
 
 ## Example Output
 
+Logged at INFO level for each interface:
+
 ```
-Chain-Chain Interaction: A-B
-    Interface 1: [1, 2, 3, 4, 5]
-    Interface 2: [10, 11, 12, 13, 14]
-    Interface Energy: -45.23 kJ/mol
-    Predicted binding energy for chains A-B: -45.23 kJ/mol
+Predicted energy for A-B: -45.23 kJ/mol
 ```
+
+A pair that could not be predicted logs `ProAffinity prediction failed for A-B, using default energy` instead.
 
 ## Error Handling
 
@@ -141,22 +141,22 @@ The system automatically falls back to default energy if:
 ## Performance Notes
 
 - ProAffinity prediction adds ~30-90 seconds per interface (hardware dependent)
-- Only runs for valid interfaces (residue_cutoff threshold met)
-- Predictions are cached during the same `coarse_grain()` call
+- Only runs for valid interfaces (`interface_detect_n_residue_cutoff` threshold met)
+- The ESM-2 model is loaded once and reused for every interface, and the structure's PDBQT conversion is reused once it exists
 
-## Custom Temperature
+## Energy Conversion
 
-ProAffinity model returns K_d, converted to ΔG using:
+ProAffinity model returns pK_d (= -log10 K_d), converted to ΔG using:
 
 ```
-ΔG = -RT ln(K_d)
+ΔG = -RT ln(10^pK_d) = RT ln(K_d)
 ```
 
-Default temperature is 298.15 K.
+The temperature is fixed at 298.15 K.
 
 ## Troubleshooting
 
-### "ADFR path not provided"
+### "ADFR_PATH environment variable not set" or "prepare_receptor not found"
 Set the `adfr_path` parameter or `ADFR_PATH` environment variable.
 
 ### "ProAffinity prediction failed"

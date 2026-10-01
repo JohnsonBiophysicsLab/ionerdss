@@ -25,6 +25,9 @@ import ionerdss as ion
 system = ion.build_system_from_pdb(
     source="6bno",
     workspace_path="6bno_dir",
+    # 6BNO-specific: with the defaults the actin filament mis-assembles in NERDSS
+    interface_detect_distance_cutoff=1.0,
+    nerdss_overlap_sep_limit=3.0,
     ode_enabled=True,
     count_transition=True,
 )

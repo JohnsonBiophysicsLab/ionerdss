@@ -738,7 +738,7 @@ class SystemBuilder:
             SymmetryRegularizer(
                 system=self.system,
                 workspace_manager=self.workspace_manager,
-                com_shift_cap=float(getattr(self.hyperparams, 'com_shift_cap_ang', 6.0)),
+                com_shift_cap_ang=float(getattr(self.hyperparams, 'com_shift_cap_ang', 6.0)),
                 fold_tolerance=float(getattr(self.hyperparams, 'symmetry_fold_tolerance', 0.15)),
             ).apply(geometric_mode)
 

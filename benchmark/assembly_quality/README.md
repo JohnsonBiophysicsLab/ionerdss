@@ -11,8 +11,8 @@ it does not, *what* did the run build instead, and which hyperparameter is respo
 - `configs_6bno.json`, `results_6bno.csv` — the 56 settings and the 340 runs behind the
   6BNO result below. The runs span four `--iterations` values (20,000 / 100,000 / 400,000
   / 1,000,000), so reproducing the whole table means one sweep per value, not one sweep.
-  Three settings (`comcap*`) override `com_shift_cap_ang`, which only exists once the
-  geometric-regularization work lands; against an older build the sweep records those
+  Three settings (`comcap*`) override `com_shift_cap_ang`, which arrived with the
+  geometric-regularization work (PR #113); against an older build the sweep records those
   three as build failures and carries on with the other 53. None of the conclusions below
   rests on them.
 
@@ -25,9 +25,9 @@ the embedding, or two subunits landing in one lattice position, is a branch or a
 strand. Steric overlap, two subunit centres closer than `--clash_nm`, is checked for every
 design, lattice or not.
 
-**Stretched bonds.** Bonds whose sites sit far outside the loop-closure window. NERDSS's
-rigid-body placement cannot produce one, so these are counted separately rather than mixed
-into mis-assembly; see the caveat at the end.
+**Stretched bonds.** Bonds whose sites sit outside the loop-closure window, more than 1.15
+binding radii apart. NERDSS's rigid-body placement cannot produce one, so these are counted
+separately rather than mixed into mis-assembly; see the caveat at the end.
 
 **Geometric closure.** NERDSS places a bond between two complexes exactly, but a bond
 *inside* one complex only forms when its two sites already lie within `bindRadSameCom`
@@ -53,7 +53,8 @@ python benchmark/assembly_quality/sweep.py \
 The config file maps a name to hyperparameter overrides; everything else stays at the
 pipeline defaults. Builds and simulations are kept under `--workspace_root` for inspection.
 
-To score a run you already have:
+To score a run you already have (it needs the `DATA/COMPLEXES` snapshots NERDSS writes when
+`bondedComplexWrite` is set; `sweep.py` adds it, the pipeline's `parms.inp` does not):
 
 ```python
 from assembly_metrics import analyse_run, closure_report
@@ -65,7 +66,8 @@ analyse_run("path/to/nerdss_files", "workspace/outputs/systems/6BNO_system.json"
 - The lattice check needs a linear-polymer design. It is derived from the deposited
   structure and verified by re-embedding the design itself, so rings, cages and branched
   designs are rejected rather than mismeasured — those runs still get the overlap and
-  stretched-bond checks, and `lattice_available` says which applied.
+  stretched-bond checks, and `lattice_available` in `analyse_run`'s result says which
+  applied (`sweep.py` does not copy it into the CSV).
 - The loop-closure window assumes NERDSS's default `bindRadSameCom` of 1.1, which ioNERDSS
   does not export.
 - Bond transforms come from isolated dimers in the run itself, so closure is only reported
@@ -116,8 +118,8 @@ the minimum chain COM distance, 3.79 nm here.
 
 Settings that do not matter for 6BNO: `interface_detect_n_residue_cutoff` and
 `chain_grouping_seq_threshold` leave the model unchanged; `template_regularization_strength`
-makes closure worse (rotation error 8–16° against 2.1°); `geometric_regularization` skips
-filaments by design.
+makes closure worse (rotation error 8–16° against 2.1°); `geometric_regularization="auto"`
+declines 6BNO (point group C2; it only regularizes n-fold rings with n ≥ 3).
 
 About 81–98% of the lattice bonds form at the recommended settings. The rest sit just
 outside the loop-closure window, so filaments are clean but not fully zipped.
@@ -136,4 +138,6 @@ does.
 A smaller `nerdss_time_step` makes it rarer without fixing it: over 40 runs each at the
 same simulated duration, stretched bonds appeared in 5 runs at the automatic step, 3 at a
 quarter of it and 1 at a tenth, for 2.6× and 5.9× the runtime. Mis-assembly stayed at zero
-in all three. The fix belongs in NERDSS.
+in all three. The fix belongs in NERDSS, and has since landed on its `nerdss-optimized`
+branch (`e9a7df24`): `associate()` now refuses a loop closure whose sites are not within
+`bindRadSameCom` times the binding radius. The runs above predate it.

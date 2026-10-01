@@ -32,7 +32,7 @@ The same fields can be passed as keyword arguments to `build_system`, `ionerdss.
 - type: `float`
 - default: `0.9`
 - units: `nm`
-- purpose: contact search radius used when detecting candidate interfaces from atomic positions
+- purpose: contact search radius between Cα atoms used when detecting candidate interfaces
 
 Increase this when interface detection is too conservative. Decrease it when too many weak contacts are being merged into interfaces.
 
@@ -51,6 +51,18 @@ Higher values make interface calls stricter.
 - default: `4`
 - units: `residues`
 - purpose: filters out very small chains or ligands before the model-building pipeline proceeds
+
+#### `include_modified_residues`
+
+- type: `bool`
+- default: `True`
+- purpose: keep non-standard residues that belong to a polymer chain, such as modified
+  amino acids (selenomethionine, D-amino acids) and terminal caps. They are stored as
+  HETATM records and often form the binding interface. They are recognised from the
+  mmCIF `_entity_poly_seq` header, or else by BioPython's non-standard amino-acid check
+  (the only test available for PDB-format files). A kept residue without a Cα atom,
+  typically a cap, counts towards the chain's centre of mass but not towards interface
+  detection. Set `False` for the older standard-amino-acids-only behaviour
 
 ### Interface type assignment parameters
 
@@ -72,7 +84,9 @@ Higher values make interface calls stricter.
 
 - type: `bool`
 - default: `False`
-- purpose: split interfaces into spatial patches to speed up template building in some systems
+- purpose: split the contacts between two chains into spatially separate patches, each its own interface
+
+When `False`, all contacts between two chains form a single interface.
 
 ### Interface site placement and preflight
 
@@ -87,8 +101,11 @@ Higher values make interface calls stricter.
   a multi-interface molecule type whose sites all lie within this distance (or coincide)
   makes NERDSS exit at the first association with `Cannot resolve phi angle`. The
   preflight check in `build_system` and the validation export reports every such site
-  as a `RuntimeWarning`. Typical of chains that contact a partner along their whole
-  length: collagen-like triple helices, peptides in a groove, amyloid segments
+  as a `RuntimeWarning` (the validation export reads this field only from
+  `parms_overrides['hyperparams']`; see
+  [Top-Level API](top-level.md#interface-at-centre-of-mass-preflight-warning)).
+  Typical of chains that contact a partner along their whole length: collagen-like
+  triple helices, peptides in a groove, amyloid segments
 
 #### `interface_site_placement`
 
@@ -152,6 +169,8 @@ Modes:
 - default: `"off"`
 - purpose: control whether steric clash detection is disabled, automatic, or user-specified
 
+Only `"auto"` runs clash detection. No hyperparameter carries user-specified clash lists yet, so `"custom"` currently behaves like `"off"`.
+
 ### Template building parameters
 
 #### `signature_precision`
@@ -196,6 +215,8 @@ Modes:
 - units: `Å`
 - purpose: search radius for homotypic interface detection
 
+This value is range-checked by `validate()` but not read by the current pipeline, so changing it has no effect.
+
 ### Geometric regularization
 
 #### `geometric_regularization`
@@ -217,11 +238,13 @@ Modes:
   **synthesises each subunit's orientation from the group element** rather than
   recovering it by structural alignment.
 
-  Only cyclic (`Cn`, n >= 3) assemblies are regularized. Filaments are detected and
+  Only a single cyclic ring (`Cn`, n >= 3) is regularized. Filaments are detected and
   deliberately left alone: an actin filament genuinely extends past the deposited
-  asymmetric unit, so forcing closure would be wrong. Dihedral and cubic groups are
-  detected and reported but not yet regularized. The detected group is recorded on
-  the returned system as `system.symmetry_detection`.
+  asymmetric unit, so forcing closure would be wrong. A dihedral point group qualifies
+  only when all of its subunits form one n-fold ring, and then only the `Cn` rotation
+  about the principal axis is applied; dihedral assemblies built from stacked rings,
+  and cubic groups, are detected and reported but not regularized. The detected group
+  is recorded on the returned system as `system.symmetry_detection`.
 
 #### `symmetry_fold_tolerance`
 
@@ -235,10 +258,15 @@ Modes:
 
 #### `com_shift_cap_ang`
 
-- type: `float` (Å)
+- type: `float`
 - default: `6.0`
+- units: `Å`
 - purpose: refuse geometric regularization if it would move any subunit centre of
   mass further than this; also caps template regularization
+
+  Both read the value in Å. Geometric regularization is all or nothing: one subunit
+  over the cap leaves the whole assembly as deposited and logs a warning. Template
+  regularization instead shortens each member's shift to the cap.
 
 #### `is_on_sphere`
 
@@ -303,6 +331,14 @@ Modes:
 - units: `nm`
 - purpose: minimum allowed separation distance between molecule centers to avoid overlap-related artifacts
 
+Written to `parms.inp` as `overlapSepLimit`. Unless `disable_overlap_sep_limit_check` is set, `build_system` lowers a value above 0.9 × the smallest distance between chain centres of mass in the structure to that bound and logs a warning.
+
+#### `disable_overlap_sep_limit_check`
+
+- type: `bool`
+- default: `False`
+- purpose: skip the safety check that caps `nerdss_overlap_sep_limit` at 0.9 × the smallest chain centre-of-mass distance
+
 ### ProAffinity binding energy prediction
 
 #### `predict_affinity`
@@ -344,6 +380,8 @@ Examples include:
 - `mmcif`
 - `bioassembly1`
 - `bioassembly2`
+
+A `fetch_format` passed to `PDBModelBuilder` or `build_system_from_pdb` takes precedence over this field.
 
 ### ODE pipeline parameters
 
@@ -396,7 +434,7 @@ If omitted, the code derives a time span from the NERDSS time step and iteration
 
 - type: `Optional[dict]`
 - default: `None`
-- purpose: explicit initial concentrations by species name
+- purpose: explicit initial concentrations by species name, in µM
 
 If omitted, the pipeline uses concentrations derived from the NERDSS export assumptions.
 
@@ -449,7 +487,7 @@ If left as `None`, each molecule type gets a matrix sized to its own molecule co
 - default: `None`
 - purpose: interval for writing transition matrix output files
 
-If omitted, the export code defaults this interval to roughly `nItr / 10`.
+If omitted, `transitionWrite` is left out of `parms.inp` and NERDSS falls back to `nItr / 10`.
 
 ### Units
 
@@ -477,4 +515,4 @@ Raise `TypeError` if any of `names` is not a field. The message starts with `cal
 
 ### `validate()`
 
-Validate the current hyperparameter values and report invalid combinations or ranges.
+Check the current values and return a list of error messages, empty when every value is valid. It does not raise.

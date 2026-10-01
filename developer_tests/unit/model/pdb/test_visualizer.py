@@ -439,6 +439,34 @@ class TestPDBVisualizer(unittest.TestCase):
             self.assertIsInstance(outputs[key], Path)
 
     @patch('ionerdss.model.pdb.visualizer.plt')
+    def test_visualize_all_pymol_script_loads_cg_structure(self, mock_plt):
+        """Test that one visualize_all call on a fresh workspace yields a
+        PyMOL script that loads the coarse-grained CIF from the same call."""
+        # Mock matplotlib components
+        mock_fig = Mock()
+        mock_ax = Mock()
+        mock_plt.figure.return_value = mock_fig
+        mock_fig.add_subplot.return_value = mock_ax
+        mock_plt.subplots.return_value = (
+            mock_fig, [[mock_ax, mock_ax], [mock_ax, mock_ax]])
+        mock_plt.cm.Set1.return_value = np.array([[1, 0, 0], [0, 1, 0]])
+
+        visualizer = PDBVisualizer(self.workspace_manager)
+        cg_structure = visualizer.viz_dir / '1ABC_coarse_grained.cif'
+        self.assertFalse(cg_structure.exists())
+
+        # Write real files: the script is only correct if the CIF exists
+        # before the script is generated
+        outputs = visualizer.visualize_all(
+            self.parser, self.coarse_grainer, self.chain_grouper, self.template_builder
+        )
+
+        self.assertEqual(outputs['cg_structure'], cg_structure)
+        self.assertTrue(cg_structure.is_file())
+        script = outputs['pymol'].read_text(encoding='utf-8')
+        self.assertIn(f"load {cg_structure}, coarse_grained\n", script)
+
+    @patch('ionerdss.model.pdb.visualizer.plt')
     def test_visualize_all_with_error(self, mock_plt):
         """Test visualize_all with error handling."""
         # Mock matplotlib to raise an error

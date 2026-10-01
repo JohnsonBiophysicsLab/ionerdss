@@ -1,14 +1,21 @@
 > **SUPERSEDED — do not cite these numbers.**
 >
-> The full paired rerun (`pdb_benchmark/BENCHMARK_v224_x5_auto.md`) shows neither change
-> moves the benchmark. The improvement below is an artifact of two errors:
+> The full paired rerun (`pdb_benchmark/BENCHMARK_v224_x5_auto.md`, a local report that is
+> not in the repository) shows neither change moves the benchmark. The improvement below is
+> an artifact of two errors:
 >
 > 1. `poc_run.py` ran only the 100,000-iteration fast probe, while the "before" labels
 >    came from the benchmark's full protocol, which reruns at 1,000,000 iterations when
 >    the target does not appear — ten times longer for complexes to fuse. The two arms
 >    were never comparable.
 > 2. The alignment fix corrects `MoleculeInstance.ref1`/`ref2`, which the NERDSS export
->    and validation paths never read, so it cannot change a simulation outcome.
+>    and validation paths did not read at the time, so it could not change a simulation
+>    outcome. (Since PR #120 the exporter reads them for a copy that shares fewer than two
+>    interface types with its representative.)
+>
+> `geometric_regularization="auto"` shipped opt-in; the default is still `"off"`. Its scope
+> has grown since: a dihedral assembly whose chains form a single n-fold orbit is now
+> regularized too (by the `Cn` rotation only). Cubic groups are still left alone.
 >
 > Kept for the record.
 
