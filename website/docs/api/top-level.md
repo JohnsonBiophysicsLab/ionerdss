@@ -54,6 +54,8 @@ A populated `System` object ready for export, simulation setup, or analysis.
 
 Prepare the special validation deck that exports one representative copy per molecule type, forces off-rates to zero, adds titration behavior, and writes the designed target coordinates for later comparison.
 
+Unless `parms_overrides` sets `bondedComplexWrite`, the deck asks NERDSS for a `DATA/COMPLEXES` snapshot every `nItr / 100` steps, as do `setup_simulation` and `prepare` in `ionerdss.model.pdb.validation` and `build_system(structure_validation=True)`. NERDSS writes none otherwise, and the result readers then see only the final restart snapshot, which misses an assembly that formed and later grew.
+
 Typical return values are packaged in `StructureValidationArtifacts`, including:
 
 - chosen molecule counts

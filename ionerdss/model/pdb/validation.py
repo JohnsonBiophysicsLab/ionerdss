@@ -10,7 +10,7 @@ Current logic:
 In structure_validation.py, get_structure_validation_counts() builds the expected full assembly as one representative copy of each molecule type, for example {"A": 1, "H": 1, "L": 1}.
 
 2. Run the actual NERDSS validation simulation with that target in mind.
-run_structure_validation_simulation(...) uses parms_titrate.inp, runs NERDSS, then looks for a matching full assembly in `DATA/COMPLEXES/*.json`. These JSON snapshots are the primary source for both existence checks and observed COM extraction.
+run_structure_validation_simulation(...) uses parms_titrate.inp, runs NERDSS, then looks for a matching full assembly in `DATA/COMPLEXES/*.json`. These JSON snapshots are the primary source for both existence checks and observed COM extraction; the deck sets `bondedComplexWrite` to nItr / 100 so that NERDSS writes them, unless `parms_overrides` sets it.
 
 3. If no COMPLEXES JSON snapshots exist, fall back to restart snapshots.
 The code emits a warning and then scans `DATA/restart.dat` and any `RESTART/*.dat` snapshots for a connected component whose composition matches the target.

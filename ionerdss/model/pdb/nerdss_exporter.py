@@ -76,6 +76,9 @@ from ionerdss.model.titrate.parms_titrator import parse_mol_file
 # the matrix from (e.g. dry runs that never receive molecule counts).
 DEFAULT_TRANSITION_MATRIX_SIZE = 500
 
+# nItr written to parms.inp when neither parms_overrides nor the hyperparameters set one.
+DEFAULT_N_ITR = 1e5
+
 
 # |sin(theta)| below this makes the COM-to-site vector parallel to sigma, where phi
 # (the dihedral of sigma about that vector) has no definition; the exporter then
@@ -2134,7 +2137,7 @@ class NERDSSExporter:
         
         # Base default parameters
         params = {
-            'nItr': hyperparams.nerdss_n_itr if hyperparams else 1e5,
+            'nItr': hyperparams.nerdss_n_itr if hyperparams else DEFAULT_N_ITR,
             'timestep': 0.5,
             'timeWrite': 1e3,
             'trajWrite': hyperparams.nerdss_n_itr/10 if hyperparams else 1e5,

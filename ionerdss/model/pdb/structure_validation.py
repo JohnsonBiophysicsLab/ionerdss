@@ -25,7 +25,7 @@ import numpy as np
 
 from ionerdss.model.components.system import System
 from ionerdss.model.components.instances import MoleculeInstance
-from ionerdss.model.pdb.nerdss_exporter import NERDSSExporter
+from ionerdss.model.pdb.nerdss_exporter import DEFAULT_N_ITR, NERDSSExporter
 from ionerdss.utils.rigid_transform import apply_rigid_transform, rigid_transform_3d
 
 
@@ -40,6 +40,12 @@ _EXACT_PERMUTATION_SEARCH_LIMIT = 5040
 _ASSIGNMENT_REFINEMENT_ROUNDS = 10
 _MAX_ANCHOR_SEEDS = 32
 _ANCHOR_SEED_RELATIVE_TOLERANCE = 0.1
+
+# NERDSS leaves bondedComplexWrite at -1 unless it is asked for, so DATA/COMPLEXES stays
+# empty and the result readers fall back to the final restart snapshot, which only sees
+# the end state and misses an assembly that formed and then grew. The validation deck
+# asks for this many snapshots per run, which keeps the JSON output bounded at any nItr.
+_BONDED_COMPLEX_SNAPSHOTS_PER_RUN = 100
 
 
 @dataclass(frozen=True)
@@ -1127,6 +1133,20 @@ def _resolve_interface_com_proximity_threshold(
     return DEFAULT_INTERFACE_COM_PROXIMITY_THRESHOLD_NM
 
 
+def _default_bonded_complex_write(parms_overrides: Mapping[str, object]) -> int:
+    """Return the bondedComplexWrite interval that gives a fixed number of snapshots per run.
+
+    nItr is resolved as the exporter resolves it: ``parms_overrides['nItr']``, else the
+    hyperparameters' ``nerdss_n_itr``, else the exporter default.
+    """
+    n_itr = parms_overrides.get("nItr")
+    if n_itr is None:
+        n_itr = getattr(parms_overrides.get("hyperparams"), "nerdss_n_itr", None)
+    if n_itr is None:
+        n_itr = DEFAULT_N_ITR
+    return max(1, int(float(n_itr)) // _BONDED_COMPLEX_SNAPSHOTS_PER_RUN)
+
+
 def prepare_structure_validation(
     system: System,
     workspace_manager=None,
@@ -1134,7 +1154,14 @@ def prepare_structure_validation(
     parms_overrides: Optional[MutableMapping[str, object]] = None,
     designed_coordinates: Optional[Mapping[str, Sequence[float]]] = None,
 ) -> StructureValidationArtifacts:
-    """Export the special NERDSS input deck for structure validation."""
+    """Export the special NERDSS input deck for structure validation.
+
+    ``parms_overrides`` is applied as in a regular export, and may carry the
+    hyperparameters as ``parms_overrides['hyperparams']``. Unless it sets
+    ``bondedComplexWrite``, NERDSS is asked for a DATA/COMPLEXES snapshot every
+    nItr / 100 steps, which the result readers need in order to see an assembly that
+    formed and then grew.
+    """
     config = config or StructureValidationConfig()
     molecule_counts = build_validation_molecule_counts(
         system,
@@ -1168,6 +1195,9 @@ def prepare_structure_validation(
     export_overrides = dict(parms_overrides or {})
     export_overrides["force_off_ratekb"] = 0.0
     export_overrides["titration_on_rate_3d_ka"] = config.titration_on_rate
+    export_overrides.setdefault(
+        "bondedComplexWrite", _default_bonded_complex_write(export_overrides)
+    )
 
     nerdss_files = exporter.export_all(
         molecule_counts=molecule_counts,
