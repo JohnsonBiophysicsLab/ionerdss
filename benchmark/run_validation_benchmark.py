@@ -24,7 +24,6 @@ Usage:
 """
 import argparse
 import csv
-import logging
 import traceback
 from pathlib import Path
 from typing import Optional
@@ -332,7 +331,6 @@ def main():
                 workspace_path=f"benchmark/trials/{pdb_id}",
                 generate_visualizations=False,
                 generate_nerdss_files=False,
-                logger_level=logging.WARNING,
                 geometric_regularization=args.geometric_regularization,
                 interface_site_placement=args.interface_site_placement,
                 #interface_detect_distance_cutoff=1.5,

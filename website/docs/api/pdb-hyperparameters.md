@@ -21,6 +21,8 @@ builder = PDBModelBuilder("6bno", hyperparams=hyperparams)
 system = builder.build_system(workspace_path="6bno_dir")
 ```
 
+The same fields can be passed as keyword arguments to `build_system`, `ionerdss.build_system_from_pdb` and `set_hyperparameters`. Every keyword must be one of the field names below: any other name raises `TypeError`, naming the field it most likely meant (see [Hyperparameter keywords](pdb.md#hyperparameter-keywords)).
+
 ## Parameter groups
 
 ### Core detection parameters
@@ -531,9 +533,15 @@ An aligner that scores gaps with a function cannot be saved: `to_dict` raises `V
 
 ### `from_dict(data)`
 
-Reconstruct a `PDBModelHyperparameters` instance from serialized data. Keys that are not fields are ignored, which is also why a misspelled keyword passed to `PDBModelBuilder.build_system(**kwargs)` has no effect. This also restores tuple handling for `ode_time_span` and rebuilds the `PairwiseAligner` from its settings, as written by `to_dict` or as the five that ionerdss 2.2.5 and earlier wrote: `mode`, `match_score`, `mismatch_score`, `open_gap_score` and `extend_gap_score`. Any other `PairwiseAligner` attribute in the aligner settings is set as well, and the gap scores may also carry their Biopython 1.86 names; a key that is not an attribute is skipped with a `UserWarning`. The twelve individual gap scores are applied last, so one added to a saved file overrides `open_gap_score` or `extend_gap_score` wherever it stands. A `PairwiseAligner` given in place of its settings is kept as it is.
+Reconstruct a `PDBModelHyperparameters` instance from serialized data. Keys that are not fields are skipped with a `UserWarning` naming them, so that a configuration saved by an older version, which may hold names since renamed or removed, still loads. Loading through `from_dict`, as `import_hyperparameters` does, is the only path that tolerates unknown names; keyword arguments are checked with `check_names`.
+
+`from_dict` also restores tuple handling for `ode_time_span` and rebuilds the `PairwiseAligner` from its settings, as written by `to_dict` or as the five that ionerdss 2.2.5 and earlier wrote: `mode`, `match_score`, `mismatch_score`, `open_gap_score` and `extend_gap_score`. Any other `PairwiseAligner` attribute in the aligner settings is set as well, and the gap scores may also carry their Biopython 1.86 names; a key that is not an attribute is skipped with a `UserWarning`. The twelve individual gap scores are applied last, so one added to a saved file overrides `open_gap_score` or `extend_gap_score` wherever it stands. A `PairwiseAligner` given in place of its settings is kept as it is.
 
 ionerdss 2.2.5 and earlier saved an aligner with a substitution matrix as `"match_score": null, "mismatch_score": null`, leaving the matrix out. Loading such a file raises `ValueError`; name the matrix in the aligner settings, as in `"substitution_matrix": "BLOSUM62"`, or delete the `chain_grouping_custom_aligner` entry to use the default aligner.
+
+### `check_names(names, caller)`
+
+Raise `TypeError` if any of `names` is not a field. The message starts with `caller` and names the field each unknown name most likely meant. `PDBModelBuilder.build_system`, `ionerdss.build_system_from_pdb` and `set_hyperparameters` call it on their keyword arguments.
 
 ### `validate()`
 

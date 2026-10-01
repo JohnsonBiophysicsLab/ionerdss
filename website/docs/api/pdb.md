@@ -30,7 +30,21 @@ system = builder.build_system(workspace_path="6bno_dir")
 - `box_nm`: default `(100.0, 100.0, 100.0)`. The NERDSS export uses it only when `nerdss_water_box` is empty; it is also the validation box when `structure_validation_options` gives none.
 - `structure_validation`, `structure_validation_options`: also export the one-copy [validation deck](top-level.md#validation-deck), with the build's hyperparameters, into `structure_validation/` beside the regular files in `nerdss_files/` (see [Top-Level API](top-level.md#parameters)); the result is kept on `builder.structure_validation_artifacts`.
 - `nerdss_params`: extra `parms.inp` parameters written over the generated ones. Set the time step with the `nerdss_time_step` hyperparameter instead, because the automatic time step, whenever it can be computed, replaces a `timestep` given here.
-- `**kwargs`: hyperparameter fields merged over `hyperparams`. Names that are not fields are ignored.
+- `**kwargs`: hyperparameter overrides, by `PDBModelHyperparameters` field name. A name that is not a field raises `TypeError`; see [Hyperparameter keywords](#hyperparameter-keywords).
+
+### Hyperparameter keywords
+
+Keyword arguments to `build_system` other than its own parameters are `PDBModelHyperparameters` fields. They are applied over `hyperparams` (else the builder's hyperparameters, else the defaults) for this build, and the result is kept as `builder.hyperparams`:
+
+```python
+system = builder.build_system(
+    workspace_path="6bno_dir",
+    interface_detect_distance_cutoff=1.0,
+    generate_visualizations=False,
+)
+```
+
+A keyword that is not a field raises `TypeError` before the workspace is created. The message names the field it most likely meant, such as `interface_detect_distance_cutoff` for the older short name `distance_cutoff`. `ionerdss.build_system_from_pdb(...)` and `set_hyperparameters(...)` check their keywords the same way. Only `PDBModelHyperparameters.from_dict`, which loads saved configurations (`import_hyperparameters` uses it), skips unknown names, and it warns when it does.
 
 ## `PDBModelHyperparameters`
 

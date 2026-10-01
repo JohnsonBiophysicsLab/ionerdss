@@ -9,6 +9,7 @@ the complete pipeline with proper file organization, logging, and NERDSS export.
 
 from typing import Optional, Union, Dict, Any, Tuple
 from pathlib import Path
+import dataclasses
 import logging
 import math
 import warnings
@@ -107,11 +108,18 @@ class PDBModelBuilder:
                 0.9 nm), chain_grouping_matching_mode ("default"),
                 steric_clash_mode ("off"), generate_visualizations (True) or
                 generate_nerdss_files (True). Names must match the field names
-                exactly.
+                exactly. They are applied to a copy of hyperparams, and the copy
+                is kept as builder.hyperparams.
 
         Returns:
             Complete System object ready for simulation.
+
+        Raises:
+            TypeError: If a keyword is not a ``PDBModelHyperparameters`` field. This
+                is checked before the workspace is created.
         """
+        PDBModelHyperparameters.check_names(kwargs, "build_system()")
+
         # Extract PDB ID for workspace naming
         if self._looks_like_pdb_id(str(self.source)):
             pdb_id = str(self.source).upper()
@@ -148,9 +156,10 @@ class PDBModelBuilder:
             if hyperparams is None:
                 hyperparams = PDBModelHyperparameters()
             if kwargs:
-                hyperparams_config = hyperparams.to_dict()
-                hyperparams_config.update(kwargs)
-                hyperparams = PDBModelHyperparameters.from_dict(hyperparams_config)
+                # replace() rather than a to_dict()/from_dict() round trip, which
+                # resets the units and rebuilds the aligner (and fails for one
+                # that scores gaps with a function).
+                hyperparams = dataclasses.replace(hyperparams, **kwargs)
             self.hyperparams = hyperparams
 
             self.workspace_manager.logger.info(

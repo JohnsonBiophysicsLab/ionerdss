@@ -7,6 +7,7 @@ Tests the PDBModelHyperparameters class and its configuration management.
 
 import json
 import unittest
+import warnings
 from types import SimpleNamespace
 
 import numpy as np
@@ -266,18 +267,41 @@ class TestPDBModelHyperparameters(unittest.TestCase):
         self.assertIsInstance(params.chain_grouping_custom_aligner, PairwiseAligner)
 
     def test_from_dict_unknown_fields(self):
-        """Test from_dict ignores unknown fields."""
+        """Test from_dict ignores unknown fields, with a warning naming them."""
         data = {
             'interface_detect_distance_cutoff': 0.8,
             'unknown_field': 'should_be_ignored',
             'another_unknown': 123
         }
 
-        params = PDBModelHyperparameters.from_dict(data)
+        with self.assertWarnsRegex(UserWarning, r"ignored unknown keys 'unknown_field', 'another_unknown'"):
+            params = PDBModelHyperparameters.from_dict(data)
 
         self.assertEqual(params.interface_detect_distance_cutoff, 0.8)
         self.assertFalse(hasattr(params, 'unknown_field'))
         self.assertFalse(hasattr(params, 'another_unknown'))
+
+    def test_from_dict_round_trip_does_not_warn(self):
+        """Test from_dict reads everything to_dict writes without a warning."""
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            PDBModelHyperparameters.from_dict(PDBModelHyperparameters().to_dict())
+
+    def test_check_names_accepts_fields(self):
+        """Test check_names passes every field name, including units."""
+        PDBModelHyperparameters.check_names(
+            ['interface_detect_distance_cutoff', 'units'], "f()")
+
+    def test_check_names_rejects_unknown_names(self):
+        """Test check_names raises, suggesting the current name of an old short one."""
+        with self.assertRaisesRegex(
+            TypeError,
+            r"^f\(\) got unexpected keyword arguments "
+            r"'residue_cutoff' \(did you mean 'interface_detect_n_residue_cutoff'\?\), "
+            r"'logger_level'; hyperparameters are passed by their "
+            r"PDBModelHyperparameters field names$",
+        ):
+            PDBModelHyperparameters.check_names(['residue_cutoff', 'logger_level'], "f()")
 
     def test_validate_valid_parameters(self):
         """Test validate method with valid parameters."""
