@@ -262,8 +262,8 @@ for viz_type, file_path in outputs.items():
 # interfaces: /workspace/visualizations/interface_connections.png
 # groups: /workspace/visualizations/chain_groups.png
 # templates: /workspace/visualizations/template_overview.png
-# pymol: /workspace/visualizations/1ABC_visualization.pml
 # cg_structure: /workspace/visualizations/1ABC_coarse_grained.cif
+# pymol: /workspace/visualizations/1ABC_visualization.pml
 ```
 
 ### Individual Visualization Types
@@ -359,13 +359,14 @@ class PDBVisualizer:
             outputs['templates'] = self.plot_template_overview(
                 template_builder)
 
-            # 5. PyMOL visualization script
-            outputs['pymol'] = self.generate_pymol_script(
-                parser, coarse_grainer, template_builder)
-
-            # 6. Coarse-grained structure file
+            # 5. Coarse-grained structure file
             outputs['cg_structure'] = self.save_coarse_grained_structure(
                 coarse_grainer)
+
+            # 6. PyMOL visualization script (after step 5: it only loads
+            # the coarse-grained CIF if that file already exists)
+            outputs['pymol'] = self.generate_pymol_script(
+                parser, coarse_grainer, template_builder)
 
             self.logger.info(
                 "Generated %d visualization outputs", len(outputs))
