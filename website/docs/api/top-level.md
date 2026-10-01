@@ -38,10 +38,10 @@ system = ion.build_system_from_pdb(
 
 - `source`: PDB identifier such as `"4v6x"` or a local PDB/mmCIF path.
 - `workspace_path`: output directory for generated files. Defaults to `<source>_dir`.
-- `fetch_format`: optional remote structure format.
-- `molecule_counts`: optional explicit counts for NERDSS export.
-- `structure_validation`: if `True`, export a one-copy-per-type validation setup during the build.
-- `structure_validation_options`: optional settings forwarded to the validation export workflow.
+- `fetch_format`: optional remote structure format. Overrides the `pdb_file_format` hyperparameter (default `"bioassembly1"`).
+- `molecule_counts`: optional explicit counts for NERDSS export. When omitted, `nerdss_total_molecule_count` (default 75) is split across the molecule types by their stoichiometry in the structure, rounding up.
+- `structure_validation`: if `True`, also export the one-copy validation setup (one copy of the designed assembly) during the build. It is written to the same `nerdss_files/` directory, so its `parms.inp` and `.mol` files replace the regular export; the deck is also copied to `parms_titrate.inp`.
+- `structure_validation_options`: optional settings for the validation export. The keys read are `box_nm` (default `(100.0, 100.0, 100.0)`; `nerdss_water_box` does not apply to the validation deck), `titration_on_rate` (default `1e-5`), `target_filename` and `parms_overrides`; other keys are ignored. The hyperparameters reach the validation deck only as `parms_overrides={"hyperparams": ...}`; without that, settings such as `nItr` and `overlapSepLimit` take their defaults instead of the `nerdss_*` values.
 - `**hyperparams_kwargs`: any field accepted by `PDBModelHyperparameters`.
 
 ### Returns
@@ -52,7 +52,9 @@ A populated `System` object ready for export, simulation setup, or analysis.
 
 ### `prepare_structure_validation_for_system`
 
-Prepare the special validation deck that exports one representative copy per molecule type, forces off-rates to zero, adds titration behavior, and writes the designed target coordinates for later comparison.
+Prepare the special validation deck that exports one copy of the designed assembly (every molecule type at its designed copy number, for example eight `A` for an eight-subunit homomer), forces off-rates to zero, adds titration behavior, and writes the designed target coordinates for later comparison.
+
+It takes the system plus the keyword arguments `box_nm` (default `(100.0, 100.0, 100.0)`), `titration_on_rate` (default `1e-5`), `target_filename` (default `"structure_validation_target.json"`) and `parms_overrides`, and writes its files to `nerdss_files/` under the current working directory. The functions that run the validation simulation and read its result live in `ionerdss.model.pdb.validation`; see [PDB Modeling](pdb.md#structure-validation-workflow).
 
 Typical return values are packaged in `StructureValidationArtifacts`, including:
 
@@ -114,9 +116,14 @@ site closer than the threshold to its molecule's COM, and
 whose sites coincide or all lie within the threshold.
 `get_interface_com_proximity_message(system, prefix=..., threshold_nm=...)` formats
 both. The threshold is the `interface_com_proximity_threshold` hyperparameter
-(default 0.15 nm); the validation helpers also accept it as
-`interface_com_proximity_threshold_nm`. The message is raised as a `RuntimeWarning`
-by `build_system` and during validation export, and carried on the artifacts.
+(default 0.15 nm). The validation export resolves its own threshold:
+`StructureValidationConfig.interface_com_proximity_threshold_nm` (also a keyword of
+`ionerdss.model.pdb.validation.prepare` and `setup_simulation`), then the
+hyperparameters in `parms_overrides['hyperparams']`, then 0.15 nm. Neither
+`prepare_structure_validation_for_system` nor `build_system(structure_validation=True)`
+adds the hyperparameters to `parms_overrides` for you. The message is raised as a
+`RuntimeWarning` by `build_system` and during validation export, and carried on the
+artifacts.
 
 Two things are worth knowing:
 
@@ -153,7 +160,9 @@ Rigidly align observed coarse-grained coordinates onto the design target and com
 
 This function accepts either:
 
-- dictionaries keyed by molecule type
+- dictionaries keyed by molecule label; when the two label sets differ, each label is
+  reduced to its molecule type and the copies of a repeated type are paired to give the
+  lowest RMSD
 - ordered coordinate arrays
 
 It returns a `StructureAlignmentResult` containing labels, RMSD, the rotation and translation, and the aligned coordinates.
@@ -185,4 +194,4 @@ Deprecated: use `render_trajectory_movie`. Renders an XYZ trajectory with OVITO 
 
 ### `convert_simularium`
 
-Convert supported simulation outputs into Simularium files for interactive 3D viewing.
+Convert supported simulation outputs into Simularium files for interactive 3D viewing. This requires the `simularium` optional extra.

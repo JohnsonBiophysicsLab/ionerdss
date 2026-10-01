@@ -22,6 +22,16 @@ system = builder.build_system(workspace_path="6bno_dir")
 - Optionally run the ODE pipeline when enabled in hyperparameters.
 - Optionally export the one-copy structure-validation workflow when requested through the public API.
 
+### `build_system` arguments
+
+- `workspace_path`: output directory for logs, structures, reports, the system JSON and `nerdss_files/`.
+- `hyperparams`: a `PDBModelHyperparameters`. Defaults to the one attached to the builder, else the defaults.
+- `molecule_counts`: copies per molecule type for the NERDSS export. When omitted, `nerdss_total_molecule_count` is split across the molecule types by stoichiometry.
+- `box_nm`: default `(100.0, 100.0, 100.0)`. The NERDSS export uses it only when `nerdss_water_box` is empty; it is also the validation box when `structure_validation_options` gives none.
+- `structure_validation`, `structure_validation_options`: also export the one-copy validation deck, which replaces the regular files in `nerdss_files/` (see [Top-Level API](top-level.md#parameters)); the result is kept on `builder.structure_validation_artifacts`.
+- `nerdss_params`: extra `parms.inp` parameters written over the generated ones. Set the time step with the `nerdss_time_step` hyperparameter instead, because the automatic time step, whenever it can be computed, replaces a `timestep` given here.
+- `**kwargs`: hyperparameter fields merged over `hyperparams`. Names that are not fields are ignored.
+
 ## `PDBModelHyperparameters`
 
 `PDBModelHyperparameters` controls the behavior of the full PDB-to-NERDSS pipeline. It is documented on a separate page because the parameter surface is large and the fields affect different stages of the workflow.
@@ -49,18 +59,30 @@ The top-level wrapper `ionerdss.build_system_from_pdb(...)` also supports:
 - `structure_validation=True`
 - `structure_validation_options={...}`
 
-to export the validation-ready NERDSS files alongside the main workspace.
+to export the validation-ready NERDSS files into the workspace's `nerdss_files/`, where they replace the regular `parms.inp` and `.mol` files.
 
 ## Hyperparameter helpers
 
-The helper functions in `ionerdss.model.pdb.api` support exporting, importing, printing, and updating hyperparameters without manually rebuilding the dataclass each time.
+The helper functions in `ionerdss.model.pdb.api` support exporting, importing, printing, and updating hyperparameters without manually rebuilding the dataclass each time. They are also importable from `ionerdss.model.pdb`, and `PDBModelBuilder` has methods of the same names that take the same arguments without `builder`.
 
 Useful helpers include:
 
 - `set_hyperparameters(builder, **kwargs)`: create or update the builder's hyperparameter object.
 - `export_hyperparameters(builder, filepath)`: save a builder configuration to JSON.
 - `import_hyperparameters(builder, filepath)`: load a saved configuration into a builder.
-- `print_hyperparameters(builder)`: inspect the current values attached to a builder.
+- `print_hyperparameters(builder)`: print and return a grouped summary of the values attached to a builder. It leaves out some fields, the NERDSS export settings among them; `builder.hyperparams.to_dict()` holds every field.
+
+## Structure validation workflow
+
+`ionerdss.model.pdb.validation` runs the one-copy validation end to end: export a deck holding one copy of the designed assembly, with irreversible binding and titrated subunits, run NERDSS on it, and compare the assembly that forms with the design.
+
+- `setup_simulation(system, *, workspace_manager=None, box_nm=(100.0, 100.0, 100.0), initial_molecule_count=1, titration_on_rate=1e-5, target_filename="structure_validation_target.json", titration_parms_filename="parms_titrate.inp", parms_overrides=None, designed_coordinates=None, interface_com_proximity_threshold_nm=None)`: write the validation deck and the design target, and return `StructureValidationArtifacts`. `initial_molecule_count` multiplies the designed copy numbers. `prepare(...)` does the same without `initial_molecule_count` and `titration_parms_filename`.
+- `run_simulation(artifacts, nerdss_dir, *, sim_index=1, sim_dir_name="validation_output", env=None)`: run the NERDSS executable at `<nerdss_dir>/bin/nerdss` on the titration deck in `nerdss_files/<sim_dir_name>/<sim_index>/`, and return a `StructureValidationSimulationResult` saying whether and when the full assembly formed, the largest assembly seen, and the observed coordinates. `env` adds environment variables, such as `LD_LIBRARY_PATH`, for the executable. A NERDSS process that exits with an error raises `RuntimeError` instead of being reported as a run in which nothing assembled.
+- `collect_results(artifacts, simulation_dir)`: read the result of a validation run launched outside ioNERDSS, for example as a cluster job. `simulation_dir` is the directory the run wrote `DATA/` into.
+- `align_structure(designed_coordinates, observed_coordinates, *, backend="kabsch", plot=False)`, also available as `compare`: rigid alignment and RMSD, returning a `StructureAlignmentResult`. `backend` may also be `"biopython"`.
+- `get_designed_structure(system)`: the designed assembly keyed by molecule instance, with each instance's type, centre of mass and bound interfaces (interface type, binding partner and coordinate), for checking what the design connects.
+
+The site-geometry and box-fit preflight helpers described under [Top-Level API](top-level.md#structure-validation-helpers) (`get_near_com_interface_sites`, `get_degenerate_site_layouts`, `get_interface_com_proximity_message`, `get_designed_assembly_extent`, `get_box_fit_message`) can be imported from this module too.
 
 ## Interface and site names
 
