@@ -22,6 +22,7 @@ ray tracer or child process involved.
 
 from __future__ import annotations
 
+import itertools
 import logging
 import math
 import os
@@ -1060,7 +1061,14 @@ def _render_frames(
     try:
         # Keep only a few frames in flight so memory stays flat for long runs.
         for index, task in enumerate(tasks):
-            pending.append((pool.submit(_worker_render, task, png_path(index), want_images), index, task))
+            try:
+                future = pool.submit(_worker_render, task, png_path(index), want_images)
+            except BrokenProcessPool:
+                # A pool that knows it is broken refuses new tasks: queue this
+                # one anyway so that the serial fallback below renders it.
+                pending.append((None, index, task))
+                raise
+            pending.append((future, index, task))
             if len(pending) >= 2 * n_jobs:
                 image = next_result()
                 yielded += 1
@@ -1079,7 +1087,8 @@ def _render_frames(
         remaining = [(i, task) for _, i, task in pending] if pending else []
         pending.clear()
         next_index = remaining[-1][0] + 1 if remaining else 0
-        for index, task in remaining + list(enumerate(tasks, start=next_index)):
+        # Lazily, so that trajectory.xyz frames are read only as they are rendered.
+        for index, task in itertools.chain(remaining, enumerate(tasks, start=next_index)):
             yield _render_task(renderer, task, box_nm, png_path(index))
         return
     except BaseException:
