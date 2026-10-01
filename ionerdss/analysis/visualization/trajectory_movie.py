@@ -438,8 +438,8 @@ def time_label_format(times_us: Sequence[float], unit: Optional[str] = None) -> 
     One unit for every frame (the largest in which the final time is at least
     1) and the fewest decimals, up to 3, that show the usual spacing between
     frames exactly, or, when no such number exists (an irregular timeStep),
-    that still tell neighbouring frames apart. `width` fits the longest value,
-    so the label never changes length.
+    that round it to within 10%. `width` fits the longest value, so the label
+    never changes length.
     """
     times = np.asarray(times_us, dtype=float)
     t_max = float(times.max()) if times.size else 0.0
@@ -465,10 +465,11 @@ def time_label_format(times_us: Sequence[float], unit: Optional[str] = None) -> 
             decimals = d
             break
     if decimals is None:
-        # An irregular spacing, e.g. from an automatically chosen timeStep:
-        # enough decimals to tell neighbouring frames apart.
+        # An irregular spacing, e.g. from an automatically chosen timeStep: the
+        # fewest decimals that round it to within 10%, so the label advances by
+        # a near-constant amount (1.4998 ms -> 1.5, not alternating 1 and 2).
         spacing = float(np.median(steps))
-        decimals = min(3, max(0, math.ceil(-math.log10(spacing)))) if spacing > 0 else 3
+        decimals = next((d for d in range(4) if abs(round(spacing, d) - spacing) <= 0.1 * spacing), 3)
     width = max(len(f"{v:.{decimals}f}") for v in values) if values.size else 1
     return unit_name, scale, decimals, width
 
