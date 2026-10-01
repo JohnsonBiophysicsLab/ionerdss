@@ -50,17 +50,27 @@ analyzer.plot.size_distribution(
 
 ### 3.2. Legacy API (Backward Compatibility)
 
-The old `plot_figure` method still works but issues a DeprecationWarning.
+`Analyzer` has no `plot_figure` method. `LegacyPlotInterface` wraps an analyzer and maps
+old `plot_figure(figure_type, x=..., y=...)` calls onto `analyzer.plot`. It issues no
+DeprecationWarning; for a combination it does not map, it prints a warning and returns `None`.
 
 ```python
-# Old style
-analyzer.plot_figure(
-    figure_type="line",
-    x="size",
-    y="free_energy",
-    legend=["Sim 1", "Sim 2"]
-)
+from ionerdss.analysis import LegacyPlotInterface
+
+legacy = LegacyPlotInterface(analyzer)
+
+# Each call draws the same plot as the analyzer.plot call in its comment
+legacy.plot_figure(figure_type="line", x="size", y="free_energy")                     # plot.free_energy(simulation_index=0)
+legacy.plot_figure(figure_type="line", x="size", y="growth_probability")              # plot.transitions(simulation_index=0)
+legacy.plot_figure(figure_type="hist", x="size", y="complex_count", simulations=[1])  # plot.size_distribution(simulation_index=1)
+legacy.plot_figure(figure_type="heatmap")                                             # plot.heatmap(simulation_index=0)
 ```
+
+`"line"` also takes any other `y` containing `probability`, and `"hist"` any `y` containing
+`count`. `simulations`, `x` and `y` only choose the plot, and only the first entry of
+`simulations` is drawn. Every other keyword goes on to the `analyzer.plot` method, so the call
+accepts what that method accepts; options only the old `plot_figure` had, such as `legend`
+or `time_frame`, raise an error.
 
 ## 4. Advanced Analysis
 
