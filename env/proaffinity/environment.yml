@@ -10,9 +10,10 @@
 #   export IONERDSS_PROAFFINITY_PYTHON="$(conda info --base)/envs/ionerdss-proaffinity/bin/python"
 #
 # See docs/Proaffinity.md. To use a checkout instead of the released package,
-# swap the pip entry for -e ".[proaffinity]" and create the env from the project
-# root. On a cluster, `conda create -p /path/on/scratch/...` keeps several GB of
-# torch and model weights out of a quota'd home directory.
+# swap the pip entry for -e "../..[proaffinity]". conda runs pip from this
+# file's folder whatever directory you call it from, so the path is relative to
+# env/proaffinity. On a cluster, `conda create -p /path/on/scratch/...` keeps
+# several GB of torch and model weights out of a quota'd home directory.
 #
 # Python is pinned because torch 2.2.2 publishes cp38-cp312 wheels only; the
 # pins themselves live in pyproject.toml under the proaffinity extra.
