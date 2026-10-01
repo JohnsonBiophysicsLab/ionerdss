@@ -38,10 +38,10 @@ system = ion.build_system_from_pdb(
 
 - `source`: PDB identifier such as `"4v6x"` or a local PDB/mmCIF path.
 - `workspace_path`: output directory for generated files. Defaults to `<source>_dir`.
-- `fetch_format`: optional remote structure format.
-- `molecule_counts`: optional explicit counts for NERDSS export.
+- `fetch_format`: optional remote structure format. Overrides the `pdb_file_format` hyperparameter (default `"bioassembly1"`).
+- `molecule_counts`: optional explicit counts for NERDSS export. When omitted, `nerdss_total_molecule_count` (default 75) is split across the molecule types by their stoichiometry in the structure, rounding up.
 - `structure_validation`: if `True`, also export the [validation deck](#validation-deck) during the build. It goes to `structure_validation/` in the workspace, beside the regular export in `nerdss_files/`, and is exported with the same hyperparameters, so `nerdss_n_itr`, `nerdss_time_step`, `nerdss_overlap_sep_limit` and `default_on_rate_3d_ka` apply to it as they do to the regular export. `nerdss_total_molecule_count` and `nerdss_water_box` do not: the deck holds one copy of the designed assembly, in a box of its own.
-- `structure_validation_options`: optional settings for the validation export: `box_nm` (default `(100.0, 100.0, 100.0)`), `titration_on_rate` (default `1e-5`), `target_filename` and `parms_overrides`. Entries in `parms_overrides` are written over the values the hyperparameters give, for example `{"nItr": 2000000}`.
+- `structure_validation_options`: optional settings for the validation export. The keys read are `box_nm` (default `(100.0, 100.0, 100.0)`), `titration_on_rate` (default `1e-5`), `target_filename` and `parms_overrides`; other keys are ignored. Entries in `parms_overrides` are written over the values the hyperparameters give, for example `{"nItr": 2000000}`.
 - `**hyperparams_kwargs`: any field accepted by `PDBModelHyperparameters`.
 
 ### Returns
@@ -75,7 +75,9 @@ Every validation export — `build_system(structure_validation=True)`,
 
 ### `prepare_structure_validation_for_system`
 
-Prepare the [validation deck](#validation-deck): export one copy of the designed assembly with off-rates forced to zero and titration reactions added, and write the designed target coordinates for later comparison. The files go to `structure_validation/` under the current working directory.
+Prepare the [validation deck](#validation-deck): export one copy of the designed assembly with off-rates forced to zero and titration reactions added, and write the designed target coordinates for later comparison.
+
+It takes the system plus the keyword arguments `box_nm` (default `(100.0, 100.0, 100.0)`), `titration_on_rate` (default `1e-5`), `target_filename` (default `"structure_validation_target.json"`) and `parms_overrides`, and writes its files to `structure_validation/` under the current working directory. The functions that run the validation simulation and read its result live in `ionerdss.model.pdb.validation`; see [PDB Modeling](pdb.md#structure-validation-workflow).
 
 Typical return values are packaged in `StructureValidationArtifacts`, including:
 
@@ -137,9 +139,15 @@ site closer than the threshold to its molecule's COM, and
 whose sites coincide or all lie within the threshold.
 `get_interface_com_proximity_message(system, prefix=..., threshold_nm=...)` formats
 both. The threshold is the `interface_com_proximity_threshold` hyperparameter
-(default 0.15 nm); the validation helpers also accept it as
-`interface_com_proximity_threshold_nm`. The message is raised as a `RuntimeWarning`
-by `build_system` and during validation export, and carried on the artifacts.
+(default 0.15 nm). The validation export resolves its own threshold:
+`StructureValidationConfig.interface_com_proximity_threshold_nm` (also a keyword of
+`ionerdss.model.pdb.validation.prepare` and `setup_simulation`), then the
+hyperparameters in `parms_overrides['hyperparams']`, then 0.15 nm.
+`build_system(structure_validation=True)` puts the build's hyperparameters there unless
+`structure_validation_options['parms_overrides']` carries its own;
+`prepare_structure_validation_for_system` does not. The message is raised as a
+`RuntimeWarning` by `build_system` and during validation export, and carried on the
+artifacts.
 
 Two things are worth knowing:
 
@@ -176,7 +184,9 @@ Rigidly align observed coarse-grained coordinates onto the design target and com
 
 This function accepts either:
 
-- dictionaries keyed by molecule type
+- dictionaries keyed by molecule label; when the two label sets differ, each label is
+  reduced to its molecule type and the copies of a repeated type are paired to give the
+  lowest RMSD
 - ordered coordinate arrays
 
 It returns a `StructureAlignmentResult` containing labels, RMSD, the rotation and translation, and the aligned coordinates.
@@ -208,4 +218,4 @@ Deprecated: use `render_trajectory_movie`. Renders an XYZ trajectory with OVITO 
 
 ### `convert_simularium`
 
-Convert supported simulation outputs into Simularium files for interactive 3D viewing.
+Convert supported simulation outputs into Simularium files for interactive 3D viewing. This requires the `simularium` optional extra.

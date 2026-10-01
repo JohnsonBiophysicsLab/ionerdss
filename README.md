@@ -44,6 +44,7 @@ To include optional features:
 
 ```bash
 pip install "ioNERDSS[jupyter]"
+pip install "ioNERDSS[simularium]"
 ```
 
 Movies of NERDSS runs (`ionerdss.render_trajectory_movie`) need no extra. The `ovito_rendering` extra only serves the deprecated `visualize_trajectory_ovito`.
@@ -69,11 +70,11 @@ For the full contributor environment:
 pip install -e ".[all]"
 ```
 
-`[all]` covers everything except `proaffinity`, which needs its own environment (step 3).
+`[all]` covers everything except `simularium` (install it separately, as above) and `proaffinity`, which needs its own environment (step 3).
 
 ### 3. Binding affinity prediction (ProAffinity-GNN)
 
-ProAffinity-GNN pins numpy 1.x and torch 2.2, which cannot share an environment with the numpy 2 that OVITO rendering needs. Installing it alongside the rest quietly breaks one of the two, so it goes in an environment of its own and ioNERDSS calls into that environment when it needs a binding energy. Only a PDB path and the resulting energies cross between them.
+ProAffinity-GNN pins numpy 1.x and torch 2.2, which cannot share an environment with the numpy 2 that OVITO 3.16 and later need. Installed alongside the rest, either OVITO is held back to 3.15 and its slower software ray tracer or, depending on install order, one of the two is quietly broken, so it goes in an environment of its own and ioNERDSS calls into that environment when it needs a binding energy. Only a PDB path, the chain pairs and the resulting energies cross between them.
 
 Set it up once:
 
@@ -96,7 +97,7 @@ Add that `export` to your shell profile to make it stick. You never activate the
 system = build_system_from_pdb(source="8erq", predict_affinity=True)
 ```
 
-Affinity prediction also needs the ADFR suite. See [docs/Proaffinity.md](docs/Proaffinity.md) for that, for the `venv` and cluster variants, and for pointing at the environment explicitly instead of using the variable.
+Affinity prediction also needs the ADFR suite. See [docs/Proaffinity.md](https://github.com/JohnsonBiophysicsLab/ionerdss/blob/main/docs/Proaffinity.md) for that, for the `venv` and cluster variants, and for pointing at the environment explicitly instead of using the variable.
 
 ### 4. On an HPC cluster (Rockfish and other Slurm systems)
 
@@ -124,7 +125,7 @@ python -c "import platform; print(platform.libc_ver())"
 
 If that prints 2.34 or newer you get OVITO 3.16 and its OpenGL renderer; below that you get 3.15 and the software ray tracer. Both render without a display.
 
-If the install fails with `No matching distribution found for PySide6`, you are on ioNERDSS 2.2.3 or earlier, which floors OVITO at 3.16 and so cannot resolve on glibc 2.28 at all:
+If the install fails with `No matching distribution found for PySide6`, you are on ioNERDSS 2.2.3, which floors OVITO at 3.16 and so cannot resolve on glibc 2.28 at all:
 
 ```bash
 pip install -U "ioNERDSS[all]"
@@ -152,7 +153,7 @@ conda run -p /scratch/$USER/envs/ionerdss-proaffinity pip install "ioNERDSS[proa
 export IONERDSS_PROAFFINITY_PYTHON=/scratch/$USER/envs/ionerdss-proaffinity/bin/python
 ```
 
-Put that `export` in your `~/.bashrc` and in any sbatch script, since batch jobs do not inherit your login shell's environment. See [docs/Proaffinity.md](docs/Proaffinity.md) for the ADFR suite, which prediction also requires.
+Put that `export` in your `~/.bashrc` and in any sbatch script, since batch jobs do not inherit your login shell's environment. See [docs/Proaffinity.md](https://github.com/JohnsonBiophysicsLab/ionerdss/blob/main/docs/Proaffinity.md) for the ADFR suite, which prediction also requires.
 
 To run simulations for structures generated from ioNERDSS you will also need to install NERDSS.
 
@@ -165,7 +166,11 @@ import ionerdss as ion
 system = ion.build_system_from_pdb(
     source="6bno",
     workspace_path="6bno_dir",
+    # 6BNO-specific: with the defaults the actin filament mis-assembles in NERDSS
+    interface_detect_distance_cutoff=1.0,
+    nerdss_overlap_sep_limit=3.0,
     ode_enabled=True,
+    count_transition=True,  # the free-energy plot below reads the transition matrix
 )
 
 analyzer = ion.Analyzer("path/to/simulation/root")
@@ -179,8 +184,15 @@ Current examples live under `tutorials/` and are the supported starting point fo
 - `tutorials/quick_start_6bno.ipynb`
 - `tutorials/ionerdss_tutorial_5l93.ipynb`
 - `tutorials/ionerdss_tutorial_6bno.ipynb`
+- `tutorials/ionerdss_dodecahedron_tutorial.ipynb`
+- `tutorials/ionerdss_tutorial_pdb_validation.ipynb`
+- `tutorials/troubleshoot_structure_validation.ipynb`
 - `tutorials/ionerdss_tutorial_geometric_regularization.ipynb`
-- `tutorials/ionerdss_tutorial_8y7s.ipynb`
+- `tutorials/ionerdss_tutorial_with_proaffinity_8y7s.ipynb`
+- `tutorials/ionerdss_tutorial_simularium.ipynb`
+- `tutorials/ionerdss_tutorial_trajectory_movie.ipynb`
+- `tutorials/ionerdss_tutorial_ovito_gif.ipynb` (deprecated)
+- `tutorials/additional_examples/1ihm.ipynb`
 - `tutorials/additional_examples/4yd9.ipynb`
 
 Open them locally with Jupyter:
@@ -227,7 +239,7 @@ docker build --no-cache -t ionerdss_dev .
 docker run -it --rm -v $(pwd):/app -p 8888:8888 ionerdss_dev
 ```
 
-This creates a containerized environment with Jupyter Lab accessible at `http://localhost:8888`.
+This creates a containerized environment with Jupyter Notebook accessible at `http://localhost:8888`.
 
 ## License
 

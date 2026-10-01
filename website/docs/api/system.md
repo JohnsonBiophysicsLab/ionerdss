@@ -23,6 +23,11 @@
 
 These methods preserve the model structure and rebuild internal cross-references after loading.
 
+## Inspection
+
+- `validate_system()`: returns `{"errors": [...], "warnings": [...]}` from basic consistency checks, such as interface types that name an unknown molecule type.
+- `get_summary()`: returns the registry counts and the molecule and interface type names.
+
 ## Example
 
 ```python
