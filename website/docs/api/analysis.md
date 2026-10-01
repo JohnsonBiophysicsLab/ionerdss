@@ -77,7 +77,7 @@ Compute a free-energy profile from the transition-matrix-derived size distributi
   - `probability`
   - `free_energy`
 
-The result is cached in `sim.data.df_free_energy`, so repeated calls on the same simulation avoid recomputing the DataFrame.
+The result is cached in `sim.data.df_free_energy`, with its temperature in `sim.data.free_energy_temperature`, so repeated calls on the same simulation at the same temperature avoid recomputing the DataFrame. A call at another temperature recomputes it and replaces the cache.
 
 ## `Plotter`
 

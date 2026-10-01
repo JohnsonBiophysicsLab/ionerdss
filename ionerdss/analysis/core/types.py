@@ -73,6 +73,8 @@ class SimulationData:
     # Optional lazy-loaded DataFrames for caching processed results
     df_free_energy: Optional[pd.DataFrame] = None
     df_size_dist: Optional[pd.DataFrame] = None
+    # Temperature that df_free_energy was computed at
+    free_energy_temperature: Optional[float] = None
 
 
 class PlotConfig(TypedDict, total=False):

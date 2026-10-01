@@ -8,6 +8,7 @@ import unittest
 import tempfile
 import shutil
 from pathlib import Path
+import numpy as np
 import pandas as pd
 from ionerdss.analysis import Analyzer
 
@@ -98,6 +99,27 @@ class TestAnalyzerAPI(unittest.TestCase):
         # Check caching
         self.assertIsNotNone(sim.data.df_free_energy)
         self.assertIs(sim.data.df_free_energy, df_fe)
+
+    def test_free_energy_cache_is_per_temperature(self):
+        """A call at a new temperature recomputes rather than returning the cached result."""
+        analyzer = Analyzer(self.mock_simulation_dir)
+        sim = analyzer.get_simulation(0)
+
+        fe_1 = analyzer.compute_free_energy(sim, temperature=1.0)
+        fe_2 = analyzer.compute_free_energy(sim, temperature=2.0)
+
+        # F = -kT ln P: doubling the temperature doubles every free energy
+        self.assertTrue(np.all(fe_1["free_energy"] > 0))
+        np.testing.assert_allclose(fe_2["free_energy"], 2 * fe_1["free_energy"])
+
+        # The same temperature again is served from the cache
+        self.assertIs(analyzer.compute_free_energy(sim, temperature=2.0), fe_2)
+
+        # Switching back gives the temperature-1 values again
+        np.testing.assert_allclose(
+            analyzer.compute_free_energy(sim, temperature=1.0)["free_energy"],
+            fe_1["free_energy"],
+        )
 
     def test_analyzer_loads_run_without_histogram_file(self):
         """A run without histogram_complexes_time.dat still loads and computes."""
