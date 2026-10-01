@@ -9,8 +9,10 @@ distance cutoffs, thresholds, and algorithmic choices.
 
 """
 
+import difflib
+import warnings
 from dataclasses import dataclass, field, fields
-from typing import Optional, Literal
+from typing import Iterable, List, Optional, Literal
 from Bio.Align import PairwiseAligner
 
 from ionerdss.model.components.units import Units
@@ -356,6 +358,11 @@ class PDBModelHyperparameters:
     def from_dict(cls, data: dict) -> "PDBModelHyperparameters":
         """Create hyperparameters from dictionary.
 
+        Keys that are not fields are skipped with a ``UserWarning``, so that a
+        configuration saved by an older version, which may hold names since renamed
+        or removed, still loads. Keyword arguments are checked strictly instead; see
+        ``check_names``.
+
         Args:
             data: Dictionary containing hyperparameter values.
 
@@ -367,6 +374,17 @@ class PDBModelHyperparameters:
 
         # Get all valid field names from the dataclass
         valid_fields = {f.name for f in fields(cls)}
+
+        unknown = cls._describe_unknown_names(data)
+        if unknown:
+            warnings.warn(
+                f"{cls.__name__}.from_dict ignored unknown "
+                f"key{'s' if len(unknown) > 1 else ''} {', '.join(unknown)}. "
+                "Only field names are read; a configuration saved by an older ionerdss "
+                "can hold names that have since been renamed or removed.",
+                UserWarning,
+                stacklevel=2,
+            )
 
         # Filter out unknown keys and prepare data
         filtered_data = {}
@@ -387,6 +405,56 @@ class PDBModelHyperparameters:
                     filtered_data[key] = value
 
         return cls(**filtered_data)
+
+    @classmethod
+    def check_names(cls, names: Iterable[str], caller: str) -> None:
+        """Raise TypeError if any of the given names is not a hyperparameter field.
+
+        ``PDBModelHyperparameters(**kwargs)`` rejects an unknown keyword by itself.
+        The entry points that merge keywords into an existing instance
+        (``PDBModelBuilder.build_system``, ``set_hyperparameters``) call this first, so
+        that a misspelled or renamed hyperparameter fails there too instead of being
+        dropped, and ``build_system_from_pdb`` calls it for the same error message.
+
+        Args:
+            names: Keyword names to check.
+            caller: Name of the calling function, used to start the message.
+
+        Raises:
+            TypeError: Naming every unknown name and the field it most likely meant.
+        """
+        unknown = cls._describe_unknown_names(names)
+        if unknown:
+            what = ("an unexpected keyword argument" if len(unknown) == 1
+                    else "unexpected keyword arguments")
+            raise TypeError(
+                f"{caller} got {what} {', '.join(unknown)}; hyperparameters are "
+                f"passed by their {cls.__name__} field names"
+            )
+
+    @classmethod
+    def _describe_unknown_names(cls, names: Iterable[str]) -> List[str]:
+        """Quote each of the names that is not a field, with the fields it most likely meant.
+
+        Suggested are the fields whose name ends in the unknown one, which catches the
+        short names used before the fields were prefixed by pipeline stage
+        ('distance_cutoff' for 'interface_detect_distance_cutoff'), or else the closest
+        spelling.
+        """
+        valid = sorted(f.name for f in fields(cls))
+        described = []
+        for name in names:
+            if name in valid:
+                continue
+            name = str(name)
+            matches = ([f for f in valid if f.endswith("_" + name)][:3]
+                       or difflib.get_close_matches(name, valid, n=1))
+            if matches:
+                described.append(
+                    f"{name!r} (did you mean {' or '.join(map(repr, matches))}?)")
+            else:
+                described.append(repr(name))
+        return described
 
     def validate(self) -> list:
         """Validate hyperparameter values.

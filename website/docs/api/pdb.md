@@ -22,6 +22,20 @@ system = builder.build_system(workspace_path="6bno_dir")
 - Optionally run the ODE pipeline when enabled in hyperparameters.
 - Optionally export the one-copy structure-validation workflow when requested through the public API.
 
+### Hyperparameter keywords
+
+Keyword arguments to `build_system` other than its own parameters are `PDBModelHyperparameters` fields. They are applied over `hyperparams` (else the builder's hyperparameters, else the defaults) for this build, and the result is kept as `builder.hyperparams`:
+
+```python
+system = builder.build_system(
+    workspace_path="6bno_dir",
+    interface_detect_distance_cutoff=1.0,
+    generate_visualizations=False,
+)
+```
+
+A keyword that is not a field raises `TypeError` before the workspace is created. The message names the field it most likely meant, such as `interface_detect_distance_cutoff` for the older short name `distance_cutoff`. `ionerdss.build_system_from_pdb(...)` and `set_hyperparameters(...)` check their keywords the same way. Only `PDBModelHyperparameters.from_dict`, which loads saved configurations (`import_hyperparameters` uses it), skips unknown names, and it warns when it does.
+
 ## `PDBModelHyperparameters`
 
 `PDBModelHyperparameters` controls the behavior of the full PDB-to-NERDSS pipeline. It is documented on a separate page because the parameter surface is large and the fields affect different stages of the workflow.

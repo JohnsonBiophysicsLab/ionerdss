@@ -40,7 +40,7 @@ pdb.print_hyperparameters()
 
 from typing import Optional, Dict, Any, TYPE_CHECKING
 from pathlib import Path
-from dataclasses import fields
+from dataclasses import fields, replace
 import json
 
 from .hyperparameters import PDBModelHyperparameters
@@ -188,6 +188,9 @@ def _generate_hyperparameters_docstring() -> str:
         "Returns:",
         "    The updated PDBModelHyperparameters instance.",
         "",
+        "Raises:",
+        "    TypeError: If a keyword is not a PDBModelHyperparameters field.",
+        "",
         "Examples:",
         "    >>> from ionerdss.model import pdb",
         "    >>> ",
@@ -207,7 +210,7 @@ def _generate_hyperparameters_docstring() -> str:
         "    >>> # Enable advanced features",
         "    >>> builder.set_hyperparameters(",
         "    ...     steric_clash_mode='auto',",
-        "    ...     ring_regularization_mode='separate',",
+        "    ...     geometric_regularization='auto',",
         "    ...     homotypic_detection='signature',",
         "    ...     ode_enabled=True,",
         "    ...     predict_affinity=True",
@@ -225,15 +228,14 @@ def _generate_hyperparameters_docstring() -> str:
 
 
 def set_hyperparameters(builder: 'PDBModelBuilder', **kwargs) -> PDBModelHyperparameters:
+    PDBModelHyperparameters.check_names(kwargs, "set_hyperparameters()")
     if builder.hyperparams is None:
         # Create new hyperparameters
         builder.hyperparams = PDBModelHyperparameters(**kwargs)
     else:
-        # Update existing hyperparameters
-        current_config = builder.hyperparams.to_dict()
-        current_config.update(kwargs)
-        builder.hyperparams = PDBModelHyperparameters.from_dict(current_config)
-    
+        # Update existing hyperparameters, keeping their units and aligner
+        builder.hyperparams = replace(builder.hyperparams, **kwargs)
+
     return builder.hyperparams
 
 

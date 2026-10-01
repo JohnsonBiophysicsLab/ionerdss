@@ -1,6 +1,9 @@
 from importlib.util import module_from_spec, spec_from_file_location
 from pathlib import Path
 from types import SimpleNamespace
+import sys
+
+from ionerdss.model.pdb.hyperparameters import PDBModelHyperparameters
 
 
 BENCHMARK_SCRIPT = Path(__file__).resolve().parents[2] / "benchmark" / "run_validation_benchmark.py"
@@ -176,3 +179,32 @@ def test_interface_com_proximity_threshold_prefers_the_builder_hyperparameters()
     assert benchmark._interface_com_proximity_threshold(
         SimpleNamespace(hyperparams=SimpleNamespace(interface_com_proximity_threshold=0.3))
     ) == 0.3
+
+
+def test_main_passes_build_system_only_hyperparameter_fields(monkeypatch, tmp_path):
+    # main() records any exception from a build as a "Crashed" row, so a keyword that
+    # build_system rejects would mark every entry crashed instead of stopping the run.
+    calls = []
+
+    class RecordingBuilder:
+        def __init__(self, source):
+            self.source = source
+
+        def build_system(self, workspace_path, **kwargs):
+            calls.append(kwargs)
+            raise RuntimeError("stop after recording the call")
+
+    monkeypatch.setattr(benchmark, "PDBModelBuilder", RecordingBuilder)
+    monkeypatch.setattr(sys, "argv", [
+        "run_validation_benchmark.py",
+        "--pdb_ids", "1abc",
+        "--nerdss_dir", str(tmp_path),
+        "--output", str(tmp_path / "results.csv"),
+        "--interface_com_proximity_threshold", "0.2",
+    ])
+
+    benchmark.main()
+
+    assert len(calls) == 1
+    PDBModelHyperparameters.check_names(calls[0], "build_system()")
+    assert calls[0]["interface_com_proximity_threshold"] == 0.2

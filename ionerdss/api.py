@@ -54,7 +54,10 @@ def build_system_from_pdb(
     
     Returns:
         Complete System object ready for simulation.
-    
+
+    Raises:
+        TypeError: If a keyword is not a PDBModelHyperparameters field.
+
     Examples:
         >>> # Simple usage with PDB ID
         >>> from ionerdss import build_system_from_pdb
@@ -82,6 +85,7 @@ def build_system_from_pdb(
         workspace_path = f"{source_name}_dir"
     
     # Create hyperparameters from kwargs
+    PDBModelHyperparameters.check_names(hyperparams_kwargs, "build_system_from_pdb()")
     hyperparams = PDBModelHyperparameters(**hyperparams_kwargs) if hyperparams_kwargs else None
     
     # Create builder

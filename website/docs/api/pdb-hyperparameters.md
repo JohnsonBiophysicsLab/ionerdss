@@ -21,6 +21,8 @@ builder = PDBModelBuilder("6bno", hyperparams=hyperparams)
 system = builder.build_system(workspace_path="6bno_dir")
 ```
 
+The same fields can be passed as keyword arguments to `build_system`, `ionerdss.build_system_from_pdb` and `set_hyperparameters`. Every keyword must be one of the field names below: any other name raises `TypeError`, naming the field it most likely meant (see [Hyperparameter keywords](pdb.md#hyperparameter-keywords)).
+
 ## Parameter groups
 
 ### Core detection parameters
@@ -467,7 +469,11 @@ Serialize the hyperparameters into a regular dictionary. The custom aligner is c
 
 ### `from_dict(data)`
 
-Reconstruct a `PDBModelHyperparameters` instance from serialized data. This also restores tuple handling for `ode_time_span` and rebuilds a `PairwiseAligner` when aligner settings are provided.
+Reconstruct a `PDBModelHyperparameters` instance from serialized data. This also restores tuple handling for `ode_time_span` and rebuilds a `PairwiseAligner` when aligner settings are provided. Keys that are not fields are skipped with a `UserWarning` naming them, so that a configuration saved by an older version, which may hold names since renamed or removed, still loads. Loading through `from_dict`, as `import_hyperparameters` does, is the only path that tolerates unknown names; keyword arguments are checked with `check_names`.
+
+### `check_names(names, caller)`
+
+Raise `TypeError` if any of `names` is not a field. The message starts with `caller` and names the field each unknown name most likely meant. `PDBModelBuilder.build_system`, `ionerdss.build_system_from_pdb` and `set_hyperparameters` call it on their keyword arguments.
 
 ### `validate()`
 
