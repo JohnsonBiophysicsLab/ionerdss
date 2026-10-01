@@ -166,6 +166,17 @@ class TestIOParser(unittest.TestCase):
         np.testing.assert_array_equal(counts[-1], [28, 3, 9, 5])
         self.assertEqual(counts[-1].sum(), 45)
 
+    def test_parse_complex_histogram_missing_file(self):
+        """A missing histogram file gives three empty values, not an empty list."""
+        missing = self.temp_path / "histogram_complexes_time.dat"
+
+        with self.assertLogs(parser.logger, level="WARNING"):
+            times, all_comps, hist_matrix = parser.parse_complex_histogram(missing)
+
+        self.assertEqual(len(times), 0)
+        self.assertEqual(all_comps, [])
+        self.assertEqual(hist_matrix.shape, (0, 0))
+
 
 if __name__ == '__main__':
     unittest.main(verbosity=2)

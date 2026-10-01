@@ -150,6 +150,8 @@ Expected files are searched under `DATA/`, including:
 - `copy_numbers_time.dat`
 - `histogram_complexes_time.dat`
 
+A missing file is logged as a warning and leaves its part of `data` empty.
+
 #### `get_transition_matrix(time_range=None)`
 
 Aggregate the transition matrices across all recorded time points, or only within a selected `(start, end)` interval.

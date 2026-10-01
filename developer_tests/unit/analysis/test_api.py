@@ -99,6 +99,25 @@ class TestAnalyzerAPI(unittest.TestCase):
         self.assertIsNotNone(sim.data.df_free_energy)
         self.assertIs(sim.data.df_free_energy, df_fe)
 
+    def test_analyzer_loads_run_without_histogram_file(self):
+        """A run without histogram_complexes_time.dat still loads and computes."""
+        (self.temp_path / "1" / "DATA" / "histogram_complexes_time.dat").unlink()
+
+        analyzer = Analyzer(self.mock_simulation_dir)
+        sim = analyzer.get_simulation(0)
+
+        df_fe = analyzer.compute_free_energy(sim)
+        self.assertFalse(df_fe.empty)
+
+        self.assertEqual(len(sim.data.hist_times), 0)
+        self.assertEqual(sim.data.hist_comps, [])
+        self.assertEqual(sim.data.hist_matrix.shape, (0, 0))
+
+        # Histogram-based series come back empty instead of failing
+        times, largest = sim.get_largest_size_time_series()
+        self.assertEqual(len(times), 0)
+        self.assertEqual(len(largest), 0)
+
 
 if __name__ == '__main__':
     unittest.main(verbosity=2)
