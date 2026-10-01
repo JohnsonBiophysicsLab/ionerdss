@@ -39,7 +39,8 @@ def build_system_from_pdb(
         workspace_path: Workspace directory path. Defaults to "{source}_dir".
         fetch_format: Format for downloading structures ('pdb' or 'mmcif'). If None, uses hyperparameter default (usually 'bioassembly1').
         molecule_counts: Molecule counts for NERDSS export. Default 10 per type.
-        structure_validation: Export the one-copy validation setup during build.
+        structure_validation: Also export the validation setup for one copy of the
+            designed assembly, into ``structure_validation/`` in the workspace.
         structure_validation_options: Options passed to the validation export.
         **hyperparams_kwargs: Any PDBModelHyperparameters field as keyword arguments.
             Common options:
@@ -111,7 +112,10 @@ def prepare_structure_validation_for_system(
     target_filename: str = "structure_validation_target.json",
     parms_overrides: Optional[Dict[str, Any]] = None,
 ) -> StructureValidationArtifacts:
-    """Prepare the irreversible, titrated one-copy-per-type validation setup."""
+    """Prepare the irreversible, titrated validation setup for one copy of the designed assembly.
+
+    The deck is written to ``structure_validation/`` under the current directory.
+    """
     config = StructureValidationConfig(
         box_nm=tuple(float(v) for v in box_nm),
         titration_on_rate=titration_on_rate,

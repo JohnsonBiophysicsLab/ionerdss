@@ -16,11 +16,16 @@ class LegacyPlotInterface:
         
     def plot_figure(self, figure_type: str, **kwargs):
         """
-        Legacy plot_figure method with full backward compatibility.
+        Legacy plot_figure method, mapped onto the analyzer.plot methods.
+
+        `simulations`, `x` and `y` select the plot; every other kwarg is passed
+        on to the matching `analyzer.plot` method, so options that only the old
+        plot_figure had (legend, time_frame, ...) are not accepted.
         """
-        simulations = kwargs.get('simulations', [0])
-        x = kwargs.get('x', 'time')
-        y = kwargs.get('y', 'species')
+        # pop, not get: whatever stays in kwargs ends up in the Matplotlib call
+        simulations = kwargs.pop('simulations', [0])
+        x = kwargs.pop('x', 'time')
+        y = kwargs.pop('y', 'species')
         
         # Map to new API
         if figure_type == "line":

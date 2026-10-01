@@ -103,8 +103,9 @@ class Analyzer:
 
     def compute_free_energy(self, sim: Simulation, temperature: float = 1.0) -> pd.DataFrame:
         """Computes free energy for a simulation from transition matrix file."""
-        # Check cache
-        if sim.data.df_free_energy is not None:
+        # Check cache; it holds the result for one temperature at a time
+        if (sim.data.df_free_energy is not None
+                and sim.data.free_energy_temperature == temperature):
             return sim.data.df_free_energy
             
         df_dist = self.compute_size_distribution(sim)
@@ -112,6 +113,7 @@ class Analyzer:
         
         # Cache result (careful with mutability if we allow partial updates later)
         sim.data.df_free_energy = df_fe
+        sim.data.free_energy_temperature = temperature
         return df_fe
 
 

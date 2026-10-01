@@ -85,9 +85,13 @@ class PDBModelBuilder:
             molecule_counts: Number of molecules per type for NERDSS. By default
                 ``nerdss_total_molecule_count`` is split across the types by stoichiometry.
             box_nm: Simulation box size in nm for NERDSS, used when the
-                ``nerdss_water_box`` hyperparameter is empty. Default (100, 100, 100).
-            structure_validation: Export the one-copy-per-type validation setup.
-            structure_validation_options: Options for validation export.
+                ``nerdss_water_box`` hyperparameter is empty, and for the validation
+                setup unless ``structure_validation_options`` gives one.
+                Default (100, 100, 100).
+            structure_validation: Also export the validation setup for one copy of the
+                designed assembly, into ``structure_validation/`` in the workspace.
+            structure_validation_options: Options for validation export: ``box_nm``,
+                ``titration_on_rate``, ``target_filename`` and ``parms_overrides``.
             nerdss_params: Additional NERDSS parameters. Default None.
             **kwargs: Hyperparameter overrides for this build, by
                 ``PDBModelHyperparameters`` field name, e.g.
@@ -351,6 +355,10 @@ class PDBModelBuilder:
                 )
                 self.structure_validation_artifacts = validation_artifacts
 
+                for file_type, file_path in validation_artifacts.nerdss_files.items():
+                    self.workspace_manager.logger.info(
+                        "Generated structure validation file %s: %s", file_type, file_path)
+
             # Step 7.5: Run ODE pipeline (if enabled)
             if hyperparams.ode_enabled:
                 # Dynamic Time Span Calculation
@@ -557,7 +565,7 @@ class PDBModelBuilder:
         target_filename: str = "structure_validation_target.json",
         parms_overrides: Optional[Dict[str, Any]] = None,
     ) -> StructureValidationArtifacts:
-        """Export the one-copy-per-type, irreversible validation simulation."""
+        """Export the irreversible validation simulation of one copy of the designed assembly."""
         if self.system_builder is None:
             raise ValueError("No system has been built yet. Call build_system() first.")
 

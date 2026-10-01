@@ -34,7 +34,7 @@ The refactored `ionerdss.analysis` module adopts a **Layered Architecture** to s
         *   `id`: Identifier, the directory name by default.
         *   `data`: The run's `SimulationData` (transition matrices, lifetimes, copy numbers, complex histogram), read from `DATA/` on first access.
     *   **Methods**:
-        *   `get_transition_matrix(time_range=None)`: Sums the per-time-point transition matrices, optionally within a time window.
+        *   `get_transition_matrix(time_range=None)`: Transition counts for the whole run (the last time point), or within a time window (its last time point minus its first).
         *   `get_lifetimes(cluster_size)`: All recorded lifetimes for one cluster size.
         *   `get_time_series(...)`, `get_largest_size_time_series(...)`, `get_average_size_time_series(...)`: Time series from the complex histogram.
 
@@ -54,13 +54,13 @@ The refactored `ionerdss.analysis` module adopts a **Layered Architecture** to s
 ### 3.1. Transition Matrix Processing
 *   **Old Approach**: Iterating through lines of text files, parsing integers manually, and summing in loops.
 *   **New Approach**:
-    1.  Parse the file once into a list of `{"time", "matrix"}` records, one dense 2D NumPy array per time point; `Simulation.get_transition_matrix` sums them, zero-padding any that differ in shape.
+    1.  Parse the file once into a list of `{"time", "matrix"}` records, one dense 2D NumPy array per time point. NERDSS never resets the matrix, so each record holds running totals since the start of the run: `Simulation.get_transition_matrix` returns the last record for the whole run, or the last record in a time window minus the first.
     2.  **Free Energy**: $G(n) = -k_B T \ln(P(n))$. Calculated via `P(n) = matrix.sum(axis=1) / total`.
     3.  **Growth/Shrinkage**: For each size, transitions to larger sizes are weighed against transitions to smaller ones; with `symmetric=True`, a transition that doubles or halves the size (e.g. monomer + monomer) counts as half.
 
 ### 3.2. Data Loading
 *   **Lazy Loading**: Data files (which can be GBs) are only read when accessed, not on initialization.
-*   **Caching**: `Analyzer.compute_free_energy` keeps its result in memory on `SimulationData.df_free_energy` and returns it on later calls (the cache is not keyed by `temperature`). Nothing is cached on disk.
+*   **Caching**: `Analyzer.compute_free_energy` keeps its result in memory on `SimulationData.df_free_energy`, with the temperature it was computed at in `SimulationData.free_energy_temperature`, and returns it on later calls at that temperature; a call at another temperature recomputes it. Nothing is cached on disk.
 
 ### 3.3. Parsing
 *   **Regex**: Compiled Regex patterns are used for robustly identifying data blocks in the legacy text files, handling edge cases like inconsistent spacing or typos ("transion matrix").

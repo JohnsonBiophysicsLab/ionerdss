@@ -76,49 +76,59 @@ class Simulation:
 
     def get_transition_matrix(self, time_range: Optional[Tuple[float, float]] = None) -> np.ndarray:
         """
-        Aggregates transition matrices within a time range.
-        
+        Transition counts over the whole run, or within a time range.
+
+        NERDSS never resets its transition matrix, so each time point in
+        transition_matrix_time.dat holds the running totals since the start of
+        the run. The whole run is therefore the last time point, and a time range
+        is the last time point inside it minus the first.
+
         Args:
             time_range: (start, end) tuple. If None, uses all data.
-            
+
         Returns:
-            np.ndarray: Summed transition matrix.
+            np.ndarray: Transition counts. Empty if there is no data, or if the
+            time range holds fewer than two time points.
         """
         if not self.data.transitions:
             return np.array([])
-            
-        filtered = self.data.transitions
-        if time_range:
-            start, end = time_range
-            filtered = [t for t in filtered if start <= t["time"] <= end]
-            
-        if not filtered:
+
+        if not time_range:
+            return self.data.transitions[-1]["matrix"].copy()
+
+        start, end = time_range
+        filtered = [t for t in self.data.transitions if start <= t["time"] <= end]
+
+        if len(filtered) < 2:
+            logger.warning(
+                f"Simulation {self.id}: time_range {time_range} holds {len(filtered)} "
+                f"transition matrix time point(s); counting the transitions within it needs two"
+            )
             return np.array([])
 
-        # Stack matrices and sum along axis 0
-        # We need to handle potentially different shapes by padding
-        matrices = [t["matrix"] for t in filtered]
-        
-        max_rows = max(m.shape[0] for m in matrices)
-        max_cols = max(m.shape[1] for m in matrices)
-        
-        sum_matrix = np.zeros((max_rows, max_cols), dtype=int)
-        
-        for m in matrices:
-            rows, cols = m.shape
-            sum_matrix[:rows, :cols] += m
-            
-        return sum_matrix
+        first = filtered[0]["matrix"]
+        last = filtered[-1]["matrix"]
+
+        # Pad to a common shape in case the two time points disagree
+        max_rows = max(first.shape[0], last.shape[0])
+        max_cols = max(first.shape[1], last.shape[1])
+
+        window_matrix = np.zeros((max_rows, max_cols), dtype=int)
+        window_matrix[:last.shape[0], :last.shape[1]] += last
+        window_matrix[:first.shape[0], :first.shape[1]] -= first
+
+        return window_matrix
 
     def get_lifetimes(self, cluster_size: int) -> List[float]:
         """
-        Retrieves all lifetimes for a specific cluster size.
+        Retrieves all lifetimes recorded for a specific cluster size.
+
+        Like the transition matrix, the lifetime lists are running totals: each
+        time point lists every lifetime recorded so far, so the last one holds them all.
         """
-        all_lifetimes = []
-        for record in self.data.lifetimes:
-            if cluster_size in record["lifetimes"]:
-                all_lifetimes.extend(record["lifetimes"][cluster_size])
-        return all_lifetimes
+        if not self.data.lifetimes:
+            return []
+        return list(self.data.lifetimes[-1]["lifetimes"].get(cluster_size, []))
 
     def get_time_series(self, complex_name: Union[str, list[str], dict, list[dict]]) -> tuple[npt.NDArray[np.float64], dict[Union[str,dict], npt.NDArray[np.float64]]]:
         """
