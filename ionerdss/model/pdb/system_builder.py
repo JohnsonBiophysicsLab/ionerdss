@@ -317,10 +317,8 @@ from ionerdss.model.pdb.file_manager import WorkspaceManager
 with WorkspaceManager("/workspace", "1ABC") as workspace:
     # Configure parameters
     hyperparams = PDBModelHyperparameters(
-        distance_cutoff=0.6,
-        residue_cutoff=3,
-        ring_regularization_mode="separate",
-        ring_geometry="cylinder"
+        interface_detect_distance_cutoff=0.6,
+        interface_detect_n_residue_cutoff=3,
     )
     
     # Parse structure
@@ -399,9 +397,7 @@ for file_type, file_path in nerdss_outputs.items():
 ```python
 # Configure ring regularization in hyperparameters
 hyperparams = PDBModelHyperparameters(
-    ring_regularization_mode="uniform",  # "off", "separate", "uniform"
-    ring_geometry="sphere",              # "cylinder", "sphere"
-    min_ring_size=4                      # Minimum ring size to consider
+    is_on_sphere=True  # Project molecules onto best-fit spheres
 )
 
 # Ring regularization is applied automatically during system building

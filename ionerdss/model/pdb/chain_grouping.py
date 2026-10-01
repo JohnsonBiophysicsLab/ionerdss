@@ -121,7 +121,7 @@ from ionerdss.model.pdb.chain_grouping import ChainGrouper
 from ionerdss.model.pdb.hyperparameters import PDBModelHyperparameters
 
 # Initialize with default settings
-hyperparams = PDBModelHyperparameters(matching_mode="default")
+hyperparams = PDBModelHyperparameters(chain_grouping_matching_mode="default")
 grouper = ChainGrouper(parser, coarse_grainer, hyperparams)
 
 # Get all groups
@@ -136,8 +136,8 @@ for group in groups:
 ```python
 # Force sequence-based grouping with custom threshold
 hyperparams = PDBModelHyperparameters(
-    matching_mode="sequence",
-    seq_threshold=0.9  # 90% sequence identity required
+    chain_grouping_matching_mode="sequence",
+    chain_grouping_seq_threshold=0.9  # 90% sequence identity required
 )
 grouper = ChainGrouper(parser, coarse_grainer, hyperparams)
 ```
@@ -147,8 +147,8 @@ grouper = ChainGrouper(parser, coarse_grainer, hyperparams)
 ```python
 # Use structural similarity with tight RMSD threshold
 hyperparams = PDBModelHyperparameters(
-    matching_mode="structure",
-    rmsd_threshold=1.5  # 1.5 Å RMSD threshold
+    chain_grouping_matching_mode="structure",
+    chain_grouping_rmsd_threshold=1.5  # 1.5 Å RMSD threshold
 )
 grouper = ChainGrouper(parser, coarse_grainer, hyperparams)
 ```
@@ -186,10 +186,10 @@ Configure grouping behavior through `PDBModelHyperparameters`:
 
 ```python
 hyperparams = PDBModelHyperparameters(
-    matching_mode="default",      # "default", "sequence", "structure"
-    seq_threshold=0.8,           # Sequence identity threshold (0.0-1.0)
-    rmsd_threshold=2.0,          # RMSD threshold in Angstroms
-    custom_aligner=None          # Custom sequence aligner (optional)
+    chain_grouping_matching_mode="default",  # "default", "sequence", "structure", "sequence_structure"
+    chain_grouping_seq_threshold=0.8,        # Sequence identity threshold (0.0-1.0)
+    chain_grouping_rmsd_threshold=2.0,       # RMSD threshold in Angstroms
+    chain_grouping_custom_aligner=None       # Custom sequence aligner (optional)
 )
 ```
 
@@ -290,8 +290,8 @@ print(f"Groups created: {summary['num_groups']}")
 #### 2. All Chains in Separate Groups
 ```python
 # Lower thresholds for more permissive grouping
-hyperparams.seq_threshold = 0.5    # Lower sequence threshold
-hyperparams.rmsd_threshold = 5.0   # Higher RMSD threshold
+hyperparams.chain_grouping_seq_threshold = 0.5    # Lower sequence threshold
+hyperparams.chain_grouping_rmsd_threshold = 5.0   # Higher RMSD threshold
 ```
 
 #### 3. Alignment Errors

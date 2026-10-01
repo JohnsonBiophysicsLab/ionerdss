@@ -31,8 +31,8 @@ Example Usage:
     builder = PDBModelBuilder("1ABC.pdb")
     system = builder.build_system(
         workspace_path="/path/to/workspace",
-        distance_cutoff=0.6,  # nm
-        matching_mode="default"
+        interface_detect_distance_cutoff=0.6,  # nm
+        chain_grouping_matching_mode="default"
     )
     
     # Save complete system
