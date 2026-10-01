@@ -77,7 +77,7 @@ Compute a free-energy profile from the transition-matrix-derived size distributi
   - `probability`
   - `free_energy`
 
-The result is cached in `sim.data.df_free_energy`, so repeated calls on the same simulation avoid recomputing the DataFrame. The cache ignores `temperature`: a later call with a different temperature returns the first result.
+The result is cached in `sim.data.df_free_energy`, with its temperature in `sim.data.free_energy_temperature`, so repeated calls on the same simulation at the same temperature avoid recomputing the DataFrame. A call at another temperature recomputes it and replaces the cache.
 
 ## `Plotter`
 
@@ -119,7 +119,7 @@ This is the main convenience function for viewing association vs. dissociation t
 
 ### `plot.heatmap(simulation_index=0, ax=None, **kwargs)`
 
-Plots the raw aggregated transition matrix as a heatmap.
+Plots the whole run's transition matrix (see `get_transition_matrix`) as a heatmap.
 
 - resolves the simulation
 - calls `sim.get_transition_matrix()`
@@ -150,19 +150,25 @@ Expected files are searched under `DATA/`, including:
 - `copy_numbers_time.dat`
 - `histogram_complexes_time.dat`
 
+A missing file is logged as a warning and leaves its part of `data` empty.
+
 #### `get_transition_matrix(time_range=None)`
 
-Aggregate the transition matrices across all recorded time points, or only within a selected `(start, end)` interval.
+Return the transition counts for the whole run, or for a selected `(start, end)` interval.
 
-- returns: a single summed NumPy matrix
-- pads smaller matrices if needed before summing
-- returns an empty array if no transition data is available
+NERDSS never resets its transition matrix, so each time point in `transition_matrix_time.dat` holds running totals since the start of the run.
+
+- without `time_range`: returns the last time point, which covers the whole run
+- with `time_range`: returns the last time point inside the interval minus the first one, i.e. the transitions between them
+- returns an empty array if no transition data is available, or if the interval holds fewer than two time points
 
 This is the main input to `compute_size_distribution`, `compute_free_energy`, `plot.transitions`, and `plot.heatmap`.
 
 #### `get_lifetimes(cluster_size)`
 
 Return all recorded lifetimes for complexes of one cluster size.
+
+The lifetime lists are running totals too, so this reads the last time point, and each lifetime appears once.
 
 - accepts: integer cluster size
 - returns: `list[float]`

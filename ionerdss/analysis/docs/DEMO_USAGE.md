@@ -23,9 +23,9 @@ print(f"Found {len(analyzer.simulations)} simulations.")
 df_fe = analyzer.compute_free_energy(analyzer.simulations[0])
 
 print(df_fe.head())
-#    size     count  probability  free_energy
-# 0     1   5793964     0.157809     1.846368
-# 1     2   7769490     0.211616     1.552980
+#    size    count  probability  free_energy
+# 0     1   646838     0.101442     2.288269
+# 1     2  1132207     0.177561     1.728441
 ```
 
 ## 3. Plotting
@@ -65,11 +65,19 @@ DeprecationWarning; for a combination it does not map, it prints a warning and r
 from ionerdss.analysis import LegacyPlotInterface
 
 legacy = LegacyPlotInterface(analyzer)
-legacy.plot_figure(figure_type="heatmap")  # same as analyzer.plot.heatmap(simulation_index=0)
+
+# Each call draws the same plot as the analyzer.plot call in its comment
+legacy.plot_figure(figure_type="line", x="size", y="free_energy")                     # plot.free_energy(simulation_index=0)
+legacy.plot_figure(figure_type="line", x="size", y="growth_probability")              # plot.transitions(simulation_index=0)
+legacy.plot_figure(figure_type="hist", x="size", y="complex_count", simulations=[1])  # plot.size_distribution(simulation_index=1)
+legacy.plot_figure(figure_type="heatmap")                                             # plot.heatmap(simulation_index=0)
 ```
 
-It currently also passes `x`, `y` and `simulations` on to Matplotlib, so the `"line"` and
-`"hist"` mappings raise a `TypeError`; call `analyzer.plot` directly instead.
+`"line"` also takes any other `y` containing `probability`, and `"hist"` any `y` containing
+`count`. `simulations`, `x` and `y` only choose the plot, and only the first entry of
+`simulations` is drawn. Every other keyword goes on to the `analyzer.plot` method, so the call
+accepts what that method accepts; options only the old `plot_figure` had, such as `legend`
+or `time_frame`, raise an error.
 
 ## 4. Advanced Analysis
 
@@ -80,9 +88,9 @@ You can access the raw NumPy arrays for custom analysis.
 ```python
 import numpy as np
 
-# Get the transition matrix for Simulation 0, summed over every time point
-# (pass time_range=(start, end) to sum only that window;
-#  the per-time-point matrices are in analyzer.simulations[0].data.transitions)
+# Get the transition counts for Simulation 0 over the whole run
+# (pass time_range=(start, end) for only the transitions within that window;
+#  analyzer.simulations[0].data.transitions holds the running totals at each time point)
 # Shape: (N_sizes, N_sizes)
 T_matrix = analyzer.simulations[0].get_transition_matrix()
 
