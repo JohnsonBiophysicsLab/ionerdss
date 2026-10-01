@@ -301,6 +301,9 @@ class PDBModelBuilder:
                     self.workspace_manager.logger.info(
                         "Generated %s: %s", viz_type, viz_path)
 
+            # Use water box size from hyperparameters; the detailed summary reports this box
+            box_size = tuple(hyperparams.nerdss_water_box) if hyperparams.nerdss_water_box else box_nm
+
             # Step 7: Export NERDSS files (if requested)
             if hyperparams.generate_nerdss_files:
                 self.workspace_manager.logger.info(
@@ -317,10 +320,7 @@ class PDBModelBuilder:
                 if nerdss_params is None:
                     nerdss_params = {}
                 nerdss_params['hyperparams'] = hyperparams
-                
-                # Use water box size from hyperparameters
-                box_size = tuple(hyperparams.nerdss_water_box) if hyperparams.nerdss_water_box else box_nm
-                
+
                 nerdss_files = system_builder.export_nerdss_files(
                     molecule_counts=molecule_counts,
                     box_nm=box_size,
@@ -535,7 +535,7 @@ class PDBModelBuilder:
                 if hyperparams.generate_nerdss_files:
                     f.write(f"\nNERDSS Export:\n")
                     f.write(f"  Molecule counts: {molecule_counts}\n")
-                    f.write(f"  Box size (nm): {box_nm}\n")
+                    f.write(f"  Box size (nm): {box_size}\n")
                     if nerdss_params:
                         f.write(f"  Custom parameters: {nerdss_params}\n")
 
