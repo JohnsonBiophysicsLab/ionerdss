@@ -303,6 +303,10 @@ class PDBModelBuilder:
                     "Calculated default molecule counts (Total=%d): %s",
                     target_total, molecule_counts)
 
+            # Box of the regular NERDSS deck, also used by the ODE pipeline and the
+            # summary report; box_nm is only the fallback for an empty water box
+            nerdss_box_nm = tuple(hyperparams.nerdss_water_box) if hyperparams.nerdss_water_box else box_nm
+
             # Step 6: Generate visualizations (if requested)
             if hyperparams.generate_visualizations:
                 self.workspace_manager.logger.info(
@@ -329,13 +333,10 @@ class PDBModelBuilder:
                 if nerdss_params is None:
                     nerdss_params = {}
                 nerdss_params['hyperparams'] = hyperparams
-                
-                # Use water box size from hyperparameters
-                box_size = tuple(hyperparams.nerdss_water_box) if hyperparams.nerdss_water_box else box_nm
-                
+
                 nerdss_files = system_builder.export_nerdss_files(
                     molecule_counts=molecule_counts,
-                    box_nm=box_size,
+                    box_nm=nerdss_box_nm,
                     parms_overrides=nerdss_params
                 )
 
@@ -365,10 +366,7 @@ class PDBModelBuilder:
                      from ionerdss.model.pdb.nerdss_exporter import NERDSSExporter
                      exporter = NERDSSExporter(system, self.workspace_manager)
                      
-                     # Determine box size
-                     calc_box = tuple(hyperparams.nerdss_water_box) if hyperparams.nerdss_water_box else box_nm
-                     
-                     dt = exporter.calculate_simulation_timestep(molecule_counts, calc_box)
+                     dt = exporter.calculate_simulation_timestep(molecule_counts, nerdss_box_nm)
                      
                      if dt:
                          total_duration_us = dt * hyperparams.nerdss_n_itr
@@ -431,8 +429,7 @@ class PDBModelBuilder:
                                 current_molecule_counts[mol_type.name] = 10
                         
                         # Get box volume in nm^3
-                        box_dims = tuple(hyperparams.nerdss_water_box) if hyperparams.nerdss_water_box else box_nm
-                        volume_nm3 = box_dims[0] * box_dims[1] * box_dims[2]
+                        volume_nm3 = nerdss_box_nm[0] * nerdss_box_nm[1] * nerdss_box_nm[2]
                         
                         # Calculate concentrations in uM
                         # Concentration (uM) = (Count / Volume_nm3) * 1.66054e6
@@ -543,7 +540,7 @@ class PDBModelBuilder:
                 if hyperparams.generate_nerdss_files:
                     f.write(f"\nNERDSS Export:\n")
                     f.write(f"  Molecule counts: {molecule_counts}\n")
-                    f.write(f"  Box size (nm): {box_nm}\n")
+                    f.write(f"  Box size (nm): {nerdss_box_nm}\n")
                     if nerdss_params:
                         f.write(f"  Custom parameters: {nerdss_params}\n")
 
