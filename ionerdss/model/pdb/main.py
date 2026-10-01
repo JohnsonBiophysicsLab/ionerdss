@@ -91,9 +91,9 @@ class PDBModelBuilder:
                 Also the box of the structure-validation deck unless
                 structure_validation_options['box_nm'] is given. Default
                 (100, 100, 100).
-            structure_validation: Export the structure-validation deck: the
-                subunits of one copy of the designed assembly, with irreversible
-                binding and titration.
+            structure_validation: Also export the structure-validation deck, into
+                ``structure_validation/`` in the workspace: the subunits of one copy
+                of the designed assembly, with irreversible binding and titration.
             structure_validation_options: Overrides for that export: 'box_nm',
                 'titration_on_rate', 'target_filename' and 'parms_overrides'.
                 Other keys are ignored.
@@ -359,6 +359,10 @@ class PDBModelBuilder:
                 )
                 self.structure_validation_artifacts = validation_artifacts
 
+                for file_type, file_path in validation_artifacts.nerdss_files.items():
+                    self.workspace_manager.logger.info(
+                        "Generated structure validation file %s: %s", file_type, file_path)
+
             # Step 7.5: Run ODE pipeline (if enabled)
             if hyperparams.ode_enabled:
                 # Dynamic Time Span Calculation
@@ -561,7 +565,10 @@ class PDBModelBuilder:
         target_filename: str = "structure_validation_target.json",
         parms_overrides: Optional[Dict[str, Any]] = None,
     ) -> StructureValidationArtifacts:
-        """Export the irreversible, titrated validation deck for one copy of the designed assembly."""
+        """Export the irreversible, titrated validation deck for one copy of the designed assembly.
+
+        The deck is written to ``structure_validation/`` in the workspace.
+        """
         if self.system_builder is None:
             raise ValueError("No system has been built yet. Call build_system() first.")
 

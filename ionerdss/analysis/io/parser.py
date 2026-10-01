@@ -181,10 +181,12 @@ def parse_complex_histogram(file_path: Path) -> tuple[npt.NDArray[np.float64], l
     Parses histogram_complexes_time.dat into a column-efficient sparse matrix.
     
     Returns:
-        Tuple (times, compositions, histogram_matrix) of types (np.ndarray, list[dict], scipy.csc_array)
+        Tuple (times, compositions, histogram_matrix) of types (np.ndarray, list[dict], scipy.csc_array).
+        All three are empty when the file does not exist.
     """
     if not file_path.exists():
-        return []
+        logger.warning(f"File not found: {file_path}")
+        return np.zeros(0), [], csc_array((0, 0))
 
     with open(file_path, 'r') as f:
         content = f.read()

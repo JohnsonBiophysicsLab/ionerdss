@@ -24,11 +24,11 @@ system = builder.build_system(workspace_path="6bno_dir")
 
 ### `build_system` arguments
 
-- `workspace_path`: output directory for logs, structures, reports, the system JSON and `nerdss_files/`.
+- `workspace_path`: output directory for logs, structures, reports, the system JSON, `nerdss_files/` and, with `structure_validation=True`, `structure_validation/`.
 - `hyperparams`: a `PDBModelHyperparameters`. Defaults to the one attached to the builder, else the defaults.
 - `molecule_counts`: copies per molecule type for the NERDSS export. When omitted, `nerdss_total_molecule_count` is split across the molecule types by stoichiometry.
 - `box_nm`: default `(100.0, 100.0, 100.0)`. The NERDSS export uses it only when `nerdss_water_box` is empty; it is also the validation box when `structure_validation_options` gives none.
-- `structure_validation`, `structure_validation_options`: also export the one-copy validation deck, which replaces the regular files in `nerdss_files/` (see [Top-Level API](top-level.md#parameters)); the result is kept on `builder.structure_validation_artifacts`.
+- `structure_validation`, `structure_validation_options`: also export the one-copy [validation deck](top-level.md#validation-deck), with the build's hyperparameters, into `structure_validation/` beside the regular files in `nerdss_files/` (see [Top-Level API](top-level.md#parameters)); the result is kept on `builder.structure_validation_artifacts`.
 - `nerdss_params`: extra `parms.inp` parameters written over the generated ones. Set the time step with the `nerdss_time_step` hyperparameter instead, because the automatic time step, whenever it can be computed, replaces a `timestep` given here.
 - `**kwargs`: hyperparameter fields merged over `hyperparams`. Names that are not fields are ignored.
 
@@ -54,12 +54,12 @@ builder = PDBModelBuilder("1ABC", hyperparams=hyperparams)
 system = builder.build_system(workspace_path="workspace")
 ```
 
-The top-level wrapper `ionerdss.build_system_from_pdb(...)` also supports:
+The top-level wrapper `ionerdss.build_system_from_pdb(...)` and `PDBModelBuilder.build_system(...)` also support:
 
 - `structure_validation=True`
 - `structure_validation_options={...}`
 
-to export the validation-ready NERDSS files into the workspace's `nerdss_files/`, where they replace the regular `parms.inp` and `.mol` files.
+to also export the [validation deck](top-level.md#validation-deck) into `structure_validation/` in the workspace, beside the regular NERDSS files in `nerdss_files/`. The deck is exported with the build's hyperparameters, and `PDBModelBuilder` keeps the result on `builder.structure_validation_artifacts`.
 
 ## Hyperparameter helpers
 
@@ -76,8 +76,8 @@ Useful helpers include:
 
 `ionerdss.model.pdb.validation` runs the one-copy validation end to end: export a deck holding one copy of the designed assembly, with irreversible binding and titrated subunits, run NERDSS on it, and compare the assembly that forms with the design.
 
-- `setup_simulation(system, *, workspace_manager=None, box_nm=(100.0, 100.0, 100.0), initial_molecule_count=1, titration_on_rate=1e-5, target_filename="structure_validation_target.json", titration_parms_filename="parms_titrate.inp", parms_overrides=None, designed_coordinates=None, interface_com_proximity_threshold_nm=None)`: write the validation deck and the design target, and return `StructureValidationArtifacts`. `initial_molecule_count` multiplies the designed copy numbers. `prepare(...)` does the same without `initial_molecule_count` and `titration_parms_filename`.
-- `run_simulation(artifacts, nerdss_dir, *, sim_index=1, sim_dir_name="validation_output", env=None)`: run the NERDSS executable at `<nerdss_dir>/bin/nerdss` on the titration deck in `nerdss_files/<sim_dir_name>/<sim_index>/`, and return a `StructureValidationSimulationResult` saying whether and when the full assembly formed, the largest assembly seen, and the observed coordinates. `env` adds environment variables, such as `LD_LIBRARY_PATH`, for the executable. A NERDSS process that exits with an error raises `RuntimeError` instead of being reported as a run in which nothing assembled.
+- `setup_simulation(system, *, workspace_manager=None, box_nm=(100.0, 100.0, 100.0), initial_molecule_count=1, titration_on_rate=1e-5, target_filename="structure_validation_target.json", titration_parms_filename="parms_titrate.inp", parms_overrides=None, designed_coordinates=None, interface_com_proximity_threshold_nm=None, deck_dir="structure_validation")`: write the validation deck and the design target into `deck_dir`, relative to the workspace (or the current directory without a `workspace_manager`), and return `StructureValidationArtifacts`. `initial_molecule_count` multiplies the designed copy numbers. `prepare(...)` does the same without `initial_molecule_count` and `titration_parms_filename`.
+- `run_simulation(artifacts, nerdss_dir, *, sim_index=1, sim_dir_name="validation_output", env=None)`: run the NERDSS executable at `<nerdss_dir>/bin/nerdss` on the titration deck, in `<sim_dir_name>/<sim_index>/` inside the deck directory (`structure_validation/validation_output/1/` by default), and return a `StructureValidationSimulationResult` saying whether and when the full assembly formed, the largest assembly seen, and the observed coordinates. `env` adds environment variables, such as `LD_LIBRARY_PATH`, for the executable. A NERDSS process that exits with an error raises `RuntimeError` instead of being reported as a run in which nothing assembled.
 - `collect_results(artifacts, simulation_dir)`: read the result of a validation run launched outside ioNERDSS, for example as a cluster job. `simulation_dir` is the directory the run wrote `DATA/` into.
 - `align_structure(designed_coordinates, observed_coordinates, *, backend="kabsch", plot=False)`, also available as `compare`: rigid alignment and RMSD, returning a `StructureAlignmentResult`. `backend` may also be `"biopython"`.
 - `get_designed_structure(system)`: the designed assembly keyed by molecule instance, with each instance's type, centre of mass and bound interfaces (interface type, binding partner and coordinate), for checking what the design connects.

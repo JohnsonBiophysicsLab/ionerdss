@@ -7,10 +7,10 @@ stable `ionerdss.model.pdb.validation` entry point.
 Current logic:
 
 1. Define the target composition from the designed assembly.
-In structure_validation.py, get_structure_validation_counts() counts every molecule instance of the designed system, so the expected full assembly carries the deposited stoichiometry, for example {"A": 2, "B": 2} for an A2B2 heterotetramer. The deck starts with these counts (times initial_molecule_count), and titration adds further subunits.
+In structure_validation.py, get_structure_validation_counts() counts every molecule instance of the designed system, so the expected full assembly carries the deposited stoichiometry, for example {"A": 1, "H": 1, "L": 1} for 8ERQ or {"A": 8} for 6BNO. The deck starts with these counts (times initial_molecule_count), titration adds further subunits, and the deck is written to its own directory, `structure_validation/` in the workspace by default.
 
 2. Run the actual NERDSS validation simulation with that target in mind.
-run_structure_validation_simulation(...) uses parms_titrate.inp, runs NERDSS, then looks for a matching full assembly in `DATA/COMPLEXES/*.json`. These JSON snapshots are the primary source for both existence checks and observed COM extraction.
+run_structure_validation_simulation(...) uses parms_titrate.inp, runs NERDSS, then looks for a matching full assembly in `DATA/COMPLEXES/*.json`. These JSON snapshots are the primary source for both existence checks and observed COM extraction; the deck sets `bondedComplexWrite` to nItr / 100 so that NERDSS writes them, unless `parms_overrides` sets it.
 
 3. If no COMPLEXES JSON snapshots exist, fall back to restart snapshots.
 The code emits a warning and then scans `DATA/restart.dat` and any `RESTART/*.dat` snapshots for a connected component whose composition matches the target.
@@ -57,19 +57,22 @@ def prepare(
     parms_overrides: Optional[Dict[str, Any]] = None,
     designed_coordinates: Optional[Mapping[str, Sequence[float]]] = None,
     interface_com_proximity_threshold_nm: Optional[float] = None,
+    deck_dir: Union[str, Path] = "structure_validation",
 ) -> StructureValidationArtifacts:
     """Prepare the irreversible, titrated validation simulation for one copy of the designed assembly.
 
     ``interface_com_proximity_threshold_nm`` sets how close to its molecule's centre
     of mass a reacting interface site may sit before the preflight check reports it;
     ``None`` uses the hyperparameters in ``parms_overrides['hyperparams']`` or the
-    module default.
+    module default. ``deck_dir`` is the directory the deck is written to, relative to
+    the workspace (or the current directory without a ``workspace_manager``).
     """
     config = StructureValidationConfig(
         box_nm=tuple(float(v) for v in box_nm),
         titration_on_rate=titration_on_rate,
         target_filename=target_filename,
         interface_com_proximity_threshold_nm=interface_com_proximity_threshold_nm,
+        deck_dir=deck_dir,
     )
     return prepare_structure_validation(
         system=system,
@@ -92,8 +95,9 @@ def setup_simulation(
     parms_overrides: Optional[Dict[str, Any]] = None,
     designed_coordinates: Optional[Mapping[str, Sequence[float]]] = None,
     interface_com_proximity_threshold_nm: Optional[float] = None,
+    deck_dir: Union[str, Path] = "structure_validation",
 ) -> StructureValidationArtifacts:
-    """Set up the validation simulation: the designed assembly's subunits, titration, and irreversible binding.
+    """Set up the titrated, irreversible validation simulation of the designed assembly.
 
     The deck starts with every molecule type as often as it occurs in the designed
     assembly, multiplied by ``initial_molecule_count``.
@@ -101,7 +105,8 @@ def setup_simulation(
     ``interface_com_proximity_threshold_nm`` sets how close to its molecule's centre
     of mass a reacting interface site may sit before the preflight check reports it;
     ``None`` uses the hyperparameters in ``parms_overrides['hyperparams']`` or the
-    module default.
+    module default. ``deck_dir`` is the directory the deck is written to, relative to
+    the workspace (or the current directory without a ``workspace_manager``).
     """
     config = StructureValidationConfig(
         box_nm=tuple(float(v) for v in box_nm),
@@ -110,6 +115,7 @@ def setup_simulation(
         target_filename=target_filename,
         titration_parms_filename=titration_parms_filename,
         interface_com_proximity_threshold_nm=interface_com_proximity_threshold_nm,
+        deck_dir=deck_dir,
     )
     return prepare_structure_validation(
         system=system,

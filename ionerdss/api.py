@@ -42,9 +42,9 @@ def build_system_from_pdb(
             molecule type name. Default: nerdss_total_molecule_count (75) split
             across the types in proportion to their copy number in the structure,
             each rounded up.
-        structure_validation: Export the structure-validation deck: the subunits of
-            one copy of the designed assembly, with irreversible binding and
-            titration.
+        structure_validation: Also export the structure-validation deck, into
+            ``structure_validation/`` in the workspace: the subunits of one copy of
+            the designed assembly, with irreversible binding and titration.
         structure_validation_options: Overrides for that export: 'box_nm'
             (default (100, 100, 100) nm), 'titration_on_rate', 'target_filename'
             and 'parms_overrides'. Other keys are ignored.
@@ -116,7 +116,10 @@ def prepare_structure_validation_for_system(
     target_filename: str = "structure_validation_target.json",
     parms_overrides: Optional[Dict[str, Any]] = None,
 ) -> StructureValidationArtifacts:
-    """Prepare the irreversible, titrated validation deck for one copy of the designed assembly."""
+    """Prepare the irreversible, titrated validation deck for one copy of the designed assembly.
+
+    The deck is written to ``structure_validation/`` under the current directory.
+    """
     config = StructureValidationConfig(
         box_nm=tuple(float(v) for v in box_nm),
         titration_on_rate=titration_on_rate,

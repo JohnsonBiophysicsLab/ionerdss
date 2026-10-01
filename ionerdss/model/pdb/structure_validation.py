@@ -1,13 +1,14 @@
 """
 Utilities for structure validation.
 
-This validation mode starts NERDSS from the subunits of one copy of the designed
-assembly -- every molecule type as often as it occurs in the deposited
-stoichiometry, e.g. six copies of A for an A6 ring (``initial_molecule_count``
-multiplies this) -- turns binding effectively irreversible by forcing all
-off-rates to zero, injects titration reactions so further subunits can appear
-gradually, and compares a final assembled structure against the designed
-coarse-grained target (the COM of every subunit) with rigid alignment + RMSD.
+This validation mode exports the subunits of one copy of the designed assembly
+into its own directory -- every molecule type as often as it occurs in the
+deposited stoichiometry, e.g. six copies of A for an A6 ring
+(``initial_molecule_count`` multiplies this) -- turns binding effectively
+irreversible by forcing all off-rates to zero, injects titration reactions so
+further subunits can appear gradually, and compares an assembled structure from
+the run against the designed coarse-grained target (the COM of every subunit)
+with rigid alignment + RMSD.
 """
 
 from __future__ import annotations
@@ -15,6 +16,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, Iterable, Mapping, MutableMapping, Optional, Sequence, Tuple, Union
+import copy
 import json
 import re
 import shutil
@@ -27,7 +29,7 @@ import numpy as np
 
 from ionerdss.model.components.system import System
 from ionerdss.model.components.instances import MoleculeInstance
-from ionerdss.model.pdb.nerdss_exporter import NERDSSExporter
+from ionerdss.model.pdb.nerdss_exporter import DEFAULT_N_ITR, NERDSSExporter
 from ionerdss.utils.rigid_transform import apply_rigid_transform, rigid_transform_3d
 
 
@@ -43,6 +45,12 @@ _ASSIGNMENT_REFINEMENT_ROUNDS = 10
 _MAX_ANCHOR_SEEDS = 32
 _ANCHOR_SEED_RELATIVE_TOLERANCE = 0.1
 
+# NERDSS leaves bondedComplexWrite at -1 unless it is asked for, so DATA/COMPLEXES stays
+# empty and the result readers fall back to the final restart snapshot, which only sees
+# the end state and misses an assembly that formed and then grew. The validation deck
+# asks for this many snapshots per run, which keeps the JSON output bounded at any nItr.
+_BONDED_COMPLEX_SNAPSHOTS_PER_RUN = 100
+
 
 @dataclass(frozen=True)
 class StructureValidationConfig:
@@ -57,6 +65,10 @@ class StructureValidationConfig:
     # centre of mass. None takes the value from the hyperparameters passed through
     # ``parms_overrides['hyperparams']``, or the module default when there are none.
     interface_com_proximity_threshold_nm: Optional[float] = None
+    # Directory the validation deck is written to, relative to the workspace, or to the
+    # current directory without one. It is kept apart from nerdss_files/ because the
+    # deck has its own parms.inp and .mol files, which would replace a regular export.
+    deck_dir: Union[str, Path] = "structure_validation"
 
 
 @dataclass(frozen=True)
@@ -1129,6 +1141,50 @@ def _resolve_interface_com_proximity_threshold(
     return DEFAULT_INTERFACE_COM_PROXIMITY_THRESHOLD_NM
 
 
+def _resolve_deck_dir(config: StructureValidationConfig, workspace_manager) -> Path:
+    """Place the validation deck under the workspace, or the current directory without one."""
+    deck_dir = Path(config.deck_dir)
+    if workspace_manager is not None:
+        return workspace_manager.workspace_path / deck_dir
+    return deck_dir
+
+
+def _default_bonded_complex_write(parms_overrides: Mapping[str, object]) -> int:
+    """Return the bondedComplexWrite interval that gives a fixed number of snapshots per run.
+
+    nItr is resolved as the exporter resolves it: ``parms_overrides['nItr']``, else the
+    hyperparameters' ``nerdss_n_itr``, else the exporter default.
+    """
+    n_itr = parms_overrides.get("nItr")
+    if n_itr is None:
+        n_itr = getattr(parms_overrides.get("hyperparams"), "nerdss_n_itr", None)
+    if n_itr is None:
+        n_itr = DEFAULT_N_ITR
+    return max(1, int(float(n_itr)) // _BONDED_COMPLEX_SNAPSHOTS_PER_RUN)
+
+
+def _turn_off_transition_counting(parms_overrides: MutableMapping[str, object]) -> Optional[str]:
+    """Switch count_transition off in the deck's hyperparameters, returning a warning when it was on.
+
+    The caller's hyperparameters are copied, not changed. The titration reactions keep
+    adding copies, so a complex can outgrow any transitionMatrixSize, and NERDSS indexes
+    the transition matrix by complex size without a bounds check.
+    """
+    hyperparams = parms_overrides.get("hyperparams")
+    if not getattr(hyperparams, "count_transition", False):
+        return None
+
+    hyperparams = copy.copy(hyperparams)
+    hyperparams.count_transition = False
+    parms_overrides["hyperparams"] = hyperparams
+    return (
+        "Validation warning: the validation deck is exported with count_transition off, "
+        "although the hyperparameters turn it on. Its titration reactions keep adding "
+        "copies, so a complex can outgrow any transitionMatrixSize, and NERDSS then writes "
+        "past the end of the transition matrix."
+    )
+
+
 def prepare_structure_validation(
     system: System,
     workspace_manager=None,
@@ -1136,7 +1192,16 @@ def prepare_structure_validation(
     parms_overrides: Optional[MutableMapping[str, object]] = None,
     designed_coordinates: Optional[Mapping[str, Sequence[float]]] = None,
 ) -> StructureValidationArtifacts:
-    """Export the special NERDSS input deck for structure validation."""
+    """Export the special NERDSS input deck for structure validation.
+
+    The deck and the target JSON go to ``config.deck_dir``, ``structure_validation/``
+    in the workspace by default, so a regular export in ``nerdss_files/`` is left alone.
+    ``parms_overrides`` is applied as in a regular export, and may carry the
+    hyperparameters as ``parms_overrides['hyperparams']``. Unless it sets
+    ``bondedComplexWrite``, NERDSS is asked for a DATA/COMPLEXES snapshot every
+    nItr / 100 steps, which the result readers need in order to see an assembly that
+    formed and then grew.
+    """
     config = config or StructureValidationConfig()
     molecule_counts = build_validation_molecule_counts(
         system,
@@ -1166,10 +1231,16 @@ def prepare_structure_validation(
         ).items()
     }
 
-    exporter = NERDSSExporter(system, workspace_manager)
+    exporter = NERDSSExporter(
+        system, workspace_manager, output_dir=_resolve_deck_dir(config, workspace_manager)
+    )
     export_overrides = dict(parms_overrides or {})
     export_overrides["force_off_ratekb"] = 0.0
     export_overrides["titration_on_rate_3d_ka"] = config.titration_on_rate
+    export_overrides.setdefault(
+        "bondedComplexWrite", _default_bonded_complex_write(export_overrides)
+    )
+    transition_warning_message = _turn_off_transition_counting(export_overrides)
 
     nerdss_files = exporter.export_all(
         molecule_counts=molecule_counts,
@@ -1177,14 +1248,9 @@ def prepare_structure_validation(
         parms_overrides=export_overrides,
     )
 
-    if workspace_manager is not None:
-        target_file = workspace_manager.workspace_path / "nerdss_files" / config.target_filename
-    else:
-        target_file = Path("nerdss_files") / config.target_filename
-
     target_file = write_structure_validation_target(
         system=system,
-        output_path=target_file,
+        output_path=exporter.output_dir / config.target_filename,
         molecule_counts=target_counts,
         designed_coordinates=final_designed_coordinates,
     )
@@ -1204,6 +1270,8 @@ def prepare_structure_validation(
         warnings.warn(interface_com_proximity_warning_message, RuntimeWarning)
     if box_fit_warning_message:
         warnings.warn(box_fit_warning_message, RuntimeWarning)
+    if transition_warning_message:
+        warnings.warn(transition_warning_message, RuntimeWarning)
 
     return StructureValidationArtifacts(
         molecule_counts=molecule_counts,

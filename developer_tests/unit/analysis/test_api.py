@@ -8,6 +8,7 @@ import unittest
 import tempfile
 import shutil
 from pathlib import Path
+import numpy as np
 import pandas as pd
 from ionerdss.analysis import Analyzer
 
@@ -47,13 +48,13 @@ class TestAnalyzerAPI(unittest.TestCase):
             f.write("Time,Complex,A\n")
             f.write("0.0,10,10\n")
         
-        # Create transition matrix file
+        # Create transition matrix file (running totals, all zero at time 0 as NERDSS writes them)
         transition_file = data_dir / "transition_matrix_time.dat"
         with open(transition_file, 'w') as f:
             f.write("time: 0.0\n")
             f.write("transition matrix for each mol type:\n")
-            f.write("5 0\n")
-            f.write("0 5\n")
+            f.write("0 0\n")
+            f.write("0 0\n")
             f.write("\n")
             f.write("time: 0.1\n")
             f.write("transition matrix for each mol type:\n")
@@ -98,6 +99,46 @@ class TestAnalyzerAPI(unittest.TestCase):
         # Check caching
         self.assertIsNotNone(sim.data.df_free_energy)
         self.assertIs(sim.data.df_free_energy, df_fe)
+
+    def test_free_energy_cache_is_per_temperature(self):
+        """A call at a new temperature recomputes rather than returning the cached result."""
+        analyzer = Analyzer(self.mock_simulation_dir)
+        sim = analyzer.get_simulation(0)
+
+        fe_1 = analyzer.compute_free_energy(sim, temperature=1.0)
+        fe_2 = analyzer.compute_free_energy(sim, temperature=2.0)
+
+        # F = -kT ln P: doubling the temperature doubles every free energy
+        self.assertTrue(np.all(fe_1["free_energy"] > 0))
+        np.testing.assert_allclose(fe_2["free_energy"], 2 * fe_1["free_energy"])
+
+        # The same temperature again is served from the cache
+        self.assertIs(analyzer.compute_free_energy(sim, temperature=2.0), fe_2)
+
+        # Switching back gives the temperature-1 values again
+        np.testing.assert_allclose(
+            analyzer.compute_free_energy(sim, temperature=1.0)["free_energy"],
+            fe_1["free_energy"],
+        )
+
+    def test_analyzer_loads_run_without_histogram_file(self):
+        """A run without histogram_complexes_time.dat still loads and computes."""
+        (self.temp_path / "1" / "DATA" / "histogram_complexes_time.dat").unlink()
+
+        analyzer = Analyzer(self.mock_simulation_dir)
+        sim = analyzer.get_simulation(0)
+
+        df_fe = analyzer.compute_free_energy(sim)
+        self.assertFalse(df_fe.empty)
+
+        self.assertEqual(len(sim.data.hist_times), 0)
+        self.assertEqual(sim.data.hist_comps, [])
+        self.assertEqual(sim.data.hist_matrix.shape, (0, 0))
+
+        # Histogram-based series come back empty instead of failing
+        times, largest = sim.get_largest_size_time_series()
+        self.assertEqual(len(times), 0)
+        self.assertEqual(len(largest), 0)
 
 
 if __name__ == '__main__':
