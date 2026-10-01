@@ -22,6 +22,7 @@ ray tracer or child process involved.
 
 from __future__ import annotations
 
+import itertools
 import logging
 import math
 import os
@@ -438,8 +439,8 @@ def time_label_format(times_us: Sequence[float], unit: Optional[str] = None) -> 
     One unit for every frame (the largest in which the final time is at least
     1) and the fewest decimals, up to 3, that show the usual spacing between
     frames exactly, or, when no such number exists (an irregular timeStep),
-    that still tell neighbouring frames apart. `width` fits the longest value,
-    so the label never changes length.
+    that round it to within 10%. `width` fits the longest value, so the label
+    never changes length.
     """
     times = np.asarray(times_us, dtype=float)
     t_max = float(times.max()) if times.size else 0.0
@@ -465,10 +466,11 @@ def time_label_format(times_us: Sequence[float], unit: Optional[str] = None) -> 
             decimals = d
             break
     if decimals is None:
-        # An irregular spacing, e.g. from an automatically chosen timeStep:
-        # enough decimals to tell neighbouring frames apart.
+        # An irregular spacing, e.g. from an automatically chosen timeStep: the
+        # fewest decimals that round it to within 10%, so the label advances by
+        # a near-constant amount (1.4998 ms -> 1.5, not alternating 1 and 2).
         spacing = float(np.median(steps))
-        decimals = min(3, max(0, math.ceil(-math.log10(spacing)))) if spacing > 0 else 3
+        decimals = next((d for d in range(4) if abs(round(spacing, d) - spacing) <= 0.1 * spacing), 3)
     width = max(len(f"{v:.{decimals}f}") for v in values) if values.size else 1
     return unit_name, scale, decimals, width
 
@@ -1050,14 +1052,23 @@ def _render_frames(
     yielded = 0
 
     def next_result() -> Optional[Image.Image]:
-        future, _, _ = pending.popleft()
-        data = future.result()
+        # Read before dequeuing: if the pool broke, this frame's task must stay
+        # queued for the serial fallback below.
+        data = pending[0][0].result()
+        pending.popleft()
         return Image.frombytes("RGB", size, data) if data is not None else None
 
     try:
         # Keep only a few frames in flight so memory stays flat for long runs.
         for index, task in enumerate(tasks):
-            pending.append((pool.submit(_worker_render, task, png_path(index), want_images), index, task))
+            try:
+                future = pool.submit(_worker_render, task, png_path(index), want_images)
+            except BrokenProcessPool:
+                # A pool that knows it is broken refuses new tasks: queue this
+                # one anyway so that the serial fallback below renders it.
+                pending.append((None, index, task))
+                raise
+            pending.append((future, index, task))
             if len(pending) >= 2 * n_jobs:
                 image = next_result()
                 yielded += 1
@@ -1076,7 +1087,8 @@ def _render_frames(
         remaining = [(i, task) for _, i, task in pending] if pending else []
         pending.clear()
         next_index = remaining[-1][0] + 1 if remaining else 0
-        for index, task in remaining + list(enumerate(tasks, start=next_index)):
+        # Lazily, so that trajectory.xyz frames are read only as they are rendered.
+        for index, task in itertools.chain(remaining, enumerate(tasks, start=next_index)):
             yield _render_task(renderer, task, box_nm, png_path(index))
         return
     except BaseException:
