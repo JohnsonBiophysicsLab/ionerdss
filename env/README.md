@@ -12,13 +12,13 @@ This is the recommended method if you have Conda (via [Anaconda](https://www.ana
 ```bash
 # From the project root
 conda env create -f environment.yml
-conda activate ionerdss_env
-````
+conda activate ionerdss-dev
+```
 
 To update the environment later if the file changes:
 
 ```bash
-conda env update -f env/environment.yml --prune
+conda env update -f environment.yml --prune
 ```
 
 

@@ -20,14 +20,14 @@ On initialization, the analyzer:
 
 - stores `root_dir` as a `Path`
 - creates a `DataLoader`
-- discovers simulations recursively
+- discovers simulations recursively, up to three directory levels below `root_dir`
 - exposes the plot namespace as `analyzer.plot`
 
 ### Main attributes
 
 - `root_dir`: filesystem root searched for simulations.
 - `loader`: `DataLoader` instance used for discovery.
-- `simulations`: list of discovered `Simulation` objects.
+- `simulations`: list of discovered `Simulation` objects, in the order the directory walk finds them (not sorted by name), which is the order integer indices refer to.
 - `plot`: `Plotter` namespace bound to this analyzer.
 
 ### Analyzer methods
@@ -64,7 +64,7 @@ Compute a cluster-size distribution from a simulation transition matrix.
   - `count`
   - `probability`
 
-If no transition matrix is present, the method logs an error and returns an empty-size distribution through the processing layer.
+If no transition matrix is present, the method logs an error and returns an empty DataFrame with the same columns.
 
 #### `compute_free_energy(sim, temperature=1.0)`
 
@@ -77,7 +77,7 @@ Compute a free-energy profile from the transition-matrix-derived size distributi
   - `probability`
   - `free_energy`
 
-The result is cached in `sim.data.df_free_energy`, so repeated calls on the same simulation avoid recomputing the DataFrame.
+The result is cached in `sim.data.df_free_energy`, so repeated calls on the same simulation avoid recomputing the DataFrame. The cache ignores `temperature`: a later call with a different temperature returns the first result.
 
 ## `Plotter`
 

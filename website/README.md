@@ -16,6 +16,7 @@ Then open `http://127.0.0.1:8000/`.
 
 ```text
 website/
+├── assets/               # Banner image for the repository README (not part of the site)
 ├── docs/                 # Markdown source pages
 ├── mkdocs.yml            # Site navigation and theme configuration
 └── requirements.txt      # Extra packages for local docs builds
