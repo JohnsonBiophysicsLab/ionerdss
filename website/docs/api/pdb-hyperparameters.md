@@ -233,10 +233,15 @@ Modes:
 
 #### `com_shift_cap_ang`
 
-- type: `float` (Å)
+- type: `float`
 - default: `6.0`
+- units: `Å`
 - purpose: refuse geometric regularization if it would move any subunit centre of
   mass further than this; also caps template regularization
+
+  Both read the value in Å. Geometric regularization is all or nothing: one subunit
+  over the cap leaves the whole assembly as deposited and logs a warning. Template
+  regularization instead shortens each member's shift to the cap.
 
 #### `is_on_sphere`
 
