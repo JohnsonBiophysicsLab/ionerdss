@@ -133,15 +133,13 @@ class TestIOParser(unittest.TestCase):
 
     def test_parse_complex_histogram(self):
         """Test complex histogram file parsing with real data."""
-        # Use the provided test file in tests/data
-        # Path is relative to this test file: ../../../data/test_6BNO_histogram_complexes_time.dat
-        test_file = Path(__file__).resolve().parent.parent.parent.parent / "tests/data/test_6BNO_histogram_complexes_time.dat"
-        
-        if not test_file.exists():
-            self.skipTest(f"Test data file not found: {test_file}")
-            
+        # Use the provided test file in developer_tests/data
+        # Path is relative to this test file: ../../data/test_6BNO_histogram_complexes_time.dat
+        # No skip if it is missing: a skip here hid the stale tests/data path left by the rename
+        test_file = Path(__file__).resolve().parent.parent.parent / "data/test_6BNO_histogram_complexes_time.dat"
+
         times, all_comps, hist_matrix = parser.parse_complex_histogram(test_file)
-        
+
         # Based on file inspection:
         # Time 0: 1 line
         # Time 1.35727e-05: 3 lines
@@ -149,22 +147,24 @@ class TestIOParser(unittest.TestCase):
         # Time 4.07181e-05: 4 lines
         # Total = 4 time points
         self.assertEqual(len(times), 4)
-        
+        np.testing.assert_allclose(times, [0.0, 1.35727e-05, 2.71454e-05, 4.07181e-05])
+
+        # Sizes 1-4 of A, in order of first appearance
+        self.assertEqual(all_comps, [{"A": 1}, {"A": 3}, {"A": 2}, {"A": 4}])
+        # Read rows from a dense copy rather than scipy's private _getrow
+        counts = hist_matrix.toarray()
+
         # Test first time point (Time 0)
         # Content: "75 A: 1."
         # This matches index 0
         self.assertEqual(times[0], 0.0)
-        # Find the row in matrix corresponding to t=0
-        # Use _getrow() for sparse matrix to avoid NotImplementedError on 1D slicing
-        # Do we still need this since we bumped up to python 3.10? - M. Ying
-        row_0 = hist_matrix._getrow(0).toarray().flatten()
         # It should have exactly one non-zero entry (75)
-        self.assertEqual(row_0.sum(), 75)
-        
+        np.testing.assert_array_equal(counts[0], [75, 0, 0, 0])
+
         # Test last time point matches counts
         # Content: 3 (A:3), 28 (A:1), 5 (A:4), 9 (A:2) -> Total 3+28+5+9 = 45
-        row_last = hist_matrix._getrow(len(times)-1).toarray().flatten()
-        self.assertEqual(row_last.sum(), 45)
+        np.testing.assert_array_equal(counts[-1], [28, 3, 9, 5])
+        self.assertEqual(counts[-1].sum(), 45)
 
 
 if __name__ == '__main__':
