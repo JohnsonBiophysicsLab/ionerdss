@@ -6,8 +6,8 @@ stable `ionerdss.model.pdb.validation` entry point.
 
 Current logic:
 
-1. Define the target composition from the designed validation system.
-In structure_validation.py, get_structure_validation_counts() builds the expected full assembly as one copy of the designed assembly, every molecule type at its designed copy number, for example {"A": 1, "H": 1, "L": 1} for 8ERQ or {"A": 8} for 6BNO. The deck is written to its own directory, `structure_validation/` in the workspace by default.
+1. Define the target composition from the designed assembly.
+In structure_validation.py, get_structure_validation_counts() counts every molecule instance of the designed system, so the expected full assembly carries the deposited stoichiometry, for example {"A": 1, "H": 1, "L": 1} for 8ERQ or {"A": 8} for 6BNO. The deck starts with these counts (times initial_molecule_count), titration adds further subunits, and the deck is written to its own directory, `structure_validation/` in the workspace by default.
 
 2. Run the actual NERDSS validation simulation with that target in mind.
 run_structure_validation_simulation(...) uses parms_titrate.inp, runs NERDSS, then looks for a matching full assembly in `DATA/COMPLEXES/*.json`. These JSON snapshots are the primary source for both existence checks and observed COM extraction; the deck sets `bondedComplexWrite` to nItr / 100 so that NERDSS writes them, unless `parms_overrides` sets it.
@@ -23,6 +23,7 @@ from pathlib import Path
 from typing import Any, Dict, Mapping, Optional, Sequence, Union
 
 from ionerdss.model.components.system import System
+from ionerdss.nerdss_simulation.executable import _merge_deprecated_nerdss_dir
 from .structure_validation import (
     CoordinateInput,
     StructureAlignmentResult,
@@ -59,7 +60,7 @@ def prepare(
     interface_com_proximity_threshold_nm: Optional[float] = None,
     deck_dir: Union[str, Path] = "structure_validation",
 ) -> StructureValidationArtifacts:
-    """Prepare the irreversible validation simulation of one copy of the designed assembly.
+    """Prepare the irreversible, titrated validation simulation for one copy of the designed assembly.
 
     ``interface_com_proximity_threshold_nm`` sets how close to its molecule's centre
     of mass a reacting interface site may sit before the preflight check reports it;
@@ -98,6 +99,9 @@ def setup_simulation(
     deck_dir: Union[str, Path] = "structure_validation",
 ) -> StructureValidationArtifacts:
     """Set up the titrated, irreversible validation simulation of the designed assembly.
+
+    The deck starts with every molecule type as often as it occurs in the designed
+    assembly, multiplied by ``initial_molecule_count``.
 
     ``interface_com_proximity_threshold_nm`` sets how close to its molecule's centre
     of mass a reacting interface site may sit before the preflight check reports it;
@@ -157,21 +161,28 @@ def align_structure(
 
 def run_simulation(
     artifacts: StructureValidationArtifacts,
-    nerdss_dir: Union[str, Sequence[str]],
+    nerdss_path: Optional[Union[str, Path]] = None,
     *,
     sim_index: int = 1,
     sim_dir_name: str = "validation_output",
     env: Optional[Mapping[str, str]] = None,
+    nerdss_dir: Optional[Union[str, Path]] = None,
 ) -> StructureValidationSimulationResult:
     """Run the validation NERDSS job and extract one full assembly if it forms.
+
+    ``nerdss_path`` is the NERDSS executable, or a directory containing ``nerdss`` or
+    ``nerdss_mpi`` directly or in its ``bin/`` (for example a NERDSS checkout); ``None``
+    looks the executable up on ``PATH``. The executable is run in place. ``nerdss_dir``
+    is a deprecated alias for it.
 
     ``env`` holds environment variables the NERDSS executable needs, for example
     ``{"LD_LIBRARY_PATH": "/path/to/gsl/lib"}``. The entries are merged on top of the
     current ``os.environ``, so only the overrides need to be passed.
     """
+    nerdss_path = _merge_deprecated_nerdss_dir(nerdss_path, nerdss_dir, "run_simulation")
     return run_structure_validation_simulation(
         artifacts=artifacts,
-        nerdss_dir=nerdss_dir,
+        nerdss_path=nerdss_path,
         sim_index=sim_index,
         sim_dir_name=sim_dir_name,
         env=env,

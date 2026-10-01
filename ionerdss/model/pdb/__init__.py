@@ -18,7 +18,8 @@ Modules:
 
 Key Features:
     - Automatic interface detection via KD-tree spatial queries
-    - Multiple chain grouping strategies (header, sequence, structure)
+    - Multiple chain grouping strategies (header, sequence, structure,
+      sequence + structure)
     - Template-based regularization across symmetry mates
     - Steric clash detection for mutually exclusive interfaces
     - Complete system serialization support

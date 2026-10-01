@@ -1,0 +1,86 @@
+name: Docker Image
+
+# Builds and runs the development image the way README.md's "Docker development
+# environment" section does, so a Dockerfile or environment.yml that stops
+# working fails here instead of on a contributor's machine. Only changes to what
+# the image is built from trigger it.
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - Dockerfile
+      - .dockerignore
+      - environment.yml
+      - pyproject.toml
+      - setup.py
+      - MANIFEST.in
+      - .github/workflows/docker.yml
+  push:
+    branches: [main]
+    paths:
+      - Dockerfile
+      - .dockerignore
+      - environment.yml
+      - pyproject.toml
+      - setup.py
+      - MANIFEST.in
+      - .github/workflows/docker.yml
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  image:
+    name: Build and run the dev image
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build the image (README command)
+        run: docker build --no-cache -t ionerdss_dev .
+
+      # README runs it with -it --rm; detached here so later steps can reach it.
+      - name: Start it with the checkout mounted on /app
+        run: docker run -d --name ionerdss_dev -v "$PWD":/app -p 8888:8888 ionerdss_dev
+
+      - name: Jupyter answers on localhost:8888
+        run: |
+          for _ in $(seq 60); do
+            if curl -fsS http://localhost:8888/api; then echo; exit 0; fi
+            sleep 2
+          done
+          echo "Jupyter did not answer on port 8888 within two minutes" >&2
+          exit 1
+
+      - name: ioNERDSS imports from the mounted checkout
+        run: |
+          docker exec -i ionerdss_dev python -I - <<'EOF'
+          import importlib.metadata
+          import ionerdss
+          ionerdss.build_system_from_pdb, ionerdss.Analyzer  # pulls in the dependencies
+          print("ioNERDSS", importlib.metadata.version("ioNERDSS"), "from", ionerdss.__file__)
+          assert ionerdss.__file__ == "/app/ionerdss/__init__.py", ionerdss.__file__
+          EOF
+
+      # ~/.bashrc activates conda's base environment; the Dockerfile activates
+      # ionerdss-dev after it. `bash -i` without a terminal warns about job
+      # control on stderr, hence 2>/dev/null.
+      - name: Interactive shells get the environment's python
+        run: |
+          python_path=$(docker exec ionerdss_dev bash -ic 'command -v python' 2>/dev/null)
+          echo "python in an interactive shell: $python_path"
+          test "$python_path" = /opt/conda/envs/ionerdss-dev/bin/python
+
+      - name: Unit tests pass inside the container
+        run: docker exec ionerdss_dev pytest -q -p no:cacheprovider
+
+      - name: Container log
+        if: always()
+        run: docker logs ionerdss_dev || true

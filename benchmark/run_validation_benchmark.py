@@ -4,9 +4,9 @@ This script runs the ioNERDSS validation suite on a list of PDB IDs.
 It builds the coarse-grained model, runs the NERDSS simulation, and computes the RMSD between the designed and observed structures.
 
 Usage:
-    python run_validation_benchmark.py --pdb_ids 1dlh 5l93 8y7s --nerdss_dir /path/to/nerdss --output benchmark_results.csv
+    python run_validation_benchmark.py --pdb_ids 1dlh 5l93 8y7s --nerdss_path /path/to/nerdss --output benchmark_results.csv
 
-    python benchmark/run_validation_benchmark.py --pdb_list_file benchmark/pdb_ids_validation.csv --nerdss_dir ~/Workspace/Reaction_ode/nerdss_development
+    python benchmark/run_validation_benchmark.py --pdb_list_file benchmark/pdb_ids_validation.csv --nerdss_path ~/Workspace/Reaction_ode/nerdss_development
 
 
 | Status | Meaning | When it is assigned |
@@ -30,6 +30,7 @@ from typing import Optional
 
 from ionerdss.model.pdb import PDBModelBuilder
 from ionerdss.model import pdb
+from ionerdss.nerdss_simulation import resolve_nerdss_executable
 from ionerdss.model.pdb.structure_validation import DEFAULT_INTERFACE_COM_PROXIMITY_THRESHOLD_NM
 from ionerdss.model.pdb.structure_validation import get_box_fit_message
 from ionerdss.model.pdb.structure_validation import get_degenerate_site_layouts
@@ -186,7 +187,7 @@ def _run_validation_attempt(
     titration_rates,
     box_size: float,
     iterations: int,
-    nerdss_dir: str,
+    nerdss_path: str,
     sim_dir_name: str,
     copies: int = 1,
 ):
@@ -219,7 +220,7 @@ def _run_validation_attempt(
     print(f"  -> Running NERDSS validation simulation for {iterations} iterations...")
     sim_result = pdb.validation.run_simulation(
         artifacts,
-        nerdss_dir=nerdss_dir,
+        nerdss_path=nerdss_path,
         sim_dir_name=sim_dir_name,
     )
     return artifacts, sim_result
@@ -244,7 +245,10 @@ def main():
     parser = argparse.ArgumentParser(description="Run ioNERDSS validation suite on a list of PDB IDs.")
     parser.add_argument("--pdb_ids", nargs="+", help="List of PDB IDs to benchmark")
     parser.add_argument("--pdb_list_file", type=str, help="Path to a text or CSV file containing PDB IDs separated by commas or newlines")
-    parser.add_argument("--nerdss_dir", required=True, type=str, help="Path to the compiled NERDSS binary directory")
+    parser.add_argument("--nerdss_path", "--nerdss_dir", dest="nerdss_path", type=str, default=None,
+                        help="The NERDSS executable, or a directory containing nerdss or nerdss_mpi directly "
+                             "or in bin/ (e.g. a NERDSS checkout); defaults to nerdss on PATH. "
+                             "--nerdss_dir is the old name")
     parser.add_argument("--output", default="benchmark_output/benchmark_results.csv", type=str, help="Output CSV file path")
     parser.add_argument("--iterations", default=1000000, type=int, help="Number of NERDSS iterations for the long rerun after the initial 100000-step probe")
     parser.add_argument("--box_size", default=50.0, type=float,
@@ -270,7 +274,10 @@ def main():
                              "chain surface facing the partner so NERDSS can define the angles")
     
     args = parser.parse_args()
-    
+    # Resolve once up front so a wrong path fails here, not after the first model is built.
+    args.nerdss_path = str(resolve_nerdss_executable(args.nerdss_path))
+    print(f"Using NERDSS executable {args.nerdss_path}")
+
     import re
     all_pdb_ids = []
     if args.pdb_ids:
@@ -402,7 +409,7 @@ def main():
                     titration_rates=titration_rates,
                     box_size=args.box_size,
                     iterations=FAST_VALIDATION_ITERATIONS,
-                    nerdss_dir=args.nerdss_dir,
+                    nerdss_path=args.nerdss_path,
                     sim_dir_name="validation_output_fast",
                     copies=args.copies,
                 )
@@ -419,7 +426,7 @@ def main():
                         titration_rates=titration_rates,
                         box_size=args.box_size,
                         iterations=args.iterations,
-                        nerdss_dir=args.nerdss_dir,
+                        nerdss_path=args.nerdss_path,
                         sim_dir_name="validation_output_full",
                         copies=args.copies,
                     )

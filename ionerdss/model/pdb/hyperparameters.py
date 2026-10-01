@@ -33,7 +33,7 @@ class PDBModelHyperparameters:
     # Core detection parameters
     interface_detect_distance_cutoff: float = field(
         default=0.9,
-        metadata={"description": "Contact search radius per atom pair for interface detection", "unit": "nm"}
+        metadata={"description": "Contact search radius for interface detection: two residues on different chains are in contact when their Calpha atoms lie within this distance", "unit": "nm"}
     )
     interface_detect_n_residue_cutoff: int = field(
         default=2,
@@ -93,7 +93,7 @@ class PDBModelHyperparameters:
     # Steric clash detection
     steric_clash_mode: Literal["off", "auto", "custom"] = field(
         default="off",
-        metadata={"description": "Mode for detecting steric clashes: 'off' (disabled), 'auto' (automatic Cα clash detection), 'custom' (user-provided lists)"}
+        metadata={"description": "Mode for detecting steric clashes between interface types on the same molecule type: 'off' (disabled), 'auto' (two interface types are mutually exclusive when both are observed in the structure but never on the same chain; a pair not decidable that way is judged geometrically, by whether the partners bound at the two sites would overlap), 'custom' (no automatic detection; the pipeline reads no clash lists, so set InterfaceType.required_free yourself)"}
     )
 
     # Template building parameters

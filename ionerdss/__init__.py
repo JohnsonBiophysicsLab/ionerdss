@@ -6,7 +6,7 @@ NERDSS simulations and analyzing results.
 Documentation is available in the docstrings and
 online at https://johnsonbiophysicslab.github.io/ionerdss/
  
- __version__       --- SciPy version string
+ __version__       --- Installed ioNERDSS version string
 
 """
 

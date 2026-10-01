@@ -5,6 +5,7 @@ import typing
 import warnings
 import shutil
 import glob
+import shlex
 from PyQt6 import QtCore
 from PyQt6.QtWidgets import (
     QApplication,
@@ -25,6 +26,7 @@ from PyQt6.QtCore import Qt, QProcess
 from Bio import PDB, BiopythonWarning
 import pyqtgraph as pg
 import pyqtgraph.opengl as gl
+from ..nerdss_simulation.executable import resolve_nerdss_executable
 from .gen.mainwindow import Ui_MainWindow
 from .gen.advanced_options_parse_pdb import Ui_DialogParseParam
 from .gen.nerdss_install import Ui_NERDSSInstall
@@ -1695,14 +1697,15 @@ class SimulationApp(QMainWindow, Ui_MainWindow):
         self.commandLinkButtonKillSimulation.clicked.connect(self.kill_simulation)
 
     def run_simulation(self):
+        # The field may hold the executable or a directory containing it (directly or in bin/).
+        try:
+            nerdss_exe = resolve_nerdss_executable(self.lineEditNERDSSExe.text() or None)
+        except (FileNotFoundError, PermissionError) as exc:
+            QMessageBox.warning(self, "NERDSS not found", str(exc))
+            return
         os.chdir(self.lineEditInputsFolder.text())
-        # copy nerdss to the inputs folder
-        shutil.copy(
-            self.lineEditNERDSSExe.text(),
-            os.path.join(self.lineEditInputsFolder.text(), "nerdss_exe"),
-        )
-        # run nerdss
-        cmd = "./nerdss_exe -f *.inp > output.log"
+        # run nerdss in place
+        cmd = f"{shlex.quote(str(nerdss_exe))} -f *.inp > output.log"
         self.process = subprocess.Popen(
             cmd, shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT
         )

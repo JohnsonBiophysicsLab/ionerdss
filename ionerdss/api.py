@@ -37,16 +37,24 @@ def build_system_from_pdb(
     Args:
         source: PDB ID (e.g., "4v6x") or path to PDB/mmCIF file.
         workspace_path: Workspace directory path. Defaults to "{source}_dir".
-        fetch_format: Format for downloading structures ('pdb' or 'mmcif'). If None, uses hyperparameter default (usually 'bioassembly1').
-        molecule_counts: Molecule counts for NERDSS export. Default 10 per type.
-        structure_validation: Also export the validation setup for one copy of the
-            designed assembly, into ``structure_validation/`` in the workspace.
-        structure_validation_options: Options passed to the validation export.
+        fetch_format: Format for downloading structures ('pdb', 'mmcif', 'bioassembly1', ...). If None, uses the pdb_file_format hyperparameter (default 'bioassembly1').
+        molecule_counts: Copies of each molecule type in the NERDSS deck, keyed by
+            molecule type name. Default: nerdss_total_molecule_count (75) split
+            across the types in proportion to their copy number in the structure,
+            each rounded up.
+        structure_validation: Also export the structure-validation deck, into
+            ``structure_validation/`` in the workspace: the subunits of one copy of
+            the designed assembly, with irreversible binding and titration.
+        structure_validation_options: Overrides for that export: 'box_nm'
+            (default (100, 100, 100) nm), 'titration_on_rate', 'target_filename'
+            and 'parms_overrides'. Other keys are ignored.
         **hyperparams_kwargs: Any PDBModelHyperparameters field as keyword arguments.
+            An unknown name raises TypeError.
             Common options:
-                - interface_detect_distance_cutoff: float (default 0.9)
+                - interface_detect_distance_cutoff: float (default 0.9 nm)
                 - generate_nerdss_files: bool (default True)
-                - nerdss_water_box: list[float] (default [100, 100, 100])
+                - nerdss_water_box: list[float] (default [500, 500, 500] nm)
+                - nerdss_total_molecule_count: int (default 75)
                 - ode_enabled: bool (default False)
                 - ode_time_span: tuple[float, float]
                 - ode_solver_method: str
@@ -69,7 +77,7 @@ def build_system_from_pdb(
         ...     source="4v6x",
         ...     workspace_path="my_workspace",
         ...     interface_detect_distance_cutoff=1.0,
-        ...     nerdss_water_box=[500, 500, 500],
+        ...     nerdss_water_box=[300, 300, 300],
         ...     ode_enabled=True,
         ...     ode_time_span=(0.0, 10.0)
         ... )
@@ -112,7 +120,7 @@ def prepare_structure_validation_for_system(
     target_filename: str = "structure_validation_target.json",
     parms_overrides: Optional[Dict[str, Any]] = None,
 ) -> StructureValidationArtifacts:
-    """Prepare the irreversible, titrated validation setup for one copy of the designed assembly.
+    """Prepare the irreversible, titrated validation deck for one copy of the designed assembly.
 
     The deck is written to ``structure_validation/`` under the current directory.
     """

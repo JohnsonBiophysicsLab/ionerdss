@@ -80,24 +80,36 @@ class PDBModelBuilder:
 
         Args:
             workspace_path: Path for workspace directory.
-            hyperparams: Hyperparameters to build with. Defaults to the builder's,
-                else to ``PDBModelHyperparameters()``.
-            molecule_counts: Number of molecules per type for NERDSS. By default
-                ``nerdss_total_molecule_count`` is split across the types by stoichiometry.
-            box_nm: Simulation box size in nm for NERDSS, used when the
-                ``nerdss_water_box`` hyperparameter is empty, and for the validation
-                setup unless ``structure_validation_options`` gives one.
-                Default (100, 100, 100).
-            structure_validation: Also export the validation setup for one copy of the
-                designed assembly, into ``structure_validation/`` in the workspace.
-            structure_validation_options: Options for validation export: ``box_nm``,
-                ``titration_on_rate``, ``target_filename`` and ``parms_overrides``.
-            nerdss_params: Additional NERDSS parameters. Default None.
-            **kwargs: Hyperparameter overrides for this build, by
-                ``PDBModelHyperparameters`` field name, e.g.
-                ``interface_detect_distance_cutoff=1.0`` or
-                ``generate_nerdss_files=False``. They are applied to a copy of
-                ``hyperparams``, and the copy is kept as ``builder.hyperparams``.
+            hyperparams: Hyperparameters to use. Defaults to the builder's own
+                (passed to the constructor or set with set_hyperparameters()),
+                else PDBModelHyperparameters().
+            molecule_counts: Copies of each molecule type in the NERDSS deck, keyed
+                by molecule type name. Default: nerdss_total_molecule_count (75)
+                split across the types in proportion to their copy number in the
+                structure, each rounded up.
+            box_nm: Fallback NERDSS box size in nm, used only when the
+                nerdss_water_box hyperparameter (default [500, 500, 500]) is empty.
+                Also the box of the structure-validation deck unless
+                structure_validation_options['box_nm'] is given. Default
+                (100, 100, 100).
+            structure_validation: Also export the structure-validation deck, into
+                ``structure_validation/`` in the workspace: the subunits of one copy
+                of the designed assembly, with irreversible binding and titration.
+            structure_validation_options: Overrides for that export: 'box_nm',
+                'titration_on_rate', 'target_filename' and 'parms_overrides'.
+                Other keys are ignored.
+            nerdss_params: Entries for the parameters block of parms.inp, e.g.
+                {'timeWrite': 500}, overriding its defaults. The exception is
+                'timestep': set the nerdss_time_step hyperparameter instead, since
+                the automatically calculated time step otherwise replaces it.
+                Default None.
+            **kwargs: Any PDBModelHyperparameters field, overriding its value in
+                hyperparams -- e.g. interface_detect_distance_cutoff (default
+                0.9 nm), chain_grouping_matching_mode ("default"),
+                steric_clash_mode ("off"), generate_visualizations (True) or
+                generate_nerdss_files (True). Names must match the field names
+                exactly. They are applied to a copy of hyperparams, and the copy
+                is kept as builder.hyperparams.
 
         Returns:
             Complete System object ready for simulation.
@@ -310,7 +322,8 @@ class PDBModelBuilder:
                     self.workspace_manager.logger.info(
                         "Generated %s: %s", viz_type, viz_path)
 
-            # Use water box size from hyperparameters; the detailed summary reports this box
+            # Use water box size from hyperparameters; the ODE pipeline and the detailed
+            # summary use this box too
             box_size = tuple(hyperparams.nerdss_water_box) if hyperparams.nerdss_water_box else box_nm
 
             # Step 7: Export NERDSS files (if requested)
@@ -366,10 +379,7 @@ class PDBModelBuilder:
                      from ionerdss.model.pdb.nerdss_exporter import NERDSSExporter
                      exporter = NERDSSExporter(system, self.workspace_manager)
                      
-                     # Determine box size
-                     calc_box = tuple(hyperparams.nerdss_water_box) if hyperparams.nerdss_water_box else box_nm
-                     
-                     dt = exporter.calculate_simulation_timestep(molecule_counts, calc_box)
+                     dt = exporter.calculate_simulation_timestep(molecule_counts, box_size)
                      
                      if dt:
                          total_duration_us = dt * hyperparams.nerdss_n_itr
@@ -432,8 +442,7 @@ class PDBModelBuilder:
                                 current_molecule_counts[mol_type.name] = 10
                         
                         # Get box volume in nm^3
-                        box_dims = tuple(hyperparams.nerdss_water_box) if hyperparams.nerdss_water_box else box_nm
-                        volume_nm3 = box_dims[0] * box_dims[1] * box_dims[2]
+                        volume_nm3 = box_size[0] * box_size[1] * box_size[2]
                         
                         # Calculate concentrations in uM
                         # Concentration (uM) = (Count / Volume_nm3) * 1.66054e6
@@ -565,7 +574,10 @@ class PDBModelBuilder:
         target_filename: str = "structure_validation_target.json",
         parms_overrides: Optional[Dict[str, Any]] = None,
     ) -> StructureValidationArtifacts:
-        """Export the irreversible validation simulation of one copy of the designed assembly."""
+        """Export the irreversible, titrated validation deck for one copy of the designed assembly.
+
+        The deck is written to ``structure_validation/`` in the workspace.
+        """
         if self.system_builder is None:
             raise ValueError("No system has been built yet. Call build_system() first.")
 

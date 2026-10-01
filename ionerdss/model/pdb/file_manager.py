@@ -37,7 +37,7 @@ workspace_1ABC/
 │   └── reports/
 │       ├── 1ABC_summary.txt     # Workspace summary report
 │       └── 1ABC_validation.txt  # Validation reports
-└── temp/                        # Temporary files (cleaned up automatically)
+└── temp/                        # Temporary files (emptied by cleanup_temp_files())
 ```
 
 ## Basic Usage
@@ -47,7 +47,7 @@ workspace_1ABC/
 ```python
 from ionerdss.model.pdb.file_manager import WorkspaceManager
 
-# Automatic cleanup and report generation
+# Automatic report generation (temp/ is not cleaned; call cleanup_temp_files())
 with WorkspaceManager("/path/to/workspace", "1ABC") as manager:
     # Your pipeline code here
     structure_path = manager.get_structure_download_path("1ABC", "mmcif")
@@ -168,9 +168,11 @@ OUTPUTS_REPORTS:
 | **Systems** | Final outputs | Permanent | `1ABC_system.json` |
 | **Reports** | Analysis results | Permanent | `summary.txt`, `validation.txt` |
 | **Logs** | Execution traces | Permanent | `pipeline.log` |
-| **Temporary** | Working files | Cleaned up (*) | `temp_*.tmp`, processing files |
+| **Temporary** | Working files | Until cleaned (*) | `temp_*.tmp`, processing files |
 
-(*) Temporary files are cleaned up after the pipeline completes.
+(*) Temporary files stay in `temp/` until `cleanup_temp_files()` (or
+`PDBModelBuilder.cleanup()`) is called; neither the pipeline nor the context
+manager removes them.
 
 ### Path Generation
 
